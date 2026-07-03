@@ -17,7 +17,7 @@ from ddgs import DDGS
 
 from .client import AIClient
 from .prompts import (
-    # CONCEPT_EXTRACTION_SYSTEM, CONCEPT_EXTRACTION_USER,  # temporarily disabled
+    CONCEPT_EXTRACTION_SYSTEM, CONCEPT_EXTRACTION_USER,
     CONTENT_ENRICHMENT_SYSTEM, CONTENT_ENRICHMENT_USER,
 )
 from .utils import parse_json_response
@@ -155,27 +155,22 @@ class ContentEnricher:
             else:
                 content_text = item.content[:4000]
 
-        # --- Concept extraction + web search temporarily disabled ---
-        # # Step 1: AI identifies concepts to explain
-        # queries = await self._extract_concepts(item, content_text)
-        #
-        # # Step 2: Search web for each concept
-        # all_results = []
-        # web_sections = []
-        # for query in queries:
-        #     results = await self._web_search(query)
-        #     all_results.extend(results)
-        #     if results:
-        #         lines = [f"- [{r['title']}]({r['url']}): {r['body']}" for r in results]
-        #         web_sections.append(f"**{query}:**\n" + "\n".join(lines))
-        # web_context = "\n\n".join(web_sections) if web_sections else ""
-        #
-        # # Index of available URLs for citation validation
-        # available_urls = {r["url"]: r["title"] for r in all_results if r.get("url")}
-        queries = []
-        web_context = ""
-        available_urls: dict = {}
-        # -----------------------------------------------------------------
+        # Step 1: AI identifies concepts to explain
+        queries = await self._extract_concepts(item, content_text)
+
+        # Step 2: Search web for each concept
+        all_results = []
+        web_sections = []
+        for query in queries:
+            results = await self._web_search(query)
+            all_results.extend(results)
+            if results:
+                lines = [f"- [{r['title']}]({r['url']}): {r['body']}" for r in results]
+                web_sections.append(f"**{query}:**\n" + "\n".join(lines))
+        web_context = "\n\n".join(web_sections) if web_sections else ""
+
+        # Index of available URLs for citation validation
+        available_urls = {r["url"]: r["title"] for r in all_results if r.get("url")}
 
         # Step 3: AI generates background grounded in search results
         user_prompt = CONTENT_ENRICHMENT_USER.format(
@@ -187,7 +182,7 @@ class ContentEnricher:
             tags=", ".join(item.ai_tags) if item.ai_tags else "",
             content=content_text,
             comments_section=f"\n**Community Comments:**\n{comments_text}" if comments_text else "",
-            web_context=web_context or "No web search results available.",
+            related_context=web_context or "No related background available.",
         )
 
         response = await self.client.complete(
@@ -235,17 +230,15 @@ class ContentEnricher:
                 val = result[key]
                 item.metadata[key] = val.get("text") or str(val) if isinstance(val, dict) else str(val)
 
-        # --- citation sources temporarily disabled ---
-        # # Store citation sources — only URLs that actually came from our search results
-        # if result.get("sources") and available_urls:
-        #     valid = [
-        #         {"url": u, "title": available_urls[u]}
-        #         for u in result["sources"]
-        #         if u in available_urls
-        #     ]
-        #     if valid:
-        #         item.metadata["sources"] = valid
-        # ------------------------------------------------
+        # Store citation sources — only URLs that actually came from our search results
+        if result.get("sources") and available_urls:
+            valid = [
+                {"url": u, "title": available_urls[u]}
+                for u in result["sources"]
+                if u in available_urls
+            ]
+            if valid:
+                item.metadata["sources"] = valid
 
         # Backward-compatible fallback fields (English as default)
         item.metadata["detailed_summary"] = item.metadata.get("detailed_summary_en", "")

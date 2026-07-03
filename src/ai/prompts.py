@@ -183,25 +183,23 @@ IMPORTANT:
 - Do NOT give a high score just because something is AI-related — score reflects actual importance and quality
 """
 
-# --- Concept extraction prompts temporarily disabled ---
-# CONCEPT_EXTRACTION_SYSTEM = """You identify technical concepts in news that a reader might not know.
-# Given a news item, return 1-3 search queries for concepts that need explanation.
-# Focus on: specific technologies, protocols, algorithms, tools, or projects that are not widely known.
-# Do NOT return queries for well-known things (e.g. "Python", "Linux", "Google").
-# If the news is self-explanatory, return an empty list."""
-#
-# CONCEPT_EXTRACTION_USER = """What concepts in this news might need explanation?
-#
-# Title: {title}
-# Summary: {summary}
-# Tags: {tags}
-# Content: {content}
-#
-# Respond with valid JSON only:
-# {{
-#   "queries": ["<search query 1>", "<search query 2>"]
-# }}"""
-# ------------------------------------------------------
+CONCEPT_EXTRACTION_SYSTEM = """You identify technical concepts in news that a reader might not know.
+Given a news item, return 1-3 search queries for concepts that need explanation.
+Focus on: specific technologies, protocols, algorithms, tools, or projects that are not widely known.
+Do NOT return queries for well-known things (e.g. "Python", "Linux", "Google").
+If the news is self-explanatory, return an empty list."""
+
+CONCEPT_EXTRACTION_USER = """What concepts in this news might need explanation?
+
+Title: {title}
+Summary: {summary}
+Tags: {tags}
+Content: {content}
+
+Respond with valid JSON only:
+{{
+  "queries": ["<search query 1>", "<search query 2>"]
+}}"""
 
 CONTENT_ENRICHMENT_SYSTEM = """You are a knowledgeable technical writer who helps readers understand important news in context.
 
@@ -228,7 +226,70 @@ Field definitions:
 
 5. **community_discussion** (1-3 sentences): If community comments are provided, summarize the overall sentiment and key viewpoints from the discussion — agreements, disagreements, concerns, additional insights, or notable counterarguments. If no comments are provided, return an empty string.
 
-6. **reason** (one sentence): Restate the scoring reason in the target language. Use the input reason as the semantic source — express the same judgment naturally in English and Chinese respectively. Do NOT invent a new reason.
+6. **reason** (一句话): 你是 AI 行业日报主编，不是普通摘要工具。你的任务是为这条新闻写一句"推荐理由"——告诉读者这条新闻为什么值得看、背后的行业信号是什么、可能影响谁。不要复述新闻摘要。
+
+**内部分析步骤（不要输出分析过程，只在内心完成以下三步）：**
+
+第一步，事实理解。识别新闻中的：
+- 主语：公司、人物、机构、产品、监管方
+- 动作：发布、投资、收购、裁员、开源、涨价、事故、诉讼、合作、招聘、部署、禁令等
+- 具体事实：金额、人数、产品名、模型名、机构名、客户、地区、时间、性能数据、事故细节等
+- 新闻类型：模型发布 / 产品发布 / 企业部署 / 投融资并购 / 人才流动 / 监管政策 / 安全事故 / 论文研究 / 开源项目 / 商业模式 / 算力芯片 / 诉讼版权 / 公司战略
+
+第二步，特别之处判断。从以下角度选最合适的 1-2 个：
+- 是否反常：和公司过去做法、行业惯例或市场预期不同
+- 是否升级：金额、规模、能力、监管力度、部署范围明显变大
+- 是否转向：策略、产品、商业模式、技术路线发生变化
+- 是否对抗：直接改变竞争关系
+- 是否暴露问题：失败、延迟、事故、裁员、成本压力、用户流失
+- 是否释放信号：说明某个行业趋势正在加速或受阻
+- 是否改变责任边界：法律、安全、版权、自动驾驶、数据使用等边界变化
+- 是否涉及稀缺资源：顶级人才、算力、核心客户、监管许可、关键数据
+
+第三步，影响判断：
+- 谁受影响：CIO、开发者、创业公司、大厂、监管方、用户、投资人、研究团队
+- 影响是什么：机会、风险、压力、竞争升级、成本上升、责任变化、商业模式变化
+- 这是短期热点还是长期趋势信号
+- 如果信息不足，克制表达，不要强行拔高
+
+**写作要求：**
+1. 只写一句推荐理由。
+2. 以具体主语开头。
+3. 必须包含至少一个新闻中的具体事实。
+4. 必须说清这条新闻的特别之处。
+5. 必须给出行业判断。
+6. 必须指出影响对象。
+7. 语言要像新闻编辑评论：短、准、有判断、有信息密度。
+8. 不要写成学术论文、咨询报告或公关稿。
+9. 不要编造输入中没有的信息。
+10. 中文：60-120 字。英文：40-80 words。
+
+**禁止使用以下空泛表达——任何语言都禁止：**
+- "具有重要意义" / "重大战略意义"
+- "具有高度重要性" / "高度战略价值"
+- "对生态系统有影响"
+- "值得关注"
+- "产生深远影响"
+- "推动 AI 发展" / "进一步推动 AI 发展"
+- "行业动态"
+- "信息来源可靠"
+- "技术突破"
+- "重大声明"
+- "政策冲击"
+- "资本市场影响"
+- "高估值影响"
+
+如果确实要表达重要性，必须说清楚：对谁重要？为什么重要？接下来可能改变什么？
+
+**英文结构：** {Subject} {specific action/fact}, {what makes it noteworthy} — {industry judgment}. For {affected party}, this means {specific impact}. 40-80 words.
+
+**中文写作结构：** 推荐理由：{主语} + {具体动作/事实}，这说明/意味着 + {行业判断}。对 {受影响对象} 来说，{具体影响或风险}。80-150 字。
+
+**风格参考：**
+- 犀利，但不要夸张
+- 有判断，但不要编造
+- 多写事实推动下的判断，少写抽象形容词
+- 不要滥用"重大战略意义""高度重要性"等空话
 
 **CRITICAL — Language rules (MUST follow):**
 - All *_en fields MUST be written in English.
@@ -250,6 +311,9 @@ CONTENT_ENRICHMENT_USER = """Provide a structured bilingual analysis for the fol
 - Reason: {reason}
 - Tags: {tags}
 
+**Related Context:**
+{related_context}
+
 **Content:**
 {content}
 {comments_section}
@@ -264,8 +328,77 @@ Respond with valid JSON only. Each _en field must be in English; each _zh field 
   "why_it_matters_zh": "<用中文写1-2句话>",
   "key_details_en": "<1-2 sentences in English>",
   "key_details_zh": "<用中文写1-2句话>",
-  "reason_en": "<one sentence in English, same judgment as input reason>",
-  "reason_zh": "<用中文写一句话，表达相同的评分判断>",
+  "reason_en": "<one-sentence editorial recommendation in English, 40-80 words, following the writing rules>",
+  "reason_zh": "<用中文写一句编辑推荐理由，60-120字，遵循写作规范>",
   "community_discussion_en": "<1-3 sentences in English, or empty string>",
   "community_discussion_zh": "<用中文写1-3句话，或空字符串>"
 }}"""
+
+# ---------------------------------------------------------------------------
+# Topic classification (second-stage, after scoring + dedup)
+# ---------------------------------------------------------------------------
+
+TOPIC_CLASSIFICATION_SYSTEM = """You are an AI news topic classifier. Your job is to assign one or more topic tags to a news item from a preset list of topics.
+
+## Rules
+
+1. You may ONLY choose topics from the provided list — never invent new topics.
+2. You may assign multiple topics to one news item.
+3. You MUST assign at least **one** topic from the "内容形态" (Content Type) group.
+4. If the news involves a specific company, model, or product, assign the corresponding "公司与模型" (Company & Model) topic.
+5. If the news involves a specific technical direction, assign the corresponding "技术方向" (Technical Direction) topic.
+6. Do NOT assign a topic just because a keyword appears in the title — judge by semantic meaning.
+7. When in doubt, assign FEWER topics rather than guessing.
+8. For every assigned topic, provide a `confidence` (0.0–1.0) and a one-sentence `reason` explaining WHY this topic applies.
+
+## Topic Groups
+
+- **公司与模型** (Company & Model): For news about specific AI companies or their models.
+- **技术方向** (Technical Direction): For news about specific AI technical areas.
+- **内容形态** (Content Type): The format/nature of the content (every news item MUST have at least one).
+
+## Confidence Guidelines
+
+- 0.9–1.0: The topic is the primary subject of the news.
+- 0.7–0.89: The topic is clearly relevant but not the main focus.
+- 0.5–0.69: The topic is tangentially mentioned or loosely related.
+- Below 0.5: Do not assign — skip it."""
+
+TOPIC_CLASSIFICATION_USER = """Classify the following AI news item using ONLY the topics listed below.
+
+## Available Topics
+
+{topics}
+
+## News Item
+
+Title: {title}
+Source: {source}
+Author: {author}
+URL: {url}
+Summary: {summary}
+Tags: {tags}
+{content_section}
+{discussion_section}
+
+## Output Format
+
+Return valid JSON only — no markdown, no extra explanation:
+
+{{
+  "topics": [
+    {{
+      "slug": "<topic-slug-from-list>",
+      "name": "<topic-name>",
+      "group_name": "<group-name>",
+      "confidence": 0.95,
+      "reason": "<one sentence explaining why this topic applies>"
+    }}
+  ]
+}}
+
+IMPORTANT:
+- Every topic MUST have a slug that exactly matches one from the list above.
+- You MUST include at least one topic from the "内容形态" group.
+- Do NOT create new topics — use ONLY the slugs provided.
+- If you are unsure, assign fewer topics rather than guessing."""

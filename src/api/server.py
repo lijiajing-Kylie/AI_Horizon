@@ -104,6 +104,46 @@ def category_counts(
 
 
 # ---------------------------------------------------------------------------
+# Topics
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/topics")
+def list_topics() -> dict:
+    """Get all active topics grouped by group_name.
+
+    Each topic includes a ``count`` of associated news items.
+    """
+    return db.get_topics(grouped=True)
+
+
+@app.get("/api/topics/{slug}")
+def get_topic(slug: str) -> dict:
+    """Get a single topic by slug."""
+    topic = db.get_topic_by_slug(slug)
+    if topic is None:
+        raise HTTPException(status_code=404, detail="Topic not found")
+    return topic
+
+
+@app.get("/api/topics/{slug}/news")
+def topic_news(
+    slug: str,
+    page: int = Query(1, ge=1, description="Page number"),
+    per_page: int = Query(20, ge=1, le=100, description="Items per page"),
+    sort: str = Query("ai_score", description="Sort field"),
+    order: str = Query("desc", description="Sort direction (asc/desc)"),
+) -> dict:
+    """Get paginated news items for a specific topic by slug."""
+    result = db.get_topic_news(
+        slug=slug, page=page, per_page=per_page, sort=sort, order=order
+    )
+    if result["topic"] is None:
+        raise HTTPException(status_code=404, detail="Topic not found")
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Daily runs
 # ---------------------------------------------------------------------------
 
@@ -125,10 +165,12 @@ def daily_detail(date: str) -> dict:
     result = db.get_items(run_date=date, per_page=200)
     stats = db.get_stats(run_date=date)
     tags = db.get_tags(run_date=date)
+    topics = db.get_topics(grouped=True)
     return {
         "date": date,
         "stats": stats,
         "tags": tags,
+        "topics": topics,
         "items": result["items"],
         "total": result["total"],
     }
@@ -199,6 +241,7 @@ def web_index(
     tags = db.get_tags(run_date=date)
     categories = db.get_category_counts(run_date=date)
     dates = db.get_run_dates(limit=30)
+    topics_summary = db.get_topics(grouped=True)
 
     # Compute average score
     scores = [item["ai_score"] for item in result["items"] if item["ai_score"]]
@@ -219,6 +262,53 @@ def web_index(
             "selected_tag": tag or "",
             "selected_category": category or "",
             "avg_score": avg_score,
+            "topics": topics_summary.get("groups", []),
+        },
+    )
+
+
+@app.get("/topics", response_class=HTMLResponse)
+def web_topics(request: Request) -> HTMLResponse:
+    """Topic overview page: groups × topic cards with news counts."""
+    topics_data = db.get_topics(grouped=True)
+    dates = db.get_run_dates(limit=7)
+    return templates.TemplateResponse(
+        "topics.html",
+        {
+            "request": request,
+            "groups": topics_data.get("groups", []),
+            "dates": dates,
+        },
+    )
+
+
+@app.get("/topics/{slug}", response_class=HTMLResponse)
+def web_topic_news(
+    request: Request,
+    slug: str,
+    page: int = Query(1, ge=1),
+    sort: str = Query("ai_score"),
+    order: str = Query("desc"),
+) -> HTMLResponse:
+    """Topic news page: paginated item list for a single topic."""
+    result = db.get_topic_news(
+        slug=slug, page=page, per_page=30, sort=sort, order=order,
+    )
+    if result["topic"] is None:
+        raise HTTPException(status_code=404, detail="Topic not found")
+    dates = db.get_run_dates(limit=7)
+    return templates.TemplateResponse(
+        "topic_news.html",
+        {
+            "request": request,
+            "topic": result["topic"],
+            "items": result["items"],
+            "total": result["total"],
+            "page": result["page"],
+            "pages": result["pages"],
+            "sort": sort,
+            "order": order,
+            "dates": dates,
         },
     )
 

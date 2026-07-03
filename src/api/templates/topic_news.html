@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Horizon — AI 新闻聚合</title>
+    <title>{{ topic.name }} · Horizon</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
     <style>
         :root { --pico-font-size: 95%; }
@@ -11,10 +11,8 @@
         header { padding: 2rem 0 1rem; }
         header h1 { margin-bottom: 0.2rem; }
         header nav { margin-top: 1rem; display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
-        .filters { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 1.5rem; }
-        .filters details { margin-bottom: 0; }
-        .tag-cloud { display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0.5rem 0; }
-        .tag-cloud a { font-size: 0.85rem; }
+        .topic-meta { margin-bottom: 1.5rem; padding: 0.8rem 1rem; background: var(--pico-secondary-background); border-radius: var(--pico-border-radius); }
+        .topic-meta .group { font-size: 0.8rem; color: var(--pico-muted-color); }
         .card { margin-bottom: 1.2rem; border: 1px solid var(--pico-muted-border-color); border-radius: var(--pico-border-radius); padding: 1.2rem; }
         .card h3 { margin-bottom: 0.3rem; font-size: 1.1rem; }
         .card h3 a { text-decoration: none; }
@@ -24,7 +22,7 @@
         .badge { display: inline-block; font-size: 0.8rem; padding: 0.1rem 0.5rem; border-radius: 4px; background: var(--pico-primary); color: white; font-weight: bold; }
         .badge-score { font-size: 1rem; padding: 0.15rem 0.65rem; }
         .pagination { display: flex; justify-content: center; gap: 0.5rem; margin: 2rem 0; }
-        .stats-bar { display: flex; gap: 1.5rem; margin-bottom: 1.5rem; font-size: 0.85rem; color: var(--pico-muted-color); }
+        .sort-bar { display: flex; gap: 0.5rem; margin-bottom: 1rem; font-size: 0.85rem; }
         .no-results { text-align: center; padding: 3rem 1rem; color: var(--pico-muted-color); }
         .footer { text-align: center; padding: 2rem 0; font-size: 0.8rem; color: var(--pico-muted-color); }
     </style>
@@ -33,44 +31,24 @@
 <main class="container">
 
     <header>
-        <h1>🌅 Horizon</h1>
-        <p style="color:var(--pico-muted-color)">AI 驱动的新闻聚合 · 每日精选</p>
+        <h1>{{ topic.name }}</h1>
         <nav>
             <a href="/" role="button" class="outline" style="padding:0.3rem 0.8rem;font-size:0.85rem">🏠 首页</a>
             <a href="/topics" role="button" class="outline" style="padding:0.3rem 0.8rem;font-size:0.85rem">🏷️ 主题</a>
-            {% for d in dates[:7] %}
-            <a href="/?date={{ d }}" role="button" class="outline {% if d == date %}contrast{% else %}secondary{% endif %}" style="padding:0.3rem 0.8rem;font-size:0.85rem">{{ d }}</a>
-            {% endfor %}
         </nav>
     </header>
 
-    {% if items %}
-    <div class="stats-bar">
-        <span>📊 共 <strong>{{ total }}</strong> 条</span>
-        <span>⭐ 均分 <strong>{{ avg_score }}</strong></span>
-        <span>🏷️ <strong>{{ tags|length }}</strong> 个标签</span>
+    <div class="topic-meta">
+        <div class="group">{{ topic.group_name }}</div>
+        <p style="margin:0.2rem 0">{{ topic.description }}</p>
+        <p style="margin:0;font-size:0.85rem;color:var(--pico-primary)"><strong>{{ total }}</strong> 条相关新闻</p>
     </div>
 
-    <div class="filters">
-        {% if selected_tag or selected_category %}
-        <a href="/{% if date %}?date={{ date }}{% endif %}" role="button" style="padding:0.3rem 0.7rem;font-size:0.85rem">✕ 清除筛选</a>
-        {% endif %}
-        <details>
-            <summary role="button" class="outline" style="padding:0.3rem 0.7rem;font-size:0.85rem">🏷️ 标签 ({{ tags|length }})</summary>
-            <div class="tag-cloud">
-                {% for t in tags %}
-                <a href="/?{% if date %}date={{ date }}&{% endif %}tag={{ t.tag }}" role="button" class="outline" style="padding:0.15rem 0.45rem;font-size:0.78rem;{% if selected_tag == t.tag %}background:var(--pico-primary);color:white;{% endif %}">{{ t.tag }} ({{ t.count }})</a>
-                {% endfor %}
-            </div>
-        </details>
-        <details>
-            <summary role="button" class="outline" style="padding:0.3rem 0.7rem;font-size:0.85rem">📂 分类</summary>
-            <div class="tag-cloud">
-                {% for c in categories %}
-                <a href="/?{% if date %}date={{ date }}&{% endif %}category={{ c.category }}" role="button" class="outline" style="padding:0.15rem 0.45rem;font-size:0.78rem;{% if selected_category == c.category %}background:var(--pico-primary);color:white;{% endif %}">{{ c.category }} ({{ c.count }})</a>
-                {% endfor %}
-            </div>
-        </details>
+    {% if items %}
+    <div class="sort-bar">
+        <span>排序：</span>
+        <a href="/topics/{{ topic.slug }}?sort=ai_score&order=desc" role="button" class="{% if sort == 'ai_score' and order == 'desc' %}contrast{% else %}outline{% endif %}" style="padding:0.2rem 0.6rem;font-size:0.8rem">评分 ↓</a>
+        <a href="/topics/{{ topic.slug }}?sort=published_at&order=desc" role="button" class="{% if sort == 'published_at' and order == 'desc' %}contrast{% else %}outline{% endif %}" style="padding:0.2rem 0.6rem;font-size:0.8rem">时间 ↓</a>
     </div>
 
     {% for item in items %}
@@ -92,15 +70,8 @@
         {% if item.ai_summary %}
         <p>{{ item.ai_summary }}</p>
         {% endif %}
-        {% if item.ai_tags %}
-        <div class="tags">
-            {% for t in item.ai_tags %}
-            <a href="/?tag={{ t }}" style="font-size:0.78rem"><kbd>#{{ t }}</kbd></a>
-            {% endfor %}
-        </div>
-        {% endif %}
         {% if item.topics %}
-        <div class="tags" style="margin-top:0.3rem">
+        <div class="tags">
             {% for tp in item.topics %}
             <a href="/topics/{{ tp.slug }}" style="font-size:0.75rem;text-decoration:none;padding:0.1rem 0.4rem;border-radius:3px;background:var(--pico-primary-focus);color:white;margin-right:0.25rem">{{ tp.name }}</a>
             {% endfor %}
@@ -112,24 +83,24 @@
     {% if pages > 1 %}
     <div class="pagination">
         {% if page > 1 %}
-        <a href="/?{% if date %}date={{ date }}&{% endif %}{% if selected_tag %}tag={{ selected_tag }}&{% endif %}{% if selected_category %}category={{ selected_category }}&{% endif %}page={{ page - 1 }}" role="button">← 上一页</a>
+        <a href="/topics/{{ topic.slug }}?sort={{ sort }}&order={{ order }}&page={{ page - 1 }}" role="button">← 上一页</a>
         {% endif %}
         <span style="padding:0.5rem">{{ page }} / {{ pages }}</span>
         {% if page < pages %}
-        <a href="/?{% if date %}date={{ date }}&{% endif %}{% if selected_tag %}tag={{ selected_tag }}&{% endif %}{% if selected_category %}category={{ selected_category }}&{% endif %}page={{ page + 1 }}" role="button">下一页 →</a>
+        <a href="/topics/{{ topic.slug }}?sort={{ sort }}&order={{ order }}&page={{ page + 1 }}" role="button">下一页 →</a>
         {% endif %}
     </div>
     {% endif %}
 
     {% else %}
     <div class="no-results">
-        <h3>📭 暂无数据</h3>
-        <p>还没有管道运行结果。运行 <code>uv run horizon</code> 抓取今天的新闻后再来。</p>
+        <h3>📭 暂无新闻</h3>
+        <p>该主题下还没有关联的新闻。运行 <code>uv run horizon</code> 获取今天的新闻后再来。</p>
     </div>
     {% endif %}
 
     <div class="footer">
-        <a href="/api/docs">API 文档</a> · <a href="/api/health">健康检查</a>
+        <a href="/api/topics/{{ topic.slug }}/news">API: 该主题新闻</a>
     </div>
 
 </main>

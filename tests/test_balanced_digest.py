@@ -26,6 +26,7 @@ def make_item(item_id: str, score: float, category: str | None) -> ContentItem:
         title=item_id,
         url=f"https://example.com/{item_id}",
         published_at=datetime.now(timezone.utc),
+        ai_relevant=True,
         ai_score=score,
         metadata=metadata,
     )
@@ -175,12 +176,16 @@ def test_run_applies_balanced_digest_before_enrichment(tmp_path, monkeypatch) ->
     async def expand_twitter_discussion(input_items):  # type: ignore[no-untyped-def]
         return None
 
+    async def classify_topics(input_items):  # type: ignore[no-untyped-def]
+        return None
+
     async def enrich_important_items(input_items):  # type: ignore[no-untyped-def]
         enriched_ids.extend(item.id for item in input_items)
 
     monkeypatch.setattr(orchestrator, "fetch_all_sources", fetch_all_sources)
     monkeypatch.setattr(orchestrator, "_analyze_content", analyze_content)
     monkeypatch.setattr(orchestrator, "merge_topic_duplicates", merge_topic_duplicates)
+    monkeypatch.setattr(orchestrator, "_classify_topics", classify_topics)
     monkeypatch.setattr(orchestrator, "_expand_twitter_discussion", expand_twitter_discussion)
     monkeypatch.setattr(orchestrator, "_enrich_important_items", enrich_important_items)
     monkeypatch.chdir(tmp_path)

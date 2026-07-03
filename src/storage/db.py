@@ -65,6 +65,38 @@ CREATE TABLE IF NOT EXISTS daily_runs (
     languages       TEXT NOT NULL DEFAULT '[]',
     created_at      TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS topics (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    name            TEXT NOT NULL,
+    slug            TEXT NOT NULL UNIQUE,
+    group_name      TEXT NOT NULL,
+    description     TEXT NOT NULL DEFAULT '',
+    keywords        TEXT NOT NULL DEFAULT '[]',
+    aliases         TEXT NOT NULL DEFAULT '[]',
+    sort_order      INTEGER NOT NULL DEFAULT 0,
+    is_active       INTEGER NOT NULL DEFAULT 1,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_topics_slug ON topics(slug);
+CREATE INDEX IF NOT EXISTS idx_topics_group_name ON topics(group_name);
+
+CREATE TABLE IF NOT EXISTS news_topics (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    news_id         TEXT NOT NULL,
+    topic_id        INTEGER NOT NULL,
+    confidence      REAL NOT NULL DEFAULT 0.0,
+    reason          TEXT NOT NULL DEFAULT '',
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (news_id) REFERENCES items(id) ON DELETE CASCADE,
+    FOREIGN KEY (topic_id) REFERENCES topics(id) ON DELETE CASCADE,
+    UNIQUE(news_id, topic_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_news_topics_news_id ON news_topics(news_id);
+CREATE INDEX IF NOT EXISTS idx_news_topics_topic_id ON news_topics(topic_id);
 """
 
 
@@ -110,6 +142,7 @@ class HorizonDB:
     @property
     def conn(self) -> sqlite3.Connection:
         if self._conn is None:
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
             self._conn = sqlite3.connect(str(self.db_path))
             self._conn.row_factory = sqlite3.Row
             self._conn.executescript(_SCHEMA)
@@ -248,8 +281,14 @@ class HorizonDB:
             params + [per_page, offset],
         ).fetchall()
 
+        items = [_row_to_item(r) for r in rows]
+        # Batch-fill topics for each item
+        topics_map = self._batch_get_news_topics([item["id"] for item in items])
+        for item in items:
+            item["topics"] = topics_map.get(item["id"], [])
+
         return {
-            "items": [_row_to_item(r) for r in rows],
+            "items": items,
             "total": total,
             "page": page,
             "per_page": per_page,
@@ -257,9 +296,13 @@ class HorizonDB:
         }
 
     def get_item(self, item_id: str) -> Optional[dict[str, Any]]:
-        """Get a single item by ID."""
+        """Get a single item by ID with topics."""
         row = self.conn.execute("SELECT * FROM items WHERE id = ?", (item_id,)).fetchone()
-        return _row_to_item(row) if row else None
+        if row is None:
+            return None
+        item = _row_to_item(row)
+        item["topics"] = self.get_news_topics(item_id)
+        return item
 
     def get_tags(self, run_date: Optional[str] = None, min_count: int = 1) -> list[dict[str, Any]]:
         """Get all tags with occurrence counts."""
@@ -358,4 +401,280 @@ class HorizonDB:
                LIMIT ?""",
             (query, limit),
         ).fetchall()
-        return [_row_to_item(r) for r in rows]
+        items = [_row_to_item(r) for r in rows]
+        # Batch-fill topics
+        topics_map = self._batch_get_news_topics([item["id"] for item in items])
+        for item in items:
+            item["topics"] = topics_map.get(item["id"], [])
+        return items
+
+    # -- topics ----------------------------------------------------------------
+
+    def seed_topics(self, topics_data: list[dict[str, Any]]) -> int:
+        """Insert or update topics from a seed data list (idempotent by slug).
+
+        Each entry should have: name, slug, group_name, description,
+        keywords (list), aliases (list), sort_order, is_active.
+        Returns the number of topics upserted.
+        """
+        count = 0
+        for t in topics_data:
+            self.conn.execute(
+                """INSERT INTO topics (name, slug, group_name, description,
+                       keywords, aliases, sort_order, is_active, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(slug) DO UPDATE SET
+                       name = excluded.name,
+                       group_name = excluded.group_name,
+                       description = excluded.description,
+                       keywords = excluded.keywords,
+                       aliases = excluded.aliases,
+                       sort_order = excluded.sort_order,
+                       is_active = excluded.is_active,
+                       updated_at = excluded.updated_at""",
+                (
+                    t["name"],
+                    t["slug"],
+                    t["group_name"],
+                    t.get("description", ""),
+                    json.dumps(t.get("keywords", []), ensure_ascii=False),
+                    json.dumps(t.get("aliases", []), ensure_ascii=False),
+                    t.get("sort_order", 0),
+                    t.get("is_active", 1),
+                    _now_iso(),
+                ),
+            )
+            count += 1
+        self.conn.commit()
+        return count
+
+    def get_topics(self, *, grouped: bool = True) -> dict[str, Any]:
+        """Get all active topics, optionally grouped by group_name.
+
+        When grouped=True, returns:
+            {"groups": [{"group_name": "...", "topics": [...]}, ...]}
+
+        When grouped=False, returns:
+            {"topics": [...]}
+
+        Each topic includes a `count` of associated news items.
+        """
+        rows = self.conn.execute(
+            """SELECT t.*, COUNT(nt.news_id) AS count
+               FROM topics t
+               LEFT JOIN news_topics nt ON t.id = nt.topic_id
+               WHERE t.is_active = 1
+               GROUP BY t.id
+               ORDER BY t.group_name, t.sort_order, t.name""",
+        ).fetchall()
+
+        topics = [
+            {
+                "id": r["id"],
+                "name": r["name"],
+                "slug": r["slug"],
+                "group_name": r["group_name"],
+                "description": r["description"],
+                "keywords": json.loads(r["keywords"]),
+                "aliases": json.loads(r["aliases"]),
+                "sort_order": r["sort_order"],
+                "is_active": bool(r["is_active"]),
+                "count": r["count"],
+            }
+            for r in rows
+        ]
+
+        if not grouped:
+            return {"topics": topics}
+
+        # Group by group_name, preserving insertion order
+        groups: dict[str, list[dict]] = {}
+        for t in topics:
+            groups.setdefault(t["group_name"], []).append(t)
+
+        group_names = list(groups.keys())
+        return {"groups": [{"group_name": gn, "topics": groups[gn]} for gn in group_names]}
+
+    def get_topic_by_slug(self, slug: str) -> Optional[dict[str, Any]]:
+        """Get a single topic by its slug."""
+        row = self.conn.execute(
+            "SELECT * FROM topics WHERE slug = ? AND is_active = 1", (slug,)
+        ).fetchone()
+        if row is None:
+            return None
+        return {
+            "id": row["id"],
+            "name": row["name"],
+            "slug": row["slug"],
+            "group_name": row["group_name"],
+            "description": row["description"],
+            "keywords": json.loads(row["keywords"]),
+            "aliases": json.loads(row["aliases"]),
+            "sort_order": row["sort_order"],
+            "is_active": bool(row["is_active"]),
+        }
+
+    def save_news_topics(
+        self, news_id: str, topics_data: list[dict[str, Any]]
+    ) -> int:
+        """Save topic associations for a news item.
+
+        topics_data is a list of dicts with keys: slug, confidence, reason.
+        Upserts by (news_id, topic_id) — re-running on the same news_id
+        updates confidence and reason instead of creating duplicates.
+
+        Returns the number of topic associations saved.
+        """
+        count = 0
+        for td in topics_data:
+            slug = td.get("slug", "").strip()
+            if not slug:
+                continue
+
+            topic = self.conn.execute(
+                "SELECT id FROM topics WHERE slug = ? AND is_active = 1", (slug,)
+            ).fetchone()
+
+            if topic is None:
+                # Topic slug not in our database — log and skip
+                print(f"Warning: unknown topic slug '{slug}' for item {news_id}, skipping")
+                continue
+
+            self.conn.execute(
+                """INSERT INTO news_topics (news_id, topic_id, confidence, reason)
+                   VALUES (?, ?, ?, ?)
+                   ON CONFLICT(news_id, topic_id) DO UPDATE SET
+                       confidence = excluded.confidence,
+                       reason = excluded.reason""",
+                (
+                    news_id,
+                    topic["id"],
+                    td.get("confidence", 0.0),
+                    td.get("reason", ""),
+                ),
+            )
+            count += 1
+
+        self.conn.commit()
+        return count
+
+    def get_news_topics(self, news_id: str) -> list[dict[str, Any]]:
+        """Get all topics associated with a single news item."""
+        rows = self.conn.execute(
+            """SELECT t.*, nt.confidence, nt.reason AS classification_reason
+               FROM news_topics nt
+               JOIN topics t ON nt.topic_id = t.id
+               WHERE nt.news_id = ?
+               ORDER BY t.group_name, t.sort_order""",
+            (news_id,),
+        ).fetchall()
+
+        return [
+            {
+                "id": r["id"],
+                "name": r["name"],
+                "slug": r["slug"],
+                "group_name": r["group_name"],
+                "description": r["description"],
+                "confidence": r["confidence"],
+                "reason": r["classification_reason"],
+            }
+            for r in rows
+        ]
+
+    def _batch_get_news_topics(
+        self, news_ids: list[str]
+    ) -> dict[str, list[dict[str, Any]]]:
+        """Batch-fetch topics for multiple news items.
+
+        Returns a dict mapping news_id -> list of topic dicts.
+        """
+        if not news_ids:
+            return {}
+
+        placeholders = ",".join("?" for _ in news_ids)
+        rows = self.conn.execute(
+            f"""SELECT nt.news_id, t.id, t.name, t.slug, t.group_name,
+                       t.description, nt.confidence, nt.reason AS classification_reason
+                FROM news_topics nt
+                JOIN topics t ON nt.topic_id = t.id
+                WHERE nt.news_id IN ({placeholders})
+                ORDER BY t.group_name, t.sort_order""",
+            news_ids,
+        ).fetchall()
+
+        result: dict[str, list[dict[str, Any]]] = {nid: [] for nid in news_ids}
+        for r in rows:
+            result.setdefault(r["news_id"], []).append(
+                {
+                    "id": r["id"],
+                    "name": r["name"],
+                    "slug": r["slug"],
+                    "group_name": r["group_name"],
+                    "description": r["description"],
+                    "confidence": r["confidence"],
+                    "reason": r["classification_reason"],
+                }
+            )
+        return result
+
+    def get_topic_news(
+        self,
+        slug: str,
+        *,
+        page: int = 1,
+        per_page: int = 20,
+        sort: str = "ai_score",
+        order: str = "desc",
+    ) -> dict[str, Any]:
+        """Get paginated news items for a specific topic by slug."""
+        topic = self.conn.execute(
+            "SELECT id, name, slug, group_name, description FROM topics WHERE slug = ?",
+            (slug,),
+        ).fetchone()
+
+        if topic is None:
+            return {"topic": None, "items": [], "total": 0, "page": 1, "per_page": per_page, "pages": 0}
+
+        allowed_sort = {"ai_score", "published_at", "created_at", "run_date"}
+        sort_col = sort if sort in allowed_sort else "ai_score"
+        order_dir = "DESC" if order.lower() == "desc" else "ASC"
+        offset = (page - 1) * per_page
+
+        count_row = self.conn.execute(
+            """SELECT COUNT(*) AS cnt FROM news_topics nt
+               JOIN items i ON nt.news_id = i.id
+               WHERE nt.topic_id = ?""",
+            (topic["id"],),
+        ).fetchone()
+        total = count_row["cnt"] if count_row else 0
+
+        rows = self.conn.execute(
+            f"""SELECT i.* FROM news_topics nt
+                JOIN items i ON nt.news_id = i.id
+                WHERE nt.topic_id = ?
+                ORDER BY i.{sort_col} {order_dir}
+                LIMIT ? OFFSET ?""",
+            (topic["id"], per_page, offset),
+        ).fetchall()
+
+        items = [_row_to_item(r) for r in rows]
+        # Batch-fill topics
+        topics_map = self._batch_get_news_topics([item["id"] for item in items])
+        for item in items:
+            item["topics"] = topics_map.get(item["id"], [])
+
+        return {
+            "topic": {
+                "id": topic["id"],
+                "name": topic["name"],
+                "slug": topic["slug"],
+                "group_name": topic["group_name"],
+                "description": topic["description"],
+            },
+            "items": items,
+            "total": total,
+            "page": page,
+            "per_page": per_page,
+            "pages": max(1, (total + per_page - 1) // per_page),
+        }
