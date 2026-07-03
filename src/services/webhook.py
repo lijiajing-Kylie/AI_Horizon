@@ -523,6 +523,7 @@ class WebhookNotifier:
                         "item_title": title,
                         "item_url": str(item.url),
                         "item_score": item.ai_score or "",
+                        "item_reason": item.ai_reason or "",
                         "summary": item_summary,
                     }
                 )

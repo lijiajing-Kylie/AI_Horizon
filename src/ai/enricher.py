@@ -17,7 +17,7 @@ from ddgs import DDGS
 
 from .client import AIClient
 from .prompts import (
-    CONCEPT_EXTRACTION_SYSTEM, CONCEPT_EXTRACTION_USER,
+    # CONCEPT_EXTRACTION_SYSTEM, CONCEPT_EXTRACTION_USER,  # temporarily disabled
     CONTENT_ENRICHMENT_SYSTEM, CONTENT_ENRICHMENT_USER,
 )
 from .utils import parse_json_response
@@ -155,22 +155,27 @@ class ContentEnricher:
             else:
                 content_text = item.content[:4000]
 
-        # Step 1: AI identifies concepts to explain
-        queries = await self._extract_concepts(item, content_text)
-
-        # Step 2: Search web for each concept
-        all_results = []
-        web_sections = []
-        for query in queries:
-            results = await self._web_search(query)
-            all_results.extend(results)
-            if results:
-                lines = [f"- [{r['title']}]({r['url']}): {r['body']}" for r in results]
-                web_sections.append(f"**{query}:**\n" + "\n".join(lines))
-        web_context = "\n\n".join(web_sections) if web_sections else ""
-
-        # Index of available URLs for citation validation
-        available_urls = {r["url"]: r["title"] for r in all_results if r.get("url")}
+        # --- Concept extraction + web search temporarily disabled ---
+        # # Step 1: AI identifies concepts to explain
+        # queries = await self._extract_concepts(item, content_text)
+        #
+        # # Step 2: Search web for each concept
+        # all_results = []
+        # web_sections = []
+        # for query in queries:
+        #     results = await self._web_search(query)
+        #     all_results.extend(results)
+        #     if results:
+        #         lines = [f"- [{r['title']}]({r['url']}): {r['body']}" for r in results]
+        #         web_sections.append(f"**{query}:**\n" + "\n".join(lines))
+        # web_context = "\n\n".join(web_sections) if web_sections else ""
+        #
+        # # Index of available URLs for citation validation
+        # available_urls = {r["url"]: r["title"] for r in all_results if r.get("url")}
+        queries = []
+        web_context = ""
+        available_urls: dict = {}
+        # -----------------------------------------------------------------
 
         # Step 3: AI generates background grounded in search results
         user_prompt = CONTENT_ENRICHMENT_USER.format(
@@ -213,27 +218,38 @@ class ContentEnricher:
             if parts:
                 item.metadata[f"detailed_summary_{lang}"] = " ".join(parts)
 
-            if result.get(f"background_{lang}"):
-                val = result[f"background_{lang}"]
-                item.metadata[f"background_{lang}"] = val.get("text") or str(val) if isinstance(val, dict) else str(val)
+            # --- background fields temporarily disabled ---
+            # if result.get(f"background_{lang}"):
+            #     val = result[f"background_{lang}"]
+            #     item.metadata[f"background_{lang}"] = val.get("text") or str(val) if isinstance(val, dict) else str(val)
+            # ------------------------------------------------
 
             if result.get(f"community_discussion_{lang}"):
                 val = result[f"community_discussion_{lang}"]
                 item.metadata[f"community_discussion_{lang}"] = val.get("text") or str(val) if isinstance(val, dict) else str(val)
 
-        # Store citation sources — only URLs that actually came from our search results
-        if result.get("sources") and available_urls:
-            valid = [
-                {"url": u, "title": available_urls[u]}
-                for u in result["sources"]
-                if u in available_urls
-            ]
-            if valid:
-                item.metadata["sources"] = valid
+        # Store bilingual scoring reason for downstream rendering
+        for lang in ("en", "zh"):
+            key = f"reason_{lang}"
+            if result.get(key):
+                val = result[key]
+                item.metadata[key] = val.get("text") or str(val) if isinstance(val, dict) else str(val)
+
+        # --- citation sources temporarily disabled ---
+        # # Store citation sources — only URLs that actually came from our search results
+        # if result.get("sources") and available_urls:
+        #     valid = [
+        #         {"url": u, "title": available_urls[u]}
+        #         for u in result["sources"]
+        #         if u in available_urls
+        #     ]
+        #     if valid:
+        #         item.metadata["sources"] = valid
+        # ------------------------------------------------
 
         # Backward-compatible fallback fields (English as default)
         item.metadata["detailed_summary"] = item.metadata.get("detailed_summary_en", "")
-        item.metadata["background"] = item.metadata.get("background_en", "")
+        # item.metadata["background"] = item.metadata.get("background_en", "")  # temporarily disabled
         item.metadata["community_discussion"] = item.metadata.get("community_discussion_en", "")
 
     async def _translate_item(self, item: ContentItem) -> None:
@@ -244,9 +260,10 @@ class ContentEnricher:
                 system="You are a translator. Translate to Simplified Chinese. Return only valid JSON, no other text.",
                 user=(
                     f'Title: {item.title}\n'
-                    f'Summary: {item.ai_summary or item.title}\n\n'
+                    f'Summary: {item.ai_summary or item.title}\n'
+                    f'Reason: {item.ai_reason or ""}\n\n'
                     'Return JSON:\n'
-                    '{"title_zh": "<中文标题>", "summary_zh": "<用中文写1-2句摘要>"}'
+                    '{"title_zh": "<中文标题>", "summary_zh": "<用中文写1-2句摘要>", "reason_zh": "<用中文写一句话，表达相同的评分判断>"}'
                 ),
             )
             result = self._parse_json_response(response)
@@ -255,5 +272,7 @@ class ContentEnricher:
                     item.metadata["title_zh"] = result["title_zh"]
                 if result.get("summary_zh"):
                     item.metadata["detailed_summary_zh"] = result["summary_zh"]
+                if result.get("reason_zh"):
+                    item.metadata["reason_zh"] = result["reason_zh"]
         except Exception:
             pass

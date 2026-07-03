@@ -183,23 +183,25 @@ IMPORTANT:
 - Do NOT give a high score just because something is AI-related — score reflects actual importance and quality
 """
 
-CONCEPT_EXTRACTION_SYSTEM = """You identify technical concepts in news that a reader might not know.
-Given a news item, return 1-3 search queries for concepts that need explanation.
-Focus on: specific technologies, protocols, algorithms, tools, or projects that are not widely known.
-Do NOT return queries for well-known things (e.g. "Python", "Linux", "Google").
-If the news is self-explanatory, return an empty list."""
-
-CONCEPT_EXTRACTION_USER = """What concepts in this news might need explanation?
-
-Title: {title}
-Summary: {summary}
-Tags: {tags}
-Content: {content}
-
-Respond with valid JSON only:
-{{
-  "queries": ["<search query 1>", "<search query 2>"]
-}}"""
+# --- Concept extraction prompts temporarily disabled ---
+# CONCEPT_EXTRACTION_SYSTEM = """You identify technical concepts in news that a reader might not know.
+# Given a news item, return 1-3 search queries for concepts that need explanation.
+# Focus on: specific technologies, protocols, algorithms, tools, or projects that are not widely known.
+# Do NOT return queries for well-known things (e.g. "Python", "Linux", "Google").
+# If the news is self-explanatory, return an empty list."""
+#
+# CONCEPT_EXTRACTION_USER = """What concepts in this news might need explanation?
+#
+# Title: {title}
+# Summary: {summary}
+# Tags: {tags}
+# Content: {content}
+#
+# Respond with valid JSON only:
+# {{
+#   "queries": ["<search query 1>", "<search query 2>"]
+# }}"""
+# ------------------------------------------------------
 
 CONTENT_ENRICHMENT_SYSTEM = """You are a knowledgeable technical writer who helps readers understand important news in context.
 
@@ -226,17 +228,16 @@ Field definitions:
 
 5. **community_discussion** (1-3 sentences): If community comments are provided, summarize the overall sentiment and key viewpoints from the discussion — agreements, disagreements, concerns, additional insights, or notable counterarguments. If no comments are provided, return an empty string.
 
+6. **reason** (one sentence): Restate the scoring reason in the target language. Use the input reason as the semantic source — express the same judgment naturally in English and Chinese respectively. Do NOT invent a new reason.
+
 **CRITICAL — Language rules (MUST follow):**
 - All *_en fields MUST be written in English.
 - All *_zh fields MUST be written in Simplified Chinese (简体中文). 绝对不能用英文写 _zh 字段的内容。Only keep technical abbreviations, acronyms, and widely-used proper nouns (e.g. "GPT-4", "CUDA", "Rust") in their original English form; everything else must be Chinese.
 
 Guidelines:
 - EVERY field (except community_discussion when no comments exist) must contain at least one complete sentence — no field may be empty or contain just a phrase
-- Base your explanation on the provided content and web search results — do NOT fabricate information
+- Base your explanation on the provided content — do NOT fabricate information
 - ONLY explain concepts and terms that are explicitly mentioned in the title, summary, or content
-- Use the web search results to ensure accuracy, especially for recent projects, tools, or events
-- If the news is self-explanatory and needs no background, return an empty string for both background fields
-- For **sources**: pick 1-3 URLs from the Web Search Results that you actually relied on for the background fields. Only use URLs that appear verbatim in the search results above — do not invent or modify URLs.
 """
 
 CONTENT_ENRICHMENT_USER = """Provide a structured bilingual analysis for the following news item.
@@ -253,9 +254,6 @@ CONTENT_ENRICHMENT_USER = """Provide a structured bilingual analysis for the fol
 {content}
 {comments_section}
 
-**Web Search Results (for grounding):**
-{web_context}
-
 Respond with valid JSON only. Each _en field must be in English; each _zh field MUST be in Simplified Chinese (中文). Every field MUST be at least one complete sentence (except community_discussion fields when no comments exist):
 {{
   "title_en": "<short headline in English, ≤15 words>",
@@ -266,9 +264,8 @@ Respond with valid JSON only. Each _en field must be in English; each _zh field 
   "why_it_matters_zh": "<用中文写1-2句话>",
   "key_details_en": "<1-2 sentences in English>",
   "key_details_zh": "<用中文写1-2句话>",
-  "background_en": "<2-4 sentences in English, or empty string>",
-  "background_zh": "<用中文写2-4句话，或空字符串>",
+  "reason_en": "<one sentence in English, same judgment as input reason>",
+  "reason_zh": "<用中文写一句话，表达相同的评分判断>",
   "community_discussion_en": "<1-3 sentences in English, or empty string>",
-  "community_discussion_zh": "<用中文写1-3句话，或空字符串>",
-  "sources": ["<url from search results>", "..."]
+  "community_discussion_zh": "<用中文写1-3句话，或空字符串>"
 }}"""

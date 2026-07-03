@@ -174,7 +174,9 @@ class DailySummarizer:
             or item.ai_summary
             or ""
         )
-        background = meta.get(f"background_{language}") or meta.get("background") or ""
+        # --- background temporarily disabled ---
+        # background = meta.get(f"background_{language}") or meta.get("background") or ""
+        # ---------------------------------------
         discussion = (
             meta.get(f"community_discussion_{language}")
             or meta.get("community_discussion")
@@ -184,7 +186,7 @@ class DailySummarizer:
         if language == "zh":
             title = _pangu(title)
             summary = _pangu(summary)
-            background = _pangu(background)
+            # background = _pangu(background)  # temporarily disabled
             discussion = _pangu(discussion)
 
         # Source line with parts joined by " · ", link appended at end
@@ -222,26 +224,38 @@ class DailySummarizer:
             source_line,
         ]
 
-        if background:
-            lines.append("")
-            lines.append(f"**{labels['background']}**: {background}")
+        reason = item.ai_reason or ""
+        if reason:
+            reason_zh = item.metadata.get("reason_zh") or reason
+            if language == "zh":
+                lines.insert(4, f"> **评分理由**: {reason_zh}")
+            else:
+                lines.insert(4, f"> **Reason**: {reason}")
 
-        sources = meta.get("sources") or []
-        if sources:
-            items_html = "".join(f'<li><a href="{s["url"]}">{s["title"]}</a></li>\n' for s in sources)
-            lines += [
-                "",
-                f'<details><summary>{labels["references"]}</summary>\n<ul>\n{items_html}\n</ul>\n</details>',
-            ]
+        # --- background + references temporarily disabled ---
+        # if background:
+        #     lines.append("")
+        #     lines.append(f"**{labels['background']}**: {background}")
+        #
+        # sources = meta.get("sources") or []
+        # if sources:
+        #     items_html = "".join(f'<li><a href="{s["url"]}">{s["title"]}</a></li>\n' for s in sources)
+        #     lines += [
+        #         "",
+        #         f'<details><summary>{labels["references"]}</summary>\n<ul>\n{items_html}\n</ul>\n</details>',
+        #     ]
+        # ----------------------------------------------------
 
         if discussion:
             lines.append("")
             lines.append(f"**{labels['discussion']}**: {discussion}")
 
-        if item.ai_tags:
-            tags_str = ", ".join([f"`#{t}`" for t in item.ai_tags])
-            lines.append("")
-            lines.append(f"**{labels['tags']}**: {tags_str}")
+        # --- tags temporarily disabled ---
+        # if item.ai_tags:
+        #     tags_str = ", ".join([f"`#{t}`" for t in item.ai_tags])
+        #     lines.append("")
+        #     lines.append(f"**{labels['tags']}**: {tags_str}")
+        # ---------------------------------
 
         lines.append("")
         lines.append("---")
