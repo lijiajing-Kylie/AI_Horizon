@@ -15,6 +15,56 @@ from fastapi.responses import HTMLResponse, FileResponse
 from ..storage.db import HorizonDB
 
 
+# ── content object builder ──────────────────────────────────────────────
+
+
+def _build_content(item: dict) -> dict:
+    """Extract a clean bilingual content block from item metadata.
+
+    Returns a dict with ``original_language``, ``default_language``,
+    ``is_ai_translated``, and a ``content`` sub-dict keyed by language.
+    """
+    meta: dict = item.get("metadata") or {}
+
+    original = meta.get("original_language", "unknown")
+    available = meta.get("available_languages", [])
+    if not available:
+        # Infer from metadata fields
+        if meta.get("title_zh"):
+            available.append("zh")
+        if meta.get("title_en"):
+            available.append("en")
+        if not available:
+            available.append("en")
+
+    content: dict[str, dict] = {}
+    for lang in available:
+        content[lang] = {
+            "title": meta.get(f"title_{lang}") or item.get("title", ""),
+            "summary": (
+                meta.get(f"detailed_summary_{lang}")
+                or item.get("ai_summary", "")
+            ),
+            "reason": (
+                meta.get(f"reason_{lang}")
+                or item.get("ai_reason", "")
+            ),
+        }
+
+    return {
+        "original_language": original,
+        "default_language": meta.get("default_display_language", "zh"),
+        "is_ai_translated": meta.get("is_ai_translated", False),
+        "content": content,
+    }
+
+
+def _attach_content(item: dict) -> dict:
+    """Attach the ``content`` block to a single item dict (mutates and returns)."""
+    item["content_block"] = _build_content(item)
+    return item
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
     """Startup / shutdown lifecycle for the Horizon API."""
@@ -80,7 +130,7 @@ def get_item(item_id: str) -> dict:
     item = db.get_item(item_id)
     if item is None:
         raise HTTPException(status_code=404, detail="Item not found")
-    return item
+    return _attach_content(item)
 
 
 # ---------------------------------------------------------------------------
@@ -193,7 +243,7 @@ def daily_detail(date: str) -> dict:
         "stats": stats,
         "tags": tags,
         "topics": topics,
-        "items": result["items"],
+        "items": [_attach_content(it) for it in result["items"]],
         "total": result["total"],
     }
 

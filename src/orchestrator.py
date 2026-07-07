@@ -1064,7 +1064,6 @@ class HorizonOrchestrator:
         self.console.print(
             f"   Classified {classified}/{len(items)} items\n"
         )
-
     def _seed_topics(self) -> None:
         """Ensure the topics table is populated with seed data.
 

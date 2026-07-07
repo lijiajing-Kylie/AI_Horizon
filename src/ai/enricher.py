@@ -6,8 +6,10 @@ For items that pass the score threshold, this module:
 """
 
 import asyncio
+import re
 import sys
 import os
+from datetime import datetime, timezone
 from typing import List
 from tenacity import retry, stop_after_attempt, wait_exponential
 from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, MofNCompleteColumn
@@ -20,6 +22,61 @@ from .prompts import (
 )
 from .utils import parse_json_response, split_content_and_comments
 from ..models import ContentItem
+
+# ── original-language detection ────────────────────────────────────────────
+
+_CJK_RE = re.compile(r"[一-鿿㐀-䶿豈-﫿]")
+
+
+def _detect_original_language(item: ContentItem) -> str:
+    """Detect original language using CJK-character ratio heuristic.
+
+    Returns ``"zh"`` when > 30 % of the characters are CJK, ``"en"`` otherwise.
+    Falls back to ``"unknown"`` when there is too little text.
+    """
+    text = " ".join([
+        item.title or "",
+        item.content or "",
+        item.ai_summary or "",
+    ])
+    if not text.strip():
+        return "unknown"
+    cjk = len(_CJK_RE.findall(text))
+    total = len(text)
+    if total == 0:
+        return "unknown"
+    return "zh" if cjk / total > 0.3 else "en"
+
+
+def _stamp_language_metadata(item: ContentItem) -> None:
+    """Write ``original_language`` / ``is_ai_translated`` metadata.
+
+    Called after enrichment (or fallback translation) so the API and
+    frontend know which languages are available and which is the original.
+    """
+    import re as _re_mod
+    now = datetime.now(timezone.utc).isoformat()
+    original = _detect_original_language(item)
+    available: list[str] = []
+    if item.metadata.get("title_en"):
+        available.append("en")
+    if item.metadata.get("title_zh"):
+        available.append("zh")
+    # Ensure the detected language is present
+    if original not in available and original in ("en", "zh"):
+        available.insert(0, original)
+    item.metadata["original_language"] = original
+    item.metadata["available_languages"] = available
+    item.metadata["default_display_language"] = "zh"
+    item.metadata["is_ai_translated"] = (
+        original != "zh" and "zh" in available
+    )
+    item.metadata["translation_provider"] = (
+        "llm" if item.metadata["is_ai_translated"] else None
+    )
+    item.metadata["translated_at"] = (
+        now if item.metadata["is_ai_translated"] else None
+    )
 
 
 class ContentEnricher:
@@ -223,6 +280,9 @@ class ContentEnricher:
         item.metadata["detailed_summary"] = item.metadata.get("detailed_summary_en", "")
         item.metadata["community_discussion"] = item.metadata.get("community_discussion_en", "")
 
+        # Stamp original-language tracking metadata
+        _stamp_language_metadata(item)
+
     async def _translate_item(self, item: ContentItem) -> None:
         """Lightweight translation fallback: when full enrichment fails, at least
         translate the title and summary to Chinese so the item is not dropped."""
@@ -245,5 +305,6 @@ class ContentEnricher:
                     item.metadata["detailed_summary_zh"] = result["summary_zh"]
                 if result.get("reason_zh"):
                     item.metadata["reason_zh"] = result["reason_zh"]
+            _stamp_language_metadata(item)
         except Exception:
             pass

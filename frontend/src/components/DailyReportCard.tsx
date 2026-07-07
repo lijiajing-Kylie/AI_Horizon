@@ -19,9 +19,6 @@ export default function DailyReportCard({ report }: DailyReportCardProps) {
       <div className="flex gap-4 text-sm text-gray-500">
         <span>📥 抓取 {report.total_fetched} 条</span>
         <span>⭐ 精选 {report.total_selected} 条</span>
-        {report.languages?.length > 0 && (
-          <span>🌐 {report.languages.map(l => l.toUpperCase()).join(', ')}</span>
-        )}
       </div>
     </Link>
   )

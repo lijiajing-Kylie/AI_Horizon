@@ -26,6 +26,19 @@ export interface SourceProvenance {
   sources: SourceProvenanceEntry[]
 }
 
+export interface ContentLangBlock {
+  title: string
+  summary: string
+  reason: string
+}
+
+export interface ContentBlock {
+  original_language: string
+  default_language: string
+  is_ai_translated: boolean
+  content: Record<string, ContentLangBlock>
+}
+
 export interface Topic {
   id: number
   name: string
@@ -54,6 +67,7 @@ export interface NewsItem {
   metadata: Record<string, any>
   topics: Topic[]
   run_date: string
+  content_block?: ContentBlock
 }
 
 export interface PaginatedResponse<T> {

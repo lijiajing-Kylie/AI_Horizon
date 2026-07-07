@@ -7,23 +7,21 @@ import LoadingSkeleton from '../components/LoadingSkeleton'
 import EmptyState from '../components/EmptyState'
 import type { NewsItem } from '../api/types'
 
-// Map content-type topic slugs to section names
+// Map content-type topic slugs to 4 merged sections
 const SECTION_MAP: Record<string, string> = {
-  'model-release': '模型发布/更新',
-  'product-update': '产品发布/更新',
-  'industry-news': '行业动态',
-  'paper-research': '论文研究',
+  'model-release': '模型与产品',
+  'product-update': '模型与产品',
+  'benchmark-evaluation': '模型与产品',
+  'industry-news': '行业与趋势',
+  'phenomenon-trend': '行业与趋势',
+  'policy-regulation': '行业与趋势',
+  'paper-research': '论文与研究',
   'tutorial-practice': '技巧与观点',
   'expert-opinion': '技巧与观点',
-  'phenomenon-trend': '现象与趋势',
-  'policy-regulation': '政策监管',
-  'benchmark-evaluation': '评测基准',
 }
 
 const SECTION_ORDER = [
-  'model-release', 'product-update', 'industry-news',
-  'paper-research', 'tutorial-practice', 'expert-opinion',
-  'phenomenon-trend', 'policy-regulation', 'benchmark-evaluation',
+  'model-release', 'industry-news', 'paper-research', 'tutorial-practice',
 ]
 
 function groupBySection(items: NewsItem[]): Map<string, NewsItem[]> {
@@ -38,9 +36,9 @@ function groupBySection(items: NewsItem[]): Map<string, NewsItem[]> {
       if (!map.has(section)) map.set(section, [])
       map.get(section)!.push(item)
     } else {
-      // Fallback: put items without content-type topic in 行业动态
-      if (!map.has('行业动态')) map.set('行业动态', [])
-      map.get('行业动态')!.push(item)
+      // Fallback: put items without content-type topic in 行业与趋势
+      if (!map.has('行业与趋势')) map.set('行业与趋势', [])
+      map.get('行业与趋势')!.push(item)
     }
   }
 
@@ -64,7 +62,7 @@ export default function DailyDetailPage() {
   for (const slug of SECTION_ORDER) {
     const name = SECTION_MAP[slug]
     const sectionItems = sections.get(name)
-    if (sectionItems && sectionItems.length > 0) {
+    if (sectionItems && sectionItems.length > 0 && !usedSections.has(name)) {
       orderedSections.push([name, sectionItems])
       usedSections.add(name)
     }

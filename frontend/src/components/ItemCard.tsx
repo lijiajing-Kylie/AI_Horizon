@@ -1,4 +1,5 @@
-import type { NewsItem, SourceProvenance } from '../api/types'
+import { useState, useCallback } from 'react'
+import type { NewsItem, SourceProvenance, ContentBlock } from '../api/types'
 import ScoreBadge from './ScoreBadge'
 import { sourceLabel, roleLabelZh } from '../utils/source'
 import { Link } from 'react-router-dom'
@@ -8,28 +9,100 @@ interface ItemCardProps {
   showTopics?: boolean
 }
 
+/** Resolve the best available content for the active display language. */
+function resolveContent(
+  contentBlock: ContentBlock | undefined,
+  displayLang: string,
+  fallback: {
+    title: string
+    reason: string | null
+    summary: string | null
+  },
+) {
+  if (contentBlock?.content?.[displayLang]) {
+    const b = contentBlock.content[displayLang]
+    return {
+      title: b.title || fallback.title,
+      reason: b.reason || fallback.reason,
+      summary: b.summary || fallback.summary,
+    }
+  }
+  return fallback
+}
+
 export default function ItemCard({ item, showTopics = true }: ItemCardProps) {
-  const title = item.metadata?.title_zh || item.title
-  const reason = item.metadata?.reason_zh || item.ai_reason
-  const summary = item.ai_summary
+  const contentBlock = item.content_block as ContentBlock | undefined
+  const originalLang = contentBlock?.original_language ?? 'unknown'
+  const defaultLang = contentBlock?.default_language ?? 'zh'
+
+  const [displayLang, setDisplayLang] = useState(defaultLang)
+
+  const toggleLang = useCallback(() => {
+    setDisplayLang(prev => (prev === defaultLang ? originalLang : defaultLang))
+  }, [defaultLang, originalLang])
+
+  // Fallback values from metadata (preserves backward compat)
+  const fallback = {
+    title: item.metadata?.title_zh || item.title,
+    reason: item.metadata?.reason_zh || item.ai_reason,
+    summary: item.ai_summary,
+  }
+
+  const content = resolveContent(contentBlock, displayLang, fallback)
   const source = sourceLabel(item)
   const attribution = item.metadata?.source_attribution
   const provenance = item.metadata?.source_provenance as SourceProvenance | undefined
   const topics = item.topics || []
 
-  // Primary URL: use provenance primary_source_url if available, otherwise item.url
+  // Primary URL: prefer provenance primary_source_url, otherwise item.url
   const primaryUrl = provenance?.primary_source_url || item.url
+
+  // Should we show the translated badge and toggle?
+  const showTranslationUI =
+    contentBlock &&
+    originalLang !== 'zh' &&
+    originalLang !== 'unknown' &&
+    contentBlock.is_ai_translated
+
+  const showingTranslation = displayLang !== originalLang && displayLang === defaultLang
+  const toggleLabel =
+    displayLang === defaultLang
+      ? originalLang === 'en' ? '显示原文' : '显示原文'
+      : '显示译文'
 
   return (
     <article className="border border-gray-200 rounded-lg p-5 hover:border-blue-200 transition-colors">
       {/* Title row */}
       <div className="flex items-start gap-2 mb-2">
         <ScoreBadge score={item.ai_score} />
-        <h3 className="text-base font-medium text-gray-900 leading-snug flex-1">
-          <a href={primaryUrl} target="_blank" rel="noopener noreferrer" className="hover:text-blue-600 transition-colors">
-            {title}
-          </a>
-        </h3>
+        <div className="flex-1 min-w-0">
+          <h3 className="text-base font-medium text-gray-900 leading-snug">
+            <a
+              href={primaryUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:text-blue-600 transition-colors"
+            >
+              {content.title}
+            </a>
+          </h3>
+          {/* Translation badge + toggle */}
+          {showTranslationUI && (
+            <div className="flex items-center gap-2 mt-1">
+              {showingTranslation && (
+                <span className="inline-flex items-center text-xs px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200">
+                  已翻译
+                </span>
+              )}
+              <button
+                onClick={toggleLang}
+                className="text-xs text-blue-500 hover:text-blue-700 cursor-pointer"
+              >
+                {toggleLabel}
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Meta row */}
@@ -92,15 +165,15 @@ export default function ItemCard({ item, showTopics = true }: ItemCardProps) {
       )}
 
       {/* Reason */}
-      {reason && (
+      {content.reason && (
         <div className="border-l-2 border-blue-400 pl-3 my-2 text-sm text-gray-500 italic">
-          {reason}
+          {content.reason}
         </div>
       )}
 
       {/* Summary */}
-      {summary && (
-        <p className="text-sm text-gray-600 mt-2 line-clamp-3">{summary}</p>
+      {content.summary && (
+        <p className="text-sm text-gray-600 mt-2 line-clamp-3">{content.summary}</p>
       )}
 
       {/* Topics */}
