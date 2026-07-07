@@ -458,13 +458,7 @@
   "filtering": {
     "ai_score_threshold": 7.0,
     "time_window_hours": 24,
-    "max_items": 10,
-    "category_groups": {
-      "ai": { "name": "AI 前沿", "limit": 3, "categories": ["ai"] },
-      "finance": { "name": "金融科技", "limit": 7, "categories": ["finance"] }
-    },
-    "default_group": "other",
-    "default_group_limit": 10
+    "max_items": 15
   },
   "email": null,
   "webhook": {
