@@ -21,6 +21,158 @@ class SourceType(str, Enum):
     GOOGLE_NEWS = "google_news"
 
 
+class SourceRole(str, Enum):
+    """Classification of a source's role/authority for provenance tracking."""
+
+    OFFICIAL_COMPANY_BLOG = "official_company_blog"
+    OFFICIAL_PRODUCT_PAGE = "official_product_page"
+    OFFICIAL_MODEL_PAGE = "official_model_page"
+    PAPER = "paper"
+    MEDIA_REPORT = "media_report"
+    EXPERT_BLOG = "expert_blog"
+    SOCIAL_POST = "social_post"
+    COMMUNITY_DISCUSSION = "community_discussion"
+    AGGREGATOR = "aggregator"
+    UNKNOWN = "unknown"
+
+
+# Priority used when picking the primary source for a merged event.
+# Lower number = more authoritative.
+SOURCE_ROLE_PRIORITY: dict[SourceRole, int] = {
+    SourceRole.OFFICIAL_COMPANY_BLOG: 1,
+    SourceRole.OFFICIAL_PRODUCT_PAGE: 2,
+    SourceRole.OFFICIAL_MODEL_PAGE: 3,
+    SourceRole.PAPER: 4,
+    SourceRole.SOCIAL_POST: 5,
+    SourceRole.MEDIA_REPORT: 6,
+    SourceRole.EXPERT_BLOG: 7,
+    SourceRole.COMMUNITY_DISCUSSION: 8,
+    SourceRole.AGGREGATOR: 9,
+    SourceRole.UNKNOWN: 10,
+}
+
+
+# Domain → SourceRole heuristics for URL classification.
+_ROLE_DOMAIN_MAP: list[tuple[str, SourceRole]] = [
+    # Official model / code hosts
+    ("github.com", SourceRole.OFFICIAL_MODEL_PAGE),
+    ("huggingface.co", SourceRole.OFFICIAL_MODEL_PAGE),
+    ("modelscope.cn", SourceRole.OFFICIAL_MODEL_PAGE),
+    ("gitlab.com", SourceRole.OFFICIAL_MODEL_PAGE),
+    ("bitbucket.org", SourceRole.OFFICIAL_MODEL_PAGE),
+    # Papers / research
+    ("arxiv.org", SourceRole.PAPER),
+    ("arxiv.org/abs", SourceRole.PAPER),
+    ("openreview.net", SourceRole.PAPER),
+    ("paperswithcode.com", SourceRole.PAPER),
+    ("proceedings.neurips.cc", SourceRole.PAPER),
+    ("proceedings.mlr.press", SourceRole.PAPER),
+    ("dl.acm.org", SourceRole.PAPER),
+    ("ieeexplore.ieee.org", SourceRole.PAPER),
+    ("aclanthology.org", SourceRole.PAPER),
+    ("research.google", SourceRole.PAPER),
+    ("ai.meta.com/research", SourceRole.PAPER),
+    ("cdn.openai.com/papers", SourceRole.PAPER),
+    # Official company blogs / product pages
+    ("openai.com", SourceRole.OFFICIAL_COMPANY_BLOG),
+    ("anthropic.com", SourceRole.OFFICIAL_COMPANY_BLOG),
+    ("deepmind.google", SourceRole.OFFICIAL_COMPANY_BLOG),
+    ("blog.google", SourceRole.OFFICIAL_COMPANY_BLOG),
+    ("ai.googleblog.com", SourceRole.OFFICIAL_COMPANY_BLOG),
+    ("ai.meta.com/blog", SourceRole.OFFICIAL_COMPANY_BLOG),
+    ("about.fb.com", SourceRole.OFFICIAL_COMPANY_BLOG),
+    ("engineering.fb.com", SourceRole.OFFICIAL_COMPANY_BLOG),
+    ("aws.amazon.com/blogs", SourceRole.OFFICIAL_COMPANY_BLOG),
+    ("azure.microsoft.com", SourceRole.OFFICIAL_COMPANY_BLOG),
+    ("blogs.microsoft.com", SourceRole.OFFICIAL_COMPANY_BLOG),
+    ("nvidia.com/blog", SourceRole.OFFICIAL_COMPANY_BLOG),
+    ("developer.nvidia.com", SourceRole.OFFICIAL_COMPANY_BLOG),
+    ("blog.x.ai", SourceRole.OFFICIAL_COMPANY_BLOG),
+    ("x.ai/blog", SourceRole.OFFICIAL_COMPANY_BLOG),
+    ("mistral.ai", SourceRole.OFFICIAL_COMPANY_BLOG),
+    ("cohere.com", SourceRole.OFFICIAL_COMPANY_BLOG),
+    ("stability.ai", SourceRole.OFFICIAL_COMPANY_BLOG),
+    ("deepseek.com", SourceRole.OFFICIAL_COMPANY_BLOG),
+    ("qwenlm.github.io", SourceRole.OFFICIAL_COMPANY_BLOG),
+    ("huggingface.co/blog", SourceRole.OFFICIAL_COMPANY_BLOG),
+    # Expert blogs
+    ("simonwillison.net", SourceRole.EXPERT_BLOG),
+    ("karpathy.ai", SourceRole.EXPERT_BLOG),
+    ("lilianweng.github.io", SourceRole.EXPERT_BLOG),
+    ("ycombinator.com", SourceRole.EXPERT_BLOG),
+    ("gwern.net", SourceRole.EXPERT_BLOG),
+    ("colah.github.io", SourceRole.EXPERT_BLOG),
+    ("jalammar.github.io", SourceRole.EXPERT_BLOG),
+    # Aggregators
+    ("news.ycombinator.com", SourceRole.AGGREGATOR),
+    ("reddit.com", SourceRole.AGGREGATOR),
+    ("lobste.rs", SourceRole.AGGREGATOR),
+    ("producthunt.com", SourceRole.AGGREGATOR),
+    ("techmeme.com", SourceRole.AGGREGATOR),
+    # Media
+    ("techcrunch.com", SourceRole.MEDIA_REPORT),
+    ("theverge.com", SourceRole.MEDIA_REPORT),
+    ("arstechnica.com", SourceRole.MEDIA_REPORT),
+    ("wired.com", SourceRole.MEDIA_REPORT),
+    ("venturebeat.com", SourceRole.MEDIA_REPORT),
+    ("zdnet.com", SourceRole.MEDIA_REPORT),
+    ("theregister.com", SourceRole.MEDIA_REPORT),
+    ("bloomberg.com", SourceRole.MEDIA_REPORT),
+    ("reuters.com", SourceRole.MEDIA_REPORT),
+    ("techinasia.com", SourceRole.MEDIA_REPORT),
+    ("36kr.com", SourceRole.MEDIA_REPORT),
+    ("jiqizhixin.com", SourceRole.MEDIA_REPORT),
+    ("theinformation.com", SourceRole.MEDIA_REPORT),
+    ("infoq.com", SourceRole.MEDIA_REPORT),
+    ("thenewstack.io", SourceRole.MEDIA_REPORT),
+    # Social platforms (official accounts may post here)
+    ("x.com", SourceRole.SOCIAL_POST),
+    ("twitter.com", SourceRole.SOCIAL_POST),
+    ("t.me", SourceRole.SOCIAL_POST),
+    ("telegram.org", SourceRole.SOCIAL_POST),
+    ("linkedin.com", SourceRole.SOCIAL_POST),
+    ("weibo.com", SourceRole.SOCIAL_POST),
+    ("zhihu.com", SourceRole.SOCIAL_POST),
+    # Community
+    ("stackoverflow.com", SourceRole.COMMUNITY_DISCUSSION),
+    ("discord.com", SourceRole.COMMUNITY_DISCUSSION),
+    ("discuss.pytorch.org", SourceRole.COMMUNITY_DISCUSSION),
+    ("community.openai.com", SourceRole.COMMUNITY_DISCUSSION),
+    ("huggingface.co/spaces", SourceRole.COMMUNITY_DISCUSSION),
+]
+
+
+def classify_url_role(url: str) -> SourceRole:
+    """Classify a URL into a SourceRole using domain heuristics.
+
+    Args:
+        url: A URL string to classify.
+
+    Returns:
+        SourceRole — falls back to ``SourceRole.UNKNOWN`` when no heuristic matches.
+    """
+    from urllib.parse import urlparse
+
+    try:
+        parsed = urlparse(url)
+        hostname = (parsed.hostname or "").lower()
+        if hostname.startswith("www."):
+            hostname = hostname[4:]
+        path = parsed.path.lower()
+        full = hostname + path
+    except Exception:
+        return SourceRole.UNKNOWN
+
+    best: SourceRole = SourceRole.UNKNOWN
+    best_len = 0
+    for pattern, role in _ROLE_DOMAIN_MAP:
+        # Longer pattern match = more specific
+        if full.startswith(pattern) and len(pattern) > best_len:
+            best = role
+            best_len = len(pattern)
+    return best
+
+
 class ContentItem(BaseModel):
     """Unified content item model from any source."""
 

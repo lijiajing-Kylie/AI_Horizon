@@ -211,7 +211,52 @@ class DailySummarizer:
             if discussion_url != url:
                 source_line += f' · [{labels["discussion"]}]({discussion_url})'
 
-        # Source attribution (multi-source coverage)
+        # Source provenance (new rich multi-source display)
+        provenance = meta.get("source_provenance")
+        provenance_html = ""
+        if provenance and provenance.get("source_count", 0) > 1:
+            primary_name = provenance.get("primary_source_name", "")
+            primary_url = provenance.get("primary_source_url", "")
+            primary_type = provenance.get("primary_source_type", "unknown")
+            count = provenance["source_count"]
+            sources = provenance.get("sources", [])
+
+            # Primary source
+            if language == "zh":
+                primary_line = f"**主要来源**: [{primary_name}]({primary_url}) `{primary_type}`"
+            else:
+                primary_line = f"**Primary Source**: [{primary_name}]({primary_url}) `{primary_type}`"
+
+            # Other sources
+            other_sources = [s for s in sources if not s.get("is_primary")]
+            other_lines = []
+            if other_sources:
+                if language == "zh":
+                    other_lines.append(f"**其他来源** ({len(other_sources)}):")
+                else:
+                    other_lines.append(f"**Other Sources** ({len(other_sources)}):")
+                for s in other_sources:
+                    s_name = s.get("source_name", "")
+                    s_url = s.get("source_url", "")
+                    s_role = s.get("role", "unknown")
+                    s_title = s.get("title", "")
+                    if len(s_title) > 50:
+                        s_title = s_title[:47] + "..."
+                    other_lines.append(f"- [{s_name}]({s_url}) — {s_role}")
+                other_block = "\n".join(other_lines)
+
+            if language == "zh":
+                provenance_html = (
+                    f"\n\n**共 {count} 个来源报道**\n\n"
+                    f"{primary_line}\n\n{other_block}"
+                )
+            else:
+                provenance_html = (
+                    f"\n\n**{count} sources covering this event**\n\n"
+                    f"{primary_line}\n\n{other_block}"
+                )
+
+        # Source attribution (multi-source coverage) — backward-compat fallback
         attribution = meta.get("source_attribution")
         attribution_html = ""
         if attribution and attribution.get("count", 0) > 1:
@@ -244,7 +289,7 @@ class DailySummarizer:
             "",
             summary,
             "",
-            source_line + attribution_html,
+            source_line + provenance_html + attribution_html,
         ]
 
         reason = item.ai_reason or ""

@@ -1,24 +1,88 @@
 """AI prompts for content analysis and summarization."""
 
-TOPIC_DEDUP_SYSTEM = """你是一个新闻去重助手。识别哪些新闻条目报道了完全相同的现实事件、发布或公告。
+TOPIC_DEDUP_SYSTEM = """你是一个新闻去重与来源溯源助手。你需要完成两项任务：
+
+## 任务一：识别重复事件
+
+识别哪些新闻条目报道了完全相同的现实事件、发布或公告。
 
 规则：
 - 只有当条目报道的是同一事件时才归为一组（同一产品发布、同一事件、同一公告）
 - 同一产品的不同事件不算重复（例如"Gemma 4 发布"和"Gemma 4 被越狱"是两个不同事件）
-- 不确定时，宁可保留为独立条目，不做合并"""
+- 不确定时，宁可保留为独立条目，不做合并
 
-TOPIC_DEDUP_USER = """以下新闻条目已按重要性评分从高到低排列。识别其中的重复内容。
+## 任务二：判断来源溯源（source provenance）
+
+对于每个重复组，判断每条新闻的来源角色和权威性，确定最接近事件源头的 primary_source。
+
+### 来源角色分类（source_type）：
+
+- **official_company_blog**：公司官方博客、官方公告（如 openai.com/blog、blog.google、mistral.ai/news）
+- **official_product_page**：产品官方页面（如 Apple product page、NVIDIA GPU page）
+- **official_model_page**：Hugging Face 模型页、GitHub 仓库、模型下载页、Demo 页面
+- **paper**：arXiv、学术论文、技术报告（如 arxiv.org、openreview.net、paperswithcode.com）
+- **media_report**：权威科技媒体报道（如 TechCrunch、The Verge、Ars Technica、Bloomberg）
+- **expert_blog**：行业专家个人博客、技术博客（如 Simon Willison、Andrej Karpathy 的博客）
+- **social_post**：Twitter/X、Telegram、LinkedIn 等社交平台帖子
+- **community_discussion**：Reddit、Hacker News 讨论帖、Stack Overflow
+- **aggregator**：聚合站、RSS摘要站、转载站
+- **unknown**：无法判断或不适用
+
+### Primary Source 选择优先级：
+
+1. 官方公司公告、官方博客、官方产品页
+2. GitHub、Hugging Face、arXiv、论文页
+3. 官方社交媒体账号
+4. 权威媒体报道
+5. 专家博客
+6. 社区讨论
+7. 聚合站或转述文章
+
+### 关键规则：
+
+- 如果专家的博客文章里明确链接到官方模型页（如 Hugging Face、GitHub、arXiv），**official_model_page 应该被设为 primary_source**，而不是专家博客。
+- 每条来源需要给出 role（commentary 或 primary），commentary 表示该来源是评论/转述性质，不是一手信息。
+- confidence 表示你对这个来源分类的确信程度（0.0–1.0）。
+- 每个重复组最多输出 5 条 merged_facts（合并后最有价值的事实点）。"""
+
+TOPIC_DEDUP_USER = """以下新闻条目已按重要性评分从高到低排列。识别其中的重复内容并判断来源溯源。
 
 {items}
 
-只返回包含重复项（2 条及以上）的分组。每组是一个索引列表；每组中的第一个索引是保留的主条目。
-
 仅返回合法 JSON：
 {{
-  "duplicates": [[<主条目索引>, <重复条目索引>, ...], ...]
+  "duplicates": [[<主条目索引>, <重复条目索引>, ...], ...],
+  "source_provenance": {{
+    "<重复组主条目索引>": {{
+      "canonical_title": "<合并后最准确的标题>",
+      "primary_source": {{
+        "name": "<来源名称，如 Hugging Face>",
+        "url": "<最接近事件源头的URL>",
+        "type": "<official_model_page|official_company_blog|paper|...>",
+        "reason": "<为什么这个来源更接近事件源头>"
+      }},
+      "sources": [
+        {{
+          "name": "<来源名称>",
+          "url": "<URL>",
+          "type": "<来源类型>",
+          "role": "commentary|primary",
+          "is_primary": true|false,
+          "reason": "<为什么这样分类>"
+        }}
+      ],
+      "merged_facts": ["关键事实1", "关键事实2"]
+    }}
+  }}
 }}
 
-如果完全没有重复，返回：{{"duplicates": []}}"""
+注意：
+- source_provenance 是可选的。每组只需要返回你需要覆盖的条目（被合并组的所有条目，包括主条目和重复条目）。单条目不需要返回。
+- 每组的 sources 数组必须包含该重复组中的所有条目（主条目 + 所有被合并的条目）。
+- 专家博客如果引用官方模型页，必须把官方模型页作为 primary_source，专家博客作为 commentary。
+- 如果完全无法确定源头，primary_source 可以指向评分最高的条目，但 sources 仍然要完整列出所有来源。
+- canonical_title 必须是最准确、最简洁的标题，如果所有标题都不够好，可以自己拟定一个。
+- 如果完全没有重复，返回：{{"duplicates": [], "source_provenance": {{}}}}"""
 
 CONTENT_ANALYSIS_SYSTEM = """你是一位专业的内容策展人。你的工作分两个独立步骤：
 

@@ -208,7 +208,8 @@ class ContentEnricher:
                 val = result[key]
                 item.metadata[key] = val.get("text") or str(val) if isinstance(val, dict) else str(val)
 
-        # Store citation sources — only URLs that actually came from our search results
+        # Store enrichment citation sources — only URLs from our search results.
+        # Uses "enrichment_sources" to avoid collision with source_provenance.
         if result.get("sources") and available_urls:
             valid = [
                 {"url": u, "title": available_urls[u]}
@@ -216,7 +217,7 @@ class ContentEnricher:
                 if u in available_urls
             ]
             if valid:
-                item.metadata["sources"] = valid
+                item.metadata["enrichment_sources"] = valid
 
         # Backward-compatible fallback fields (English as default)
         item.metadata["detailed_summary"] = item.metadata.get("detailed_summary_en", "")

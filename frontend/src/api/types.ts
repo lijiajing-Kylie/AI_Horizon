@@ -6,6 +6,26 @@ export interface SourceAttribution {
   detail: { label: string; title: string; url: string }[]
 }
 
+export interface SourceProvenanceEntry {
+  source_name: string
+  source_url: string
+  source_type: string
+  role: string
+  title: string
+  published_at: string | null
+  is_primary: boolean
+  discovered_via: string
+  confidence: number
+}
+
+export interface SourceProvenance {
+  primary_source_name: string
+  primary_source_url: string
+  primary_source_type: string
+  source_count: number
+  sources: SourceProvenanceEntry[]
+}
+
 export interface Topic {
   id: number
   name: string

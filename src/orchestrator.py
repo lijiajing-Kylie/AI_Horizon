@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 import httpx
 from rich.console import Console
 
-from .models import Config, ContentItem
+from .models import Config, ContentItem, SourceRole, classify_url_role, SOURCE_ROLE_PRIORITY
 from .storage.manager import StorageManager
 from .storage.db import HorizonDB
 from .services.email import EmailManager
@@ -434,64 +434,100 @@ class HorizonOrchestrator:
 
     @staticmethod
     def _build_source_attribution(items: List[ContentItem]) -> None:
-        """Build unified source attribution metadata for display.
+        """Build unified source provenance and backward-compatible source attribution.
 
-        Aggregates sources from URL dedup (``merged_sources``) and semantic
-        topic dedup (``topic_coverage``) plus the item's own source label
-        into ``metadata["source_attribution"]``:
+        Aggregates sources from:
+        1. URL dedup (``_cross_source_provenance`` set by
+           :meth:`merge_cross_source_duplicates`)
+        2. Semantic topic dedup (``_topic_provenance_groups`` set by
+           :meth:`merge_topic_duplicates`)
+        3. The item itself (standalone source)
 
-        .. code-block:: json
+        Writes two metadata keys:
 
-          {
-            "count": 4,
-            "labels": ["OpenAI Blog", "TechCrunch", "Hacker News", "AI News"],
-            "detail": [{"label": "OpenAI Blog", "title": "...", "url": "..."}, ...]
-          }
-
-        Items with only one source are left unchanged.
+        * ``source_provenance`` — canonical structure with primary_source and
+          full sources list
+        * ``source_attribution`` — legacy compact structure for backward compat
         """
         for item in items:
-            # Collect all sources: self + URL-merged + topic-merged
-            detail: list[dict] = []
-            detail.append({
-                "label": HorizonOrchestrator._sub_source_label(item),
+            # ── Phase A: gather all rich source entries ──────────────────
+            all_sources: list[dict] = []
+
+            # 1. Cross-source URL dedup provenance
+            cross_prov = item.metadata.pop("_cross_source_provenance", None)
+            if isinstance(cross_prov, dict):
+                all_sources.extend(cross_prov.get("sources", []))
+
+            # 2. Topic dedup provenance (may have multiple groups)
+            topic_groups = item.metadata.pop("_topic_provenance_groups", None) or []
+            for group in topic_groups:
+                if isinstance(group, dict):
+                    all_sources.extend(group.get("sources", []))
+
+            # 3. The item itself (always included)
+            own_entry: dict = {
+                "source_name": HorizonOrchestrator._sub_source_label(item),
+                "source_url": str(item.url),
+                "source_type": item.source_type.value,
+                "role": classify_url_role(str(item.url)).value,
                 "title": item.title,
-                "url": str(item.url),
-            })
-            for src in item.metadata.pop("merged_sources", []) or []:
-                if isinstance(src, dict):
-                    detail.append({
-                        "label": src.get("label", src.get("source_type", "")),
-                        "title": item.title,
-                        "url": str(item.url),
-                    })
-            for src in item.metadata.pop("topic_coverage", []) or []:
+                "published_at": item.published_at.isoformat() if item.published_at else None,
+                "is_primary": True,
+                "discovered_via": "standalone",
+                "confidence": 1.0,
+            }
+            all_sources.append(own_entry)
+
+            # ── Phase B: deduplicate by source_url ───────────────────────
+            seen_urls: set[str] = set()
+            unique_sources: list[dict] = []
+            for s in all_sources:
+                url = s.get("source_url", "")
+                if url and url not in seen_urls:
+                    seen_urls.add(url)
+                    unique_sources.append(s)
+
+            # ── Phase C: select primary by provenance priority ───────────
+            unique_sources.sort(
+                key=lambda e: SOURCE_ROLE_PRIORITY.get(
+                    SourceRole(e.get("role", "unknown")), 10
+                )
+            )
+            if unique_sources:
+                best = unique_sources[0]
+                for s in unique_sources:
+                    s["is_primary"] = s["source_url"] == best["source_url"]
+
+            # ── Phase D: write source_provenance ─────────────────────────
+            if len(unique_sources) >= 1:
+                best = unique_sources[0]
+                item.metadata["source_provenance"] = {
+                    "primary_source_name": best.get("source_name", ""),
+                    "primary_source_url": best.get("source_url", ""),
+                    "primary_source_type": best.get("role", "unknown"),
+                    "source_count": len(unique_sources),
+                    "sources": unique_sources,
+                }
+
+            # ── Phase E: backward-compatible source_attribution ──────────
+            detail: list[dict] = []
+            for s in unique_sources:
+                title = s.get("title", "")
+                if len(title) > 60:
+                    title = title[:57] + "..."
                 detail.append({
-                    "label": src.get("label", src.get("source_type", "")),
-                    "title": src.get("title", ""),
-                    "url": src.get("url", ""),
+                    "label": s.get("source_name", ""),
+                    "title": title,
+                    "url": s.get("source_url", ""),
                 })
 
-            # Deduplicate by label (same source may appear in both lists)
-            seen_labels: set[str] = set()
-            unique_detail: list[dict] = []
-            for d in detail:
-                if d["label"] not in seen_labels:
-                    seen_labels.add(d["label"])
-                    unique_detail.append(d)
-
-            if len(unique_detail) <= 1:
+            if len(detail) <= 1:
                 continue
 
-            # Truncate long titles for compact display
-            for d in unique_detail:
-                if len(d["title"]) > 60:
-                    d["title"] = d["title"][:57] + "..."
-
             item.metadata["source_attribution"] = {
-                "count": len(unique_detail),
-                "labels": [d["label"] for d in unique_detail],
-                "detail": unique_detail,
+                "count": len(detail),
+                "labels": [d["label"] for d in detail],
+                "detail": detail,
             }
 
     def merge_cross_source_duplicates(self, items: List[ContentItem]) -> List[ContentItem]:
@@ -499,7 +535,9 @@ class HorizonOrchestrator:
 
         This is a stable stage helper for integrations such as MCP.
 
-        Keeps the item with the richest content and combines metadata.
+        Keeps the item with the richest content (or most authoritative URL) and
+        combines metadata.  Stores full source provenance records for later
+        aggregation by :meth:`_build_source_attribution`.
 
         Args:
             items: Items to deduplicate
@@ -516,6 +554,20 @@ class HorizonOrchestrator:
             path = parsed.path.rstrip("/")
             return f"{host}{path}"
 
+        def _build_source_entry(item: ContentItem, discovered_via: str = "url_dedup", confidence: float = 1.0) -> dict:
+            """Build a single source provenance entry for a ContentItem."""
+            return {
+                "source_name": self._sub_source_label(item),
+                "source_url": str(item.url),
+                "source_type": item.source_type.value,
+                "role": classify_url_role(str(item.url)).value,
+                "title": item.title,
+                "published_at": item.published_at.isoformat() if item.published_at else None,
+                "is_primary": False,
+                "discovered_via": discovered_via,
+                "confidence": confidence,
+            }
+
         # Group by normalized URL
         url_groups: Dict[str, List[ContentItem]] = {}
         for item in items:
@@ -528,16 +580,23 @@ class HorizonOrchestrator:
                 merged.append(group[0])
                 continue
 
-            # Pick the item with the richest content as primary
+            # Pick the item with the richest content as initial primary
             primary = max(group, key=lambda x: len(x.content or ""))
 
             # Merge metadata and source info from other items
-            all_sources_dicts: list[dict] = []
+            all_sources_dicts: list[dict] = []           # backward-compat
+            provenance_entries: list[dict] = []           # new rich structure
             for item in group:
+                # Backward-compatible record
                 all_sources_dicts.append({
                     "source_type": item.source_type.value,
                     "label": self._sub_source_label(item),
                 })
+                # Rich provenance entry
+                entry = _build_source_entry(item)
+                entry["is_primary"] = (item is primary)
+                provenance_entries.append(entry)
+
                 # Merge metadata (engagement, discussion, etc.)
                 for mk, mv in item.metadata.items():
                     if mk not in primary.metadata or not primary.metadata[mk]:
@@ -548,7 +607,29 @@ class HorizonOrchestrator:
                     if primary.content and item.content not in primary.content:
                         primary.content = (primary.content or "") + f"\n\n--- From {item.source_type.value} ---\n" + item.content
 
+            # --- Select primary by provenance priority (not just content length) ---
+            # Sort by SOURCE_ROLE_PRIORITY ascending (lower = more authoritative)
+            provenance_entries.sort(
+                key=lambda e: SOURCE_ROLE_PRIORITY.get(
+                    SourceRole(e.get("role", "unknown")), 10
+                )
+            )
+            best = provenance_entries[0]
+            # Mark the priority-selected entry as primary
+            for entry in provenance_entries:
+                is_primary = entry["source_url"] == best["source_url"]
+                entry["is_primary"] = is_primary
+            # Also update the backward-compat label list to mark primary
+            for sd in all_sources_dicts:
+                sd["is_primary"] = (
+                    best.get("source_name") == sd.get("label")
+                )
+
             primary.metadata["merged_sources"] = all_sources_dicts
+            # Store rich provenance for later aggregation by _build_source_attribution
+            primary.metadata["_cross_source_provenance"] = {
+                "sources": provenance_entries,
+            }
             merged.append(primary)
 
         return merged
@@ -563,7 +644,8 @@ class HorizonOrchestrator:
         item in each duplicate group is always the highest-scored one.
         Content (comments) from duplicate items is merged into the primary.
 
-        Falls back to returning items unchanged if the AI call fails.
+        Parses the AI response for ``source_provenance`` to build rich source
+        records.  Falls back to returning items unchanged if the AI call fails.
         """
         if len(items) <= 1:
             return items
@@ -571,12 +653,17 @@ class HorizonOrchestrator:
         from .ai.prompts import TOPIC_DEDUP_SYSTEM, TOPIC_DEDUP_USER
         from .ai.utils import parse_json_response
 
-        # Build the item list for the prompt
+        # Build the item list for the prompt — include URL so the AI can classify
         lines = []
         for i, item in enumerate(items):
             tags = ", ".join(item.ai_tags) if item.ai_tags else "—"
             summary = item.ai_summary or "—"
-            lines.append(f"[{i}] {item.title}\n    Tags: {tags}\n    Summary: {summary}")
+            lines.append(
+                f"[{i}] {item.title}\n"
+                f"    URL: {item.url}\n"
+                f"    Tags: {tags}\n"
+                f"    Summary: {summary}"
+            )
         items_text = "\n\n".join(lines)
 
         try:
@@ -591,12 +678,27 @@ class HorizonOrchestrator:
                 return items
 
             duplicate_groups = result.get("duplicates", [])
+            source_provenance_raw = result.get("source_provenance", {})
         except Exception as e:
             self.console.print(f"[yellow]  dedup: AI call failed ({e}), skipping[/yellow]")
             return items
 
         if not duplicate_groups:
             return items
+
+        def _build_topic_source_entry(item: ContentItem, discovered_via: str = "ai_topic_dedup", confidence: float = 0.85) -> dict:
+            """Build a single source provenance entry for a topic-dedup item."""
+            return {
+                "source_name": self._sub_source_label(item),
+                "source_url": str(item.url),
+                "source_type": item.source_type.value,
+                "role": classify_url_role(str(item.url)).value,
+                "title": item.title,
+                "published_at": item.published_at.isoformat() if item.published_at else None,
+                "is_primary": False,
+                "discovered_via": discovered_via,
+                "confidence": confidence,
+            }
 
         # Build a set of indices to drop (all non-primary duplicates)
         drop_indices: set[int] = set()
@@ -608,6 +710,44 @@ class HorizonOrchestrator:
                 continue
             primary = items[primary_idx]
             primary_topic_sources: list[dict] = primary.metadata.setdefault("topic_coverage", [])
+
+            # --- Collect source provenance for this group ---
+            group_provenance: list[dict] = []
+            # Primary item
+            primary_entry = _build_topic_source_entry(primary)
+            group_provenance.append(primary_entry)
+
+            # Parse AI-provided provenance for this group if available
+            ai_prov = source_provenance_raw.get(str(primary_idx))
+            if isinstance(ai_prov, dict):
+                # Apply AI-determined primary_source
+                ai_primary = ai_prov.get("primary_source")
+                if isinstance(ai_primary, dict):
+                    for entry in group_provenance:
+                        if entry["source_url"] == ai_primary.get("url"):
+                            entry["is_primary"] = True
+                            entry["role"] = ai_primary.get("type", entry["role"])
+                # Apply AI-classified source types
+                ai_sources = ai_prov.get("sources", [])
+                if isinstance(ai_sources, list):
+                    for ai_s in ai_sources:
+                        if not isinstance(ai_s, dict):
+                            continue
+                        ai_url = ai_s.get("url", "")
+                        for entry in group_provenance:
+                            if entry["source_url"] == ai_url:
+                                if ai_s.get("type"):
+                                    entry["role"] = ai_s["type"]
+                                if ai_s.get("is_primary"):
+                                    entry["is_primary"] = True
+                                break
+
+                # Store merged_facts if provided
+                merged_facts = ai_prov.get("merged_facts")
+                if isinstance(merged_facts, list):
+                    existing = primary.metadata.setdefault("merged_facts", [])
+                    existing.extend(merged_facts)
+
             for dup_idx in group[1:]:
                 if not isinstance(dup_idx, int) or dup_idx < 0 or dup_idx >= len(items):
                     continue
@@ -619,18 +759,43 @@ class HorizonOrchestrator:
                     if not primary.content or dup.content not in primary.content:
                         label = dup.source_type.value
                         primary.content = (primary.content or "") + f"\n\n--- From {label} ---\n{dup.content}"
-                # Record source attribution for the dropped item
+                # Record source attribution for the dropped item (backward-compat)
                 primary_topic_sources.append({
                     "source_type": dup.source_type.value,
                     "label": self._sub_source_label(dup),
                     "title": dup.title,
                     "url": str(dup.url),
                 })
+                # Rich provenance entry for duplicate
+                dup_entry = _build_topic_source_entry(dup)
+                group_provenance.append(dup_entry)
                 self.console.print(
                     f"   [dim]dedup: keep [{primary_idx}] {primary.title}[/dim]\n"
                     f"   [dim]       drop [{dup_idx}] {dup.title}[/dim]"
                 )
                 drop_indices.add(dup_idx)
+
+            # --- Ensure primary_source is correctly identified by priority ---
+            # Sort by provenance priority (lower = more authoritative)
+            group_provenance.sort(
+                key=lambda e: SOURCE_ROLE_PRIORITY.get(
+                    SourceRole(e.get("role", "unknown")), 10
+                )
+            )
+            best_entry = group_provenance[0]
+            for entry in group_provenance:
+                entry["is_primary"] = entry["source_url"] == best_entry["source_url"]
+
+            # Store for later aggregation
+            topic_prov_groups: list[dict] = primary.metadata.setdefault(
+                "_topic_provenance_groups", []
+            )
+            topic_prov_groups.append({
+                "primary_source_name": best_entry["source_name"],
+                "primary_source_url": best_entry["source_url"],
+                "primary_source_type": best_entry["role"],
+                "sources": group_provenance,
+            })
 
         return [item for i, item in enumerate(items) if i not in drop_indices]
 
