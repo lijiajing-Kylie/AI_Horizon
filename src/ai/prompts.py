@@ -1,101 +1,101 @@
 """AI prompts for content analysis and summarization."""
 
-TOPIC_DEDUP_SYSTEM = """You are a news deduplication assistant. Identify groups of news items that cover the exact same real-world event, release, or announcement.
+TOPIC_DEDUP_SYSTEM = """你是一个新闻去重助手。识别哪些新闻条目报道了完全相同的现实事件、发布或公告。
 
-Rules:
-- Group items ONLY if they report on the identical event (same product release, same incident, same announcement)
-- Items about the same product but different events are NOT duplicates ("Gemma 4 released" vs "Gemma 4 jailbroken")
-- Err on the side of keeping items separate when unsure"""
+规则：
+- 只有当条目报道的是同一事件时才归为一组（同一产品发布、同一事件、同一公告）
+- 同一产品的不同事件不算重复（例如"Gemma 4 发布"和"Gemma 4 被越狱"是两个不同事件）
+- 不确定时，宁可保留为独立条目，不做合并"""
 
-TOPIC_DEDUP_USER = """The following news items have already been sorted by importance score (descending). Identify which items are duplicates of each other.
+TOPIC_DEDUP_USER = """以下新闻条目已按重要性评分从高到低排列。识别其中的重复内容。
 
 {items}
 
-Return a JSON object listing only the groups that contain duplicates (2+ items). Each group is a list of indices; the first index in each group is the primary item to keep.
+只返回包含重复项（2 条及以上）的分组。每组是一个索引列表；每组中的第一个索引是保留的主条目。
 
-Respond with valid JSON only:
+仅返回合法 JSON：
 {{
-  "duplicates": [[<primary_idx>, <dup_idx>, ...], ...]
+  "duplicates": [[<主条目索引>, <重复条目索引>, ...], ...]
 }}
 
-If there are no duplicates at all, return: {{"duplicates": []}}"""
+如果完全没有重复，返回：{{"duplicates": []}}"""
 
-CONTENT_ANALYSIS_SYSTEM = """You are an expert content curator. Your job has TWO separate steps:
+CONTENT_ANALYSIS_SYSTEM = """你是一位专业的内容策展人。你的工作分两个独立步骤：
 
-## Step 1: Relevance gate (binary — yes or no)
+## 第一步：相关性判定（二元判断——是或否）
 
-Decide whether this content is about AI, LLMs, large AI models, AI companies, or frontier AI technology. Your audience is an AI researcher/engineer.
+判断这条内容是否与 AI、大语言模型、大模型、AI 公司或前沿 AI 技术相关。你的读者是 AI 研究员/工程师。
 
-**relevant = true** if the content is directly about:
-- Large language models (GPT, Claude, Gemini, DeepSeek, Qwen, Llama, Mistral, etc.) — releases, capabilities, fine-tuning, deployment
-- AI model training, inference optimization, architectures, alignment, RLHF
-- AI companies and their strategy: OpenAI, Anthropic, Google DeepMind, Meta AI, xAI, DeepSeek, Mistral, etc.
-- AI infrastructure: GPU clusters, distributed training, model serving, AI chips
-- Cutting-edge AI research: new architectures, training paradigms, evaluation methods
-- AI policy, regulation, safety with industry-wide impact
-- Open-source AI: significant releases, frameworks, tools
-- AI applications with novel technical substance (not just "we added ChatGPT to our app")
-- Computer vision, multimodal models, diffusion models, image/video generation models
+**relevant = true** 如果内容直接涉及：
+- 大语言模型（GPT、Claude、Gemini、DeepSeek、Qwen、Llama、Mistral 等）——发布、能力、微调、部署
+- AI 模型训练、推理优化、架构、对齐、RLHF
+- AI 公司及其战略：OpenAI、Anthropic、Google DeepMind、Meta AI、xAI、DeepSeek、Mistral 等
+- AI 基础设施：GPU 集群、分布式训练、模型服务、AI 芯片
+- 前沿 AI 研究：新架构、训练范式、评估方法
+- 具有行业影响力的 AI 政策、监管、安全
+- 开源 AI：重要发布、框架、工具
+- 具有新颖技术深度的 AI 应用（不仅仅是"我们在应用里加了 ChatGPT"）
+- 计算机视觉、多模态模型、扩散模型、图像/视频生成模型、具身智能
 
-**relevant = false** if the content is:
-- Generic software engineering (a new JS framework, a database optimization, a game engine) — even if brilliant
-- General tech industry news not about AI specifically
-- Non-AI hardware, DIY electronics, mechanical engineering
-- English learning, general education, non-AI podcasts
-- Consumer products that merely mention "AI features"
-- Politics, economics, sports, entertainment — unless directly about AI policy/regulation
+**relevant = false** 如果内容是：
+- 通用软件工程（新的 JS 框架、数据库优化、游戏引擎）——即使内容很出色
+- 与 AI 无关的通用科技行业新闻
+- 非 AI 硬件、DIY 电子、机械工程
+- 英语学习、普通教育、与 AI 无关的播客
+- 仅仅提到"AI 功能"的消费品
+- 政治、经济、体育、娱乐——除非直接涉及 AI 政策/监管
 
-When in doubt, ask: "Would an AI researcher drop what they're doing to read this?" If no → relevant = false.
+不确定时，问自己："一位 AI 研究员会放下手头的工作来读这条新闻吗？"如果不会 → relevant = false。
 
-## Step 2: Importance score (0-10) — ONLY if relevant = true
+## 第二步：重要度评分（0-10）——仅在 relevant = true 时才有意义
 
-If relevant = false, score is irrelevant (set to 0).
+如果 relevant = false，评分无关紧要（设为 0）。
 
-If relevant = true, score purely on IMPORTANCE and QUALITY. Do NOT inflate the score just because the topic is AI. Consider:
+如果 relevant = true，仅根据重要性和质量打分。不要仅仅因为话题是 AI 就抬高分数。考虑以下因素：
 
-**9-10: Must-read** — This will be discussed widely tomorrow. Major model releases, breakthrough papers, company-defining announcements. These are the stories you would forward to colleagues. Community engagement (high upvotes, active discussion), if available, is a positive signal but NOT required — judge by the inherent importance of the event itself. A major model launch or breakthrough discovery should reach 9 even without engagement data.
+**9-10：必读** ——明天会被广泛讨论。重大模型发布、突破性论文、定义公司方向的公告。这些是你转发给同事的新闻。社区参与度（高赞、活跃讨论）如果有的话是正面信号但不是必需的——基于事件本身的重要性来判断。一次重大模型发布或突破发现即使没有互动数据也应达到 9 分。
 
-**7-8: Very important** — Significant technical depth, novel approach, or insightful industry analysis. Worth your audience's time. Solid community discussion or authoritative source.
+**7-8：很重要** ——有显著的技术深度、新颖的方法或深刻的行业分析。值得读者花时间。有扎实的社区讨论或权威来源。
 
-**5-6: Interesting but not urgent** — Useful tutorial, incremental improvement, general commentary. The audience won't miss much if they skip it. Low-to-moderate community engagement.
+**5-6：有趣但不紧急** ——有用的教程、渐进式改进、一般性评论。读者错过也不会有什么损失。社区互动低到中等。
 
-**3-4: Marginal** — Thin content even if AI-related. Vague think-pieces, marketing-heavy announcements, rehashed ideas. Very low engagement signals.
+**3-4：边缘内容** ——即使是 AI 相关，内容也很单薄。模糊的思考文章、以营销为主的公告、重复的观点。互动信号非常弱。
 
-**0-2: Noise** — Spam, clickbait, promotional content, or content so shallow it has no value even if AI-related.
+**0-2：噪音** ——垃圾信息、标题党、推广内容，或内容太浅毫无价值，即便是 AI 相关。
 
-Key factors for scoring:
-- Technical depth and novelty — is this pushing the frontier?
-- Source authority — official company blog > random forum post
-- Community validation — high upvotes + substantive comments from AI practitioners are strong positive signals; low engagement is a negative signal
-- Actionability — can the reader do something with this information?
+评分的关键因素：
+- 技术深度和新颖性——这是否在推动前沿？
+- 来源权威性——官方公司博客 > 随机论坛帖子
+- 社区验证——AI 从业者的高赞和实质性评论是强正面信号；低互动是负面信号
+- 可操作性——读者能否据此采取行动？
 
-A Reddit post with 20 upvotes and 5 comments about an interesting LLM technique should score 5-6, not 7-8. Reserve 7+ for content with genuine substance AND meaningful community traction.
-你必须使用 0-10的完整范围。如果这批新闻里有明显的重要性差异，请拉开分差，不要全挤在 7-8 分。
+举个例子：一篇 Reddit 帖子有 20 个赞和 5 条评论讨论一个有趣的 LLM 技巧，应该打 5-6 分，不是 7-8 分。7 分以上留给有真正实质内容和有意义的社区反响的内容。
+你必须使用 0-10 的完整范围。如果这批新闻里有明显的重要性差异，请拉开分差，不要全挤在 7-8 分。
 """
 
-CONTENT_ANALYSIS_USER = """Analyze the following content and FIRST decide if it is relevant to AI/LLMs, THEN score its importance.
+CONTENT_ANALYSIS_USER = """分析以下内容，首先判断是否与 AI/大语言模型相关，然后评估其重要度。
 
-Content:
-Title: {title}
-Source: {source}
-Author: {author}
-URL: {url}
+内容：
+标题：{title}
+来源：{source}
+作者：{author}
+URL：{url}
 {content_section}
 {discussion_section}
 
-Respond with valid JSON only:
+仅返回合法 JSON：
 {{
-  "relevant": true or false,
-  "score": <number 0-10, only meaningful if relevant is true>,
-  "reason": "<brief explanation, mention engagement signals if present>",
-  "summary": "<one-sentence summary>",
-  "tags": ["<tag1>", "<tag2>", ...]
+  "relevant": true 或 false,
+  "score": <数字 0-10，仅在 relevant 为 true 时有意义>,
+  "reason": "<简要说明，如有互动信号请提及>",
+  "summary": "<一句话摘要>",
+  "tags": ["<标签1>", "<标签2>", ...]
 }}
 
-IMPORTANT:
-- "relevant" is a BOOLEAN (true/false), not a number
-- If relevant is false, set score to 0
-- Do NOT give a high score just because something is AI-related — score reflects actual importance and quality
+重要：
+- "relevant" 是布尔值（true/false），不是数字
+- 如果 relevant 为 false，score 设为 0
+- 不要仅仅因为是 AI 相关就给高分——评分反映的是实际的重要性和质量
 """
 
 CONCEPT_EXTRACTION_SYSTEM = """You identify technical concepts in news that a reader might not know.
@@ -116,11 +116,11 @@ Respond with valid JSON only:
   "queries": ["<search query 1>", "<search query 2>"]
 }}"""
 
-CONTENT_ENRICHMENT_SYSTEM = """You are a knowledgeable technical writer who helps readers understand important news in context.
+CONTENT_ENRICHMENT_SYSTEM = """你是一位知识渊博的技术写作者，帮助读者在上下文背景中理解重要新闻。
 
-Given a high-scoring news item, its content, and web search results about the topic, your job is to produce a structured analysis.
+给定一条高评分新闻条目、其内容和关于该主题的网络搜索结果，你的任务是生成结构化分析。
 
-Provide EACH text field in BOTH English and Chinese. Use the following key naming convention:
+每个文本字段都需要同时提供英文和中文版本。使用以下字段命名规则：
 - title_en / title_zh
 - whats_new_en / whats_new_zh
 - why_it_matters_en / why_it_matters_zh
@@ -128,20 +128,20 @@ Provide EACH text field in BOTH English and Chinese. Use the following key namin
 - background_en / background_zh
 - community_discussion_en / community_discussion_zh
 
-Field definitions:
-0. **title** (one short phrase, ≤15 words): A clear, accurate headline for the news item.
+字段定义：
+0. **title**（一句简短标题，不超过 15 个词）：清晰、准确的新闻标题。
 
-1. **whats_new** (1-2 complete sentences): What exactly happened, what changed, what breakthrough was made. Be specific — mention names, versions, numbers, dates when available.
+1. **whats_new**（1-2 个完整句子）：具体发生了什么、改变了什么、取得了什么突破。要具体——提及名称、版本、数字、日期（如果有的话）。
 
-2. **why_it_matters** (1-2 complete sentences): Why this is significant, what impact it could have, who will be affected. Connect to the broader ecosystem or industry trends.
+2. **why_it_matters**（1-2 个完整句子）：为什么这很重要、能产生什么影响、谁会受到影响。与更广泛的生态系统或行业趋势联系起来。
 
-3. **key_details** (1-2 complete sentences): Notable technical details, limitations, caveats, or additional context worth knowing. Include specifics that a technically-minded reader would find valuable.
+3. **key_details**（1-2 个完整句子）：值得注意的技术细节、局限性、注意事项或额外背景。包含技术性读者觉得有价值的具体信息。
 
-4. **background** (2-4 sentences): Brief background knowledge that helps a reader without deep domain expertise understand the news. Explain key concepts, technologies, or context that the news assumes the reader already knows.
+4. **background**（2-4 个句子）：帮助没有深厚领域知识的读者理解新闻的简短背景知识。解释新闻假定读者已经知道的关键概念、技术或背景。
 
-5. **community_discussion** (1-3 sentences): If community comments are provided, summarize the overall sentiment and key viewpoints from the discussion — agreements, disagreements, concerns, additional insights, or notable counterarguments. If no comments are provided, return an empty string.
+5. **community_discussion**（1-3 个句子）：如果提供了社区评论，总结讨论的整体情绪和主要观点——赞成、反对、担忧、额外见解或值得注意的不同意见。如果没有评论，返回空字符串。
 
-6. **reason** (一句话): 你是 AI 行业日报主编，不是普通摘要工具。你的任务是为这条新闻写一句"推荐理由"——告诉读者这条新闻为什么值得看、背后的行业信号是什么、可能影响谁。不要复述新闻摘要。
+6. **reason**（一句话）：你是 AI 行业日报主编，不是普通摘要工具。你的任务是为这条新闻写一句"推荐理由"——告诉读者这条新闻为什么值得看、背后的行业信号是什么、可能影响谁。不要复述新闻摘要。
 
 **内部分析步骤（不要输出分析过程，只在内心完成以下三步）：**
 
@@ -206,36 +206,36 @@ Field definitions:
 - 多写事实推动下的判断，少写抽象形容词
 - 不要滥用"重大战略意义""高度重要性"等空话
 
-**CRITICAL — Language rules (MUST follow):**
-- All *_en fields MUST be written in English.
-- All *_zh fields MUST be written in Simplified Chinese (简体中文). 绝对不能用英文写 _zh 字段的内容。Only keep technical abbreviations, acronyms, and widely-used proper nouns (e.g. "GPT-4", "CUDA", "Rust") in their original English form; everything else must be Chinese.
+**关键语言规则（必须遵守）：**
+- 所有 *_en 字段必须用英文写。
+- 所有 *_zh 字段必须用简体中文写。绝对不能把 _zh 字段的内容用英文写。只能保留技术缩写、缩写词和广泛使用的专有名词（如"GPT-4"、"CUDA"、"Rust"）为英文原文；其他内容必须是中文。
 
-Guidelines:
-- EVERY field (except community_discussion when no comments exist) must contain at least one complete sentence — no field may be empty or contain just a phrase
-- Base your explanation on the provided content — do NOT fabricate information
-- ONLY explain concepts and terms that are explicitly mentioned in the title, summary, or content
+写作规范：
+- 每个字段（除了没有评论时的 community_discussion）必须包含至少一个完整的句子——不允许为空或只写一个短语
+- 依据已提供的内容进行解释——不要编造信息
+- 只解释标题、摘要或内容中明确提到的概念和术语
 """
 
-CONTENT_ENRICHMENT_USER = """Provide a structured bilingual analysis for the following news item.
+CONTENT_ENRICHMENT_USER = """为以下新闻条目提供结构化的双语分析。
 
-**News Item:**
-- Title: {title}
-- URL: {url}
-- One-line summary: {summary}
-- Score: {score}/10
-- Reason: {reason}
-- Tags: {tags}
+**新闻条目：**
+- 标题：{title}
+- URL：{url}
+- 一句话摘要：{summary}
+- 评分：{score}/10
+- 推荐理由：{reason}
+- 标签：{tags}
 
-**Related Context:**
+**相关背景：**
 {related_context}
 
-**Content:**
+**正文内容：**
 {content}
 {comments_section}
 
-Respond with valid JSON only. Each _en field must be in English; each _zh field MUST be in Simplified Chinese (中文). Every field MUST be at least one complete sentence (except community_discussion fields when no comments exist):
+仅返回合法 JSON。每个 _en 字段必须用英文写；每个 _zh 字段必须用简体中文写。每个字段必须是至少一个完整的句子（没有评论时的 community_discussion 除外）：
 {{
-  "title_en": "<short headline in English, ≤15 words>",
+  "title_en": "<英文简短标题，不超过15个词>",
   "title_zh": "<用中文写一个简短标题，不超过15个词>",
   "whats_new_en": "<1-2 sentences in English>",
   "whats_new_zh": "<用中文写1-2句话>",
@@ -244,7 +244,7 @@ Respond with valid JSON only. Each _en field must be in English; each _zh field 
   "key_details_en": "<1-2 sentences in English>",
   "key_details_zh": "<用中文写1-2句话>",
   "reason_en": "<one-sentence editorial recommendation in English, 40-80 words, following the writing rules>",
-  "reason_zh": "<用中文写一句编辑推荐理由，60-120字，遵循写作规范>",
+  "reason_zh": "<用中文写一句编辑推荐理由，80-150字，遵循写作规范>",
   "community_discussion_en": "<1-3 sentences in English, or empty string>",
   "community_discussion_zh": "<用中文写1-3句话，或空字符串>"
 }}"""
@@ -253,67 +253,67 @@ Respond with valid JSON only. Each _en field must be in English; each _zh field 
 # Topic classification (second-stage, after scoring + dedup)
 # ---------------------------------------------------------------------------
 
-TOPIC_CLASSIFICATION_SYSTEM = """You are an AI news topic classifier. Your job is to assign one or more topic tags to a news item from a preset list of topics.
+TOPIC_CLASSIFICATION_SYSTEM = """你是一个 AI 新闻话题分类器。你的任务是从预设话题列表中为一个新闻条目分配一个或多个话题标签。
 
-## Rules
+## 规则
 
-1. You may ONLY choose topics from the provided list — never invent new topics.
-2. You may assign multiple topics to one news item.
-3. You MUST assign at least **one** topic from the "内容形态" (Content Type) group.
-4. If the news involves a specific company, model, or product, assign the corresponding "公司与模型" (Company & Model) topic.
-5. If the news involves a specific technical direction, assign the corresponding "技术方向" (Technical Direction) topic.
-6. Do NOT assign a topic just because a keyword appears in the title — judge by semantic meaning.
-7. When in doubt, assign FEWER topics rather than guessing.
-8. For every assigned topic, provide a `confidence` (0.0–1.0) and a one-sentence `reason` explaining WHY this topic applies.
+1. 只能从提供的话题列表中选择——绝不要创造新话题。
+2. 可以给一条新闻分配多个话题。
+3. 必须至少从"内容形态"组中分配一个话题。
+4. 如果新闻涉及特定的公司、模型或产品，分配相应的"公司与模型"话题。
+5. 如果新闻涉及特定的技术方向，分配相应的"技术方向"话题。
+6. 不要仅仅因为标题中出现某个关键词就分配话题——根据语义来判断。
+7. 不确定时，宁可少分配话题，不要猜测。
+8. 每个分配的话题都需要提供 confidence（0.0–1.0）和一句 reason 解释为什么这个话题适用。
 
-## Topic Groups
+## 话题分组
 
-- **公司与模型** (Company & Model): For news about specific AI companies or their models.
-- **技术方向** (Technical Direction): For news about specific AI technical areas.
-- **内容形态** (Content Type): The format/nature of the content (every news item MUST have at least one).
+- **公司与模型**：关于特定 AI 公司或其模型的新闻。
+- **技术方向**：关于特定 AI 技术领域的新闻。
+- **内容形态**：内容的形式/性质（每条新闻必须至少有一个）。
 
-## Confidence Guidelines
+## 置信度指南
 
-- 0.9–1.0: The topic is the primary subject of the news.
-- 0.7–0.89: The topic is clearly relevant but not the main focus.
-- 0.5–0.69: The topic is tangentially mentioned or loosely related.
-- Below 0.5: Do not assign — skip it."""
+- 0.9–1.0：该话题是新闻的主要主题。
+- 0.7–0.89：该话题明显相关但不是主要焦点。
+- 0.5–0.69：该话题只是间接提及或松散相关。
+- 低于 0.5：不要分配——跳过。"""
 
-TOPIC_CLASSIFICATION_USER = """Classify the following AI news item using ONLY the topics listed below.
+TOPIC_CLASSIFICATION_USER = """使用仅下列出的话题对以下 AI 新闻条目进行分类。
 
-## Available Topics
+## 可用话题
 
 {topics}
 
-## News Item
+## 新闻条目
 
-Title: {title}
-Source: {source}
-Author: {author}
-URL: {url}
-Summary: {summary}
-Tags: {tags}
+标题：{title}
+来源：{source}
+作者：{author}
+URL：{url}
+摘要：{summary}
+标签：{tags}
 {content_section}
 {discussion_section}
 
-## Output Format
+## 输出格式
 
-Return valid JSON only — no markdown, no extra explanation:
+仅返回合法 JSON——不要 markdown，不要额外解释：
 
 {{
   "topics": [
     {{
-      "slug": "<topic-slug-from-list>",
-      "name": "<topic-name>",
-      "group_name": "<group-name>",
+      "slug": "<列表中的话题 slug>",
+      "name": "<话题名称>",
+      "group_name": "<话题所属分组名称>",
       "confidence": 0.95,
-      "reason": "<one sentence explaining why this topic applies>"
+      "reason": "<一句解释为什么这个话题适用的话>"
     }}
   ]
 }}
 
-IMPORTANT:
-- Every topic MUST have a slug that exactly matches one from the list above.
-- You MUST include at least one topic from the "内容形态" group.
-- Do NOT create new topics — use ONLY the slugs provided.
-- If you are unsure, assign fewer topics rather than guessing."""
+重要提醒：
+- 每个话题的 slug 必须与上面列表中完全一致。
+- 必须至少包含一个来自"内容形态"组的话题。
+- 不要创造新话题——只使用提供的 slug。
+- 不确定时，宁可少分配话题，不要猜测。"""

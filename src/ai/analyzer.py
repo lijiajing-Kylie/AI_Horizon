@@ -1,7 +1,7 @@
 """Content analysis using AI."""
 
 import asyncio
-from typing import List
+from typing import Any, List
 from tenacity import retry, stop_after_attempt, wait_exponential
 from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, MofNCompleteColumn
 

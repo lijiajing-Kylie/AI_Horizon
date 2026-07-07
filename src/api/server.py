@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Optional
@@ -13,10 +14,19 @@ from fastapi.responses import HTMLResponse, FileResponse
 
 from ..storage.db import HorizonDB
 
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    """Startup / shutdown lifecycle for the Horizon API."""
+    yield
+    db.close()
+
+
 app = FastAPI(
     title="Horizon API",
     description="REST API for AI-curated news aggregation data",
     version="0.1.0",
+    lifespan=_lifespan,
 )
 
 app.add_middleware(
@@ -30,11 +40,6 @@ _TEMPLATES_DIR = Path(__file__).parent / "templates"
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
 
 db = HorizonDB()
-
-
-@app.on_event("shutdown")
-def _shutdown() -> None:
-    db.close()
 
 
 # ---------------------------------------------------------------------------
