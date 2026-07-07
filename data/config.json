@@ -1,0 +1,485 @@
+{
+  "version": "1.0",
+  "ai": {
+    "provider": "deepseek",
+    "provider_chain": null,
+    "model": "deepseek-v4-flash",
+    "base_url": null,
+    "api_key_env": "DEEPSEEK_API_KEY",
+    "temperature": 0.3,
+    "max_tokens": 8192,
+    "throttle_sec": 0.0,
+    "analysis_concurrency": 1,
+    "enrichment_concurrency": 1,
+    "languages": ["zh"],
+    "azure_endpoint_env": null,
+    "api_version": null
+  },
+  "sources": {
+    "github": [
+      {
+        "type": "repo_releases",
+        "username": null,
+        "owner": "sgl-project",
+        "repo": "sglang",
+        "enabled": true,
+        "category": "foreign-official"
+      },
+      {
+        "type": "repo_releases",
+        "username": null,
+        "owner": "vllm-project",
+        "repo": "vllm",
+        "enabled": true,
+        "category": "foreign-official"
+      },
+      {
+        "type": "repo_releases",
+        "username": null,
+        "owner": "YD4223",
+        "repo": "aihub",
+        "enabled": true,
+        "category": "chinese-blogger"
+      },
+      {
+        "type": "user_events",
+        "username": "karpathy",
+        "owner": null,
+        "repo": null,
+        "enabled": true,
+        "category": "foreign-blogger"
+      }
+    ],
+    "hackernews": {
+      "enabled": true,
+      "fetch_top_stories": 30,
+      "min_score": 100,
+      "category": "foreign-community"
+    },
+    "rss": [
+      {
+        "name": "Anthropic Research",
+        "url": "https://www.anthropic.com/research/rss",
+        "enabled": false,
+        "category": "foreign-official"
+      },
+      {
+        "name": "BAIR Blog",
+        "url": "https://bair.berkeley.edu/blog/feed.xml",
+        "enabled": true,
+        "category": "foreign-official"
+      },
+      {
+        "name": "GitHub AI & ML",
+        "url": "https://github.blog/ai-and-ml/feed/",
+        "enabled": true,
+        "category": "foreign-official"
+      },
+      {
+        "name": "GitHub Changelog",
+        "url": "https://github.blog/changelog/feed/",
+        "enabled": true,
+        "category": "foreign-official"
+      },
+      {
+        "name": "Google AI Blog",
+        "url": "https://blog.google/innovation-and-ai/technology/ai/rss/",
+        "enabled": true,
+        "category": "foreign-official"
+      },
+      {
+        "name": "Google DeepMind",
+        "url": "https://deepmind.google/blog/rss.xml",
+        "enabled": true,
+        "category": "foreign-official"
+      },
+      {
+        "name": "Hugging Face Blog",
+        "url": "https://huggingface.co/blog/feed.xml",
+        "enabled": true,
+        "category": "foreign-official"
+      },
+      {
+        "name": "OpenAI Blog",
+        "url": "https://openai.com/blog/rss.xml",
+        "enabled": true,
+        "category": "foreign-official"
+      },
+      {
+        "name": "OpenAI News",
+        "url": "https://openai.com/news/rss.xml",
+        "enabled": true,
+        "category": "foreign-official"
+      },
+      {
+        "name": "OpenAI Skills",
+        "url": "https://github.com/openai/skills/commits/main.atom",
+        "enabled": true,
+        "category": "foreign-official"
+      },
+      {
+        "name": "Stanford AI Lab (SAIL) Blog",
+        "url": "https://ai.stanford.edu/blog/feed.xml",
+        "enabled": true,
+        "category": "foreign-official"
+      },
+      {
+        "name": "The Batch",
+        "url": "https://www.deeplearning.ai/the-batch/feed/",
+        "enabled": false,
+        "category": "foreign-official"
+      },
+      {
+        "name": "Lobsters",
+        "url": "https://lobste.rs/rss",
+        "enabled": false,
+        "category": "foreign-community"
+      },
+      {
+        "name": "Ars Technica AI",
+        "url": "http://feeds.arstechnica.com/arstechnica/artificial-intelligence",
+        "enabled": true,
+        "category": "foreign-media"
+      },
+      {
+        "name": "TechCrunch AI",
+        "url": "https://techcrunch.com/category/artificial-intelligence/feed/",
+        "enabled": true,
+        "category": "foreign-media"
+      },
+      {
+        "name": "The Economist",
+        "url": "https://www.economist.com/latest/rss.xml",
+        "enabled": false,
+        "category": "foreign-media"
+      },
+      {
+        "name": "The Verge",
+        "url": "https://www.theverge.com/rss/index.xml",
+        "enabled": true,
+        "category": "foreign-media"
+      },
+      {
+        "name": "VentureBeat AI",
+        "url": "https://venturebeat.com/category/ai/feed/",
+        "enabled": true,
+        "category": "foreign-media"
+      },
+      {
+        "name": "Ahead of AI (Sebastian Raschka)",
+        "url": "https://magazine.sebastianraschka.com/feed",
+        "enabled": true,
+        "category": "foreign-blogger"
+      },
+      {
+        "name": "Chip Huyen",
+        "url": "https://huyenchip.com/feed.xml",
+        "enabled": true,
+        "category": "foreign-blogger"
+      },
+      {
+        "name": "Interconnects",
+        "url": "https://www.interconnects.ai/feed",
+        "enabled": true,
+        "category": "foreign-blogger"
+      },
+      {
+        "name": "Jay Alammar",
+        "url": "https://jalammar.github.io/feed.xml",
+        "enabled": true,
+        "category": "foreign-blogger"
+      },
+      {
+        "name": "Latent Space",
+        "url": "https://www.latent.space/feed",
+        "enabled": true,
+        "category": "foreign-blogger"
+      },
+      {
+        "name": "Lilian Weng",
+        "url": "https://lilianweng.github.io/index.xml",
+        "enabled": true,
+        "category": "foreign-blogger"
+      },
+      {
+        "name": "Machine Learning Mastery",
+        "url": "https://machinelearningmastery.com/feed/",
+        "enabled": true,
+        "category": "foreign-blogger"
+      },
+      {
+        "name": "Sebastian Raschka",
+        "url": "https://sebastianraschka.com/rss_feed.xml",
+        "enabled": true,
+        "category": "foreign-blogger"
+      },
+      {
+        "name": "Simon Willison",
+        "url": "https://simonwillison.net/atom/everything/",
+        "enabled": true,
+        "category": "foreign-blogger"
+      },
+      {
+        "name": "The Gradient",
+        "url": "https://thegradient.pub/rss/",
+        "enabled": true,
+        "category": "foreign-blogger"
+      },
+      {
+        "name": "The Pragmatic Engineer",
+        "url": "https://newsletter.pragmaticengineer.com/feed",
+        "enabled": true,
+        "category": "foreign-blogger"
+      },
+      {
+        "name": "量子位",
+        "url": "https://wechat2rss.xlab.app/feed/7131b577c61365cb47e81000738c10d872685908.xml",
+        "enabled": true,
+        "category": "wechat-account"
+      },
+      {
+        "name": "新智元",
+        "url": "https://wechat2rss.xlab.app/feed/ede30346413ea70dbef5d485ea5cbb95cca446e7.xml",
+        "enabled": true,
+        "category": "wechat-account"
+      },
+      {
+        "name": "AI Hot",
+        "url": "https://aihot.virxact.com/feed.xml",
+        "enabled": true,
+        "category": "ai-aggregator"
+      },
+      {
+        "name": "AI News",
+        "url": "https://www.artificialintelligence-news.com/feed/",
+        "enabled": true,
+        "category": "ai-aggregator"
+      },
+      {
+        "name": "AI Weekly",
+        "url": "https://aiweekly.co/issues.rss",
+        "enabled": true,
+        "category": "ai-aggregator"
+      },
+      {
+        "name": "AINews (Buttondown)",
+        "url": "https://buttondown.com/ainews/rss",
+        "enabled": true,
+        "category": "ai-aggregator"
+      },
+      {
+        "name": "Anavem.com",
+        "url": "https://www.anavem.com/en/rss.xml",
+        "enabled": true,
+        "category": "ai-aggregator"
+      },
+      {
+        "name": "Last Week in AI",
+        "url": "https://lastweekin.ai/feed",
+        "enabled": true,
+        "category": "ai-aggregator"
+      },
+      {
+        "name": "MarkTechPost",
+        "url": "https://www.marktechpost.com/feed/",
+        "enabled": true,
+        "category": "ai-aggregator"
+      },
+      {
+        "name": "The Decoder",
+        "url": "https://the-decoder.com/feed/",
+        "enabled": true,
+        "category": "ai-aggregator"
+      },
+      {
+        "name": "CNBC World News",
+        "url": "https://www.cnbc.com/id/100727362/device/rss/rss.html",
+        "enabled": true,
+        "category": "finance-news",
+        "source_group": "finance"
+      },
+      {
+        "name": "CNBC US News",
+        "url": "https://www.cnbc.com/id/15837362/device/rss/rss.html",
+        "enabled": true,
+        "category": "finance-news",
+        "source_group": "finance"
+      },
+      {
+        "name": "CNBC Business",
+        "url": "https://www.cnbc.com/id/10001147/device/rss/rss.html",
+        "enabled": true,
+        "category": "finance-news",
+        "source_group": "finance"
+      },
+      {
+        "name": "CNBC Earnings",
+        "url": "https://www.cnbc.com/id/15839135/device/rss/rss.html",
+        "enabled": true,
+        "category": "finance-news",
+        "source_group": "finance"
+      },
+      {
+        "name": "CNBC Economy",
+        "url": "https://www.cnbc.com/id/20910258/device/rss/rss.html",
+        "enabled": true,
+        "category": "finance-news",
+        "source_group": "finance"
+      },
+      {
+        "name": "CNBC Finance",
+        "url": "https://www.cnbc.com/id/10000664/device/rss/rss.html",
+        "enabled": true,
+        "category": "finance-news",
+        "source_group": "finance"
+      },
+      {
+        "name": "CNBC Technology",
+        "url": "https://www.cnbc.com/id/19854910/device/rss/rss.html",
+        "enabled": true,
+        "category": "finance-news",
+        "source_group": "finance"
+      },
+      {
+        "name": "CNBC Wealth",
+        "url": "https://www.cnbc.com/id/10001054/device/rss/rss.html",
+        "enabled": true,
+        "category": "finance-news",
+        "source_group": "finance"
+      },
+      {
+        "name": "CNBC Energy",
+        "url": "https://www.cnbc.com/id/19836768/device/rss/rss.html",
+        "enabled": true,
+        "category": "finance-news",
+        "source_group": "finance"
+      }
+    ],
+    "reddit": {
+      "enabled": true,
+      "subreddits": [
+        {
+          "subreddit": "MachineLearning",
+          "enabled": true,
+          "sort": "hot",
+          "time_filter": "day",
+          "fetch_limit": 15,
+          "min_score": 60,
+          "category": "foreign-community"
+        },
+        {
+          "subreddit": "LocalLLaMA",
+          "enabled": true,
+          "sort": "hot",
+          "time_filter": "day",
+          "fetch_limit": 15,
+          "min_score": 60,
+          "category": "foreign-community"
+        },
+        {
+          "subreddit": "StableDiffusion",
+          "enabled": true,
+          "sort": "hot",
+          "time_filter": "day",
+          "fetch_limit": 15,
+          "min_score": 60,
+          "category": "foreign-community"
+        },
+        {
+          "subreddit": "artificial",
+          "enabled": true,
+          "sort": "hot",
+          "time_filter": "day",
+          "fetch_limit": 15,
+          "min_score": 60,
+          "category": "foreign-community"
+        },
+        {
+          "subreddit": "OpenAI",
+          "enabled": true,
+          "sort": "hot",
+          "time_filter": "day",
+          "fetch_limit": 15,
+          "min_score": 60,
+          "category": "foreign-community"
+        },
+        {
+          "subreddit": "ChatGPTCoding",
+          "enabled": true,
+          "sort": "hot",
+          "time_filter": "day",
+          "fetch_limit": 15,
+          "min_score": 60,
+          "category": "foreign-community"
+        },
+        {
+          "subreddit": "technology",
+          "enabled": true,
+          "sort": "hot",
+          "time_filter": "day",
+          "fetch_limit": 15,
+          "min_score": 60,
+          "category": "foreign-media"
+        },
+        {
+          "subreddit": "ChatGPT",
+          "enabled": true,
+          "sort": "hot",
+          "time_filter": "day",
+          "fetch_limit": 15,
+          "min_score": 60,
+          "category": "foreign-community"
+        }
+      ],
+      "users": [],
+      "fetch_comments": 10
+    },
+    "telegram": {
+      "enabled": false,
+      "channels": []
+    },
+    "twitter": null,
+    "openbb": null,
+    "ossinsight": {
+      "enabled": false,
+      "period": "past_24_hours",
+      "languages": [
+        "All",
+        "Python",
+        "TypeScript"
+      ],
+      "keywords": [],
+      "min_stars": 5,
+      "max_items": 30
+    },
+    "gdelt": null,
+    "google_news": null
+  },
+  "filtering": {
+    "ai_score_threshold": 7.0,
+    "time_window_hours": 24,
+    "max_items": 10,
+    "category_groups": {
+      "ai": { "name": "AI 前沿", "limit": 3, "categories": ["ai"] },
+      "finance": { "name": "金融科技", "limit": 7, "categories": ["finance"] }
+    },
+    "default_group": "other",
+    "default_group_limit": 10
+  },
+  "email": null,
+  "webhook": {
+    "enabled": false,
+    "url_env": "DINGTALK_WEBHOOK_URL",
+    "delivery": "summary_and_items",
+    "platform": "dingtalk",
+    "layout": "markdown",
+    "languages": ["zh"],
+    "request_body": {
+      "msgtype": "markdown",
+      "markdown": {
+        "title": "Horizon #{date} Daily",
+        "text": "Horizon result: #{result}\n\nHorizon important items: #{important_items}/#{all_items}\n\n#{summary}"
+      }
+    }
+  }
+}
