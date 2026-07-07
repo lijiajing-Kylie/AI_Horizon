@@ -47,6 +47,7 @@ data/mcp-runs/
 data/x_cookies_*.json
 
 docs/_posts/*.md
+docs/app/
 
 # Logs
 logs/*.log

@@ -1,0 +1,46 @@
+name: Deploy React Frontend
+
+on:
+  workflow_dispatch:      # Manual trigger only
+    inputs:
+      api_base_url:
+        description: '后端 API 地址 (例如 https://your-api-server.com)'
+        required: false
+        default: ''
+
+jobs:
+  deploy-frontend:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Build React frontend
+        env:
+          # 当部署后端服务器后，在这里设置 API 地址
+          # 例如：VITE_API_BASE_URL: https://your-api-server.com
+          VITE_API_BASE_URL: ${{ github.event.inputs.api_base_url }}
+        run: |
+          cd frontend
+          npm ci
+          npm run build
+          mkdir -p ../docs/app
+          cp -r dist/* ../docs/app/
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./docs
+          keep_files: true
+          commit_message: "🎨 Deploy frontend"
+          publish_branch: gh-pages
+          enable_jekyll: true

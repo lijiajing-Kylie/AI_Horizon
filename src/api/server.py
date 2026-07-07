@@ -158,6 +158,23 @@ def list_runs(limit: int = Query(30, ge=1, le=100)) -> list[dict]:
     return db.get_runs(limit=limit)
 
 
+@app.get("/api/daily")
+def list_daily(limit: int = Query(30, ge=1, le=100)) -> dict:
+    """List available daily reports."""
+    runs = db.get_runs(limit=limit)
+    return {
+        "reports": [
+            {
+                "date": r["date"],
+                "total_fetched": r["total_fetched"],
+                "total_selected": r["total_selected"],
+                "languages": r["languages"],
+            }
+            for r in runs
+        ]
+    }
+
+
 @app.get("/api/runs/dates")
 def run_dates(limit: int = Query(30, ge=1, le=365)) -> list[str]:
     """List dates that have pipeline data."""
