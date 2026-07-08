@@ -40,7 +40,7 @@ export default function Layout() {
       {/* Footer */}
       <footer className="border-t border-gray-200 mt-12">
         <div className="max-w-4xl mx-auto px-4 py-6 text-center text-sm text-gray-400">
-          Horizon · AI 驱动的新闻聚合
+          关注科技前沿，理解正在发生的未来
         </div>
       </footer>
     </div>

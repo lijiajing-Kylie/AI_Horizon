@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 
 interface UseApiState<T> {
   data: T | null
@@ -8,12 +8,24 @@ interface UseApiState<T> {
 
 export function useApi<T>(fetcher: () => Promise<T>, deps: unknown[] = []): UseApiState<T> & { refetch: () => void } {
   const [state, setState] = useState<UseApiState<T>>({ data: null, loading: true, error: null })
+  const initialRef = useRef(true)
 
   const fetchData = useCallback(() => {
-    setState({ data: null, loading: true, error: null })
+    // Preserve previous data during refetch so the UI doesn't flash empty
+    setState(prev => ({
+      data: initialRef.current ? null : prev.data,
+      loading: true,
+      error: null,
+    }))
     fetcher()
-      .then(data => setState({ data, loading: false, error: null }))
-      .catch(err => setState({ data: null, loading: false, error: err.message }))
+      .then(data => {
+        initialRef.current = false
+        setState({ data, loading: false, error: null })
+      })
+      .catch(err => {
+        initialRef.current = false
+        setState({ data: null, loading: false, error: err.message })
+      })
   }, deps)
 
   useEffect(() => { fetchData() }, [fetchData])

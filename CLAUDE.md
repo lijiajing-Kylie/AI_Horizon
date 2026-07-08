@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Horizon is an AI-powered news aggregation pipeline that fetches content from multiple sources (Hacker News, RSS, Reddit, Telegram, Twitter/X, GitHub, OpenBB, GDELT, Google News), deduplicates stories via URL and AI semantic matching, scores items for importance, enriches them with web-researched background context, and generates bilingual (EN/ZH) Markdown daily briefings. Outputs include GitHub Pages sites, email newsletters, and webhook notifications (Feishu, Slack, Discord, etc.).
+Horizon is an AI-powered news aggregation pipeline that fetches content from multiple sources (Hacker News, RSS, Reddit, Telegram, Twitter/X, GitHub, OpenBB, GDELT, Google News), deduplicates stories via URL and AI semantic matching, scores items for importance, enriches them with web-researched background context, and generates bilingual (EN/ZH) Markdown daily briefings. Outputs include GitHub Pages sites, email newsletters, webhook notifications (Feishu, Slack, Discord, etc.), and a FastAPI + React query API/UI over the same data.
 
 ## Build, Test, and Run
 
@@ -13,6 +13,7 @@ Horizon is an AI-powered news aggregation pipeline that fetches content from mul
 uv sync                          # base install
 uv sync --extra dev              # install dev dependencies (pytest, pytest-cov)
 uv sync --extra openbb           # optional OpenBB financial-news SDK
+uv sync --extra twitter          # optional Playwright-based Twitter scraper
 
 # Run the main pipeline
 uv run horizon                   # default 24h window
@@ -20,6 +21,9 @@ uv run horizon --hours 48        # custom time window
 
 # Interactive setup wizard (generates data/config.json from interests)
 uv run horizon-wizard
+
+# API server (FastAPI over data/horizon.db; serves the React app + server-rendered debug pages)
+uv run horizon-api               # http://localhost:8000, auto-reload
 
 # MCP server
 uv run horizon-mcp
@@ -37,6 +41,18 @@ uv run pytest --cov=src          # with coverage
 docker compose run --rm horizon
 docker compose run --rm horizon --hours 48
 ```
+
+### Frontend (React app under `frontend/`)
+
+```bash
+cd frontend
+npm install
+npm run dev        # Vite dev server; proxies /api to http://localhost:8000 (see vite.config.ts)
+npm run build       # tsc -b && vite build
+npm run lint         # oxlint
+```
+
+The frontend is a separate npm project (not part of the `uv` workspace); run `horizon-api` alongside `npm run dev` for a working local stack.
 
 ## Architecture
 
@@ -83,7 +99,18 @@ All clients implement `async complete(system, user, temperature?, max_tokens?) -
 
 ### MCP server
 
-`src/mcp/server.py` exposes Horizon pipeline steps as MCP tools (fetch, score, filter, enrich, summarize, run-full-workflow) so AI assistants can drive the pipeline. `src/mcp/service.py` handles pipeline execution and config validation.
+`src/mcp/server.py` exposes Horizon pipeline steps as MCP tools (fetch, score, filter, enrich, summarize, run-full-workflow) so AI assistants can drive the pipeline. `src/mcp/service.py` handles pipeline execution and config validation; `src/mcp/run_store.py` persists each pipeline run's intermediate artifacts (raw/scored/filtered items, summaries) to disk under a run ID so MCP tool calls can resume/inspect a run across multiple calls.
+
+### Query API and web frontend
+
+Pipeline output is additionally persisted to a SQLite database (`src/storage/db.py`, `HorizonDB`) with an FTS5 full-text index over items, plus `topics` / `news_topics` tables for AI-assigned topic grouping. `src/api/server.py` (FastAPI, entry point `horizon-api`) reads from this DB and serves:
+- A JSON REST API under `/api/*` (items, tags, categories, topics, daily runs, stats, search) consumed by the React frontend
+- Server-rendered Jinja2 pages (`src/api/templates/`) at `/`, `/topics`, `/topics/{slug}` — a lightweight fallback UI
+- `/debug` — serves the static `debug-frontend/` dashboard for inspecting raw pipeline state
+
+`src/content_extractor.py` fetches an item's original URL and extracts full article text via `trafilatura`, skipping non-article domains (social/code-hosting sites) and non-HTML/too-short responses; used to give the AI enricher more grounded source material.
+
+The **React frontend** (`frontend/`, Vite + React 19 + TypeScript + Tailwind v4 + react-router) is a separate npm project that consumes the `/api/*` JSON endpoints (`frontend/src/api/client.ts`, typed in `frontend/src/api/types.ts`). It uses `HashRouter` (`frontend/src/App.tsx`) with routes for home, daily list/detail, item detail, and topics list/detail, each backed by a `useApi`-style hook (`frontend/src/hooks/useApi.ts`). In production the built app is expected to be served as a static site (Vite `base: './'`); in dev, Vite proxies `/api` to `horizon-api` on port 8000.
 
 ### Key directories
 
@@ -91,14 +118,18 @@ All clients implement `async complete(system, user, temperature?, max_tokens?) -
 |------|---------|
 | `src/scrapers/` | Source-specific fetchers (one per source type) |
 | `src/ai/` | AI client abstraction, analyzer, enricher, summarizer, prompts, token tracking |
-| `src/storage/` | Config loading/saving, subscriber management |
+| `src/storage/` | Config loading/saving, subscriber management, SQLite persistence (`db.py`) |
 | `src/services/` | Email (SMTP/IMAP) and webhook (multi-platform) delivery |
-| `src/mcp/` | MCP server that exposes pipeline as tools |
+| `src/api/` | FastAPI query API + server-rendered fallback UI over the SQLite DB |
+| `src/mcp/` | MCP server that exposes pipeline as tools, plus per-run artifact storage |
 | `src/setup/` | Interactive wizard — AI-generated source config from user interests |
+| `src/content_extractor.py` | Full article text extraction (trafilatura) for enrichment |
 | `src/models.py` | All Pydantic config/data models |
 | `src/orchestrator.py` | Pipeline coordination |
 | `src/search.py` | HN Algolia + Reddit related-story search |
-| `data/` | Runtime data: config.json, summaries/, subscribers.json |
+| `frontend/` | React + Vite + Tailwind SPA consuming the `/api/*` endpoints |
+| `debug-frontend/` | Static HTML dashboard served at `/debug` by `horizon-api` |
+| `data/` | Runtime data: config.json, summaries/, subscribers.json, horizon.db |
 | `docs/` | GitHub Pages site (Jekyll); `docs/_posts/` receives generated summaries |
 
 ### CI/CD
@@ -112,4 +143,4 @@ All clients implement `async complete(system, user, temperature?, max_tokens?) -
 
 ### Tests
 
-Tests use pytest with fixtures from `conftest.py` (just adds project root to sys.path). Test files mirror source modules (`test_rss.py`, `test_analyzer.py`, etc.). MCP and provider-specific tests (Azure, Minimax, chained client) validate integration paths.
+Tests use pytest with fixtures from `conftest.py` (just adds project root to sys.path). Test files mirror source modules (`test_rss.py`, `test_analyzer.py`, `test_api.py`, `test_db.py`, etc.). MCP and provider-specific tests (Azure, Minimax, chained client) validate integration paths. The `frontend/` app has no test suite yet — validate changes with `npm run build` and `npm run lint`.

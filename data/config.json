@@ -11,7 +11,9 @@
     "throttle_sec": 0.0,
     "analysis_concurrency": 1,
     "enrichment_concurrency": 1,
-    "languages": ["zh"],
+    "languages": [
+      "zh"
+    ],
     "azure_endpoint_env": null,
     "api_version": null
   },
@@ -23,7 +25,7 @@
         "owner": "sgl-project",
         "repo": "sglang",
         "enabled": true,
-        "category": "foreign-official"
+        "category": "github-official"
       },
       {
         "type": "repo_releases",
@@ -31,7 +33,7 @@
         "owner": "vllm-project",
         "repo": "vllm",
         "enabled": true,
-        "category": "foreign-official"
+        "category": "github-official"
       },
       {
         "type": "repo_releases",
@@ -40,14 +42,6 @@
         "repo": "aihub",
         "enabled": true,
         "category": "chinese-blogger"
-      },
-      {
-        "type": "user_events",
-        "username": "karpathy",
-        "owner": null,
-        "repo": null,
-        "enabled": true,
-        "category": "foreign-blogger"
       }
     ],
     "hackernews": {
@@ -232,6 +226,60 @@
         "category": "foreign-blogger"
       },
       {
+        "name": "机器之心",
+        "url": "https://decemberpei.cyou/rssbox/wechat-jiqizhixin.xml",
+        "enabled": true,
+        "category": "wechat-account"
+      },
+      {
+        "name": "深科技",
+        "url": "https://decemberpei.cyou/rssbox/wechat-shenkeji.xml",
+        "enabled": true,
+        "category": "wechat-account"
+      },
+      {
+        "name": "PaperWeekly",
+        "url": "https://decemberpei.cyou/rssbox/wechat-paperweekly.xml",
+        "enabled": true,
+        "category": "wechat-account"
+      },
+      {
+        "name": "计算机视觉life",
+        "url": "https://decemberpei.cyou/rssbox/wechat-jisuanjishijuelife.xml",
+        "enabled": true,
+        "category": "wechat-account"
+      },
+      {
+        "name": "AI前线",
+        "url": "https://decemberpei.cyou/rssbox/wechat-aiqianxian.xml",
+        "enabled": true,
+        "category": "wechat-account"
+      },
+      {
+        "name": "夕小瑶科技说",
+        "url": "https://decemberpei.cyou/rssbox/wechat-xixiaoyaokejishuo.xml",
+        "enabled": true,
+        "category": "wechat-account"
+      },
+      {
+        "name": "海外独角兽",
+        "url": "https://decemberpei.cyou/rssbox/wechat-haiwaidujiaoshou.xml",
+        "enabled": true,
+        "category": "wechat-account"
+      },
+      {
+        "name": "甲子光年",
+        "url": "https://decemberpei.cyou/rssbox/wechat-jiaziguangnian.xml",
+        "enabled": true,
+        "category": "wechat-account"
+      },
+      {
+        "name": "极智俱乐部",
+        "url": "https://decemberpei.cyou/rssbox/wechat-jizhijvlebu.xml",
+        "enabled": true,
+        "category": "wechat-account"
+      },
+      {
         "name": "量子位",
         "url": "https://wechat2rss.xlab.app/feed/7131b577c61365cb47e81000738c10d872685908.xml",
         "enabled": true,
@@ -240,6 +288,108 @@
       {
         "name": "新智元",
         "url": "https://wechat2rss.xlab.app/feed/ede30346413ea70dbef5d485ea5cbb95cca446e7.xml",
+        "enabled": true,
+        "category": "wechat-account"
+      },
+      {
+        "name": "晚点 LatePost",
+        "url": "https://decemberpei.cyou/rssbox/wechat-wandian.xml",
+        "enabled": true,
+        "category": "wechat-account"
+      },
+      {
+        "name": "36氪Pro",
+        "url": "https://decemberpei.cyou/rssbox/wechat-sanliukepro.xml",
+        "enabled": true,
+        "category": "wechat-account"
+      },
+      {
+        "name": "虎嗅APP",
+        "url": "https://decemberpei.cyou/rssbox/wechat-huxiuapp.xml",
+        "enabled": true,
+        "category": "wechat-account"
+      },
+      {
+        "name": "极客公园",
+        "url": "https://decemberpei.cyou/rssbox/wechat-jikegongyuan.xml",
+        "enabled": true,
+        "category": "wechat-account"
+      },
+      {
+        "name": "APPSO",
+        "url": "https://decemberpei.cyou/rssbox/wechat-appso.xml",
+        "enabled": true,
+        "category": "wechat-account"
+      },
+      {
+        "name": "爱范儿",
+        "url": "https://decemberpei.cyou/rssbox/wechat-anfaner.xml",
+        "enabled": true,
+        "category": "wechat-account"
+      },
+      {
+        "name": "差评",
+        "url": "https://decemberpei.cyou/rssbox/wechat-chaping.xml",
+        "enabled": true,
+        "category": "wechat-account"
+      },
+      {
+        "name": "钛媒体",
+        "url": "https://decemberpei.cyou/rssbox/wechat-taimeiti.xml",
+        "enabled": true,
+        "category": "wechat-account"
+      },
+      {
+        "name": "阿里云开发者",
+        "url": "https://decemberpei.cyou/rssbox/wechat-aliyunkaifazhe.xml",
+        "enabled": true,
+        "category": "wechat-account"
+      },
+      {
+        "name": "腾讯技术工程",
+        "url": "https://decemberpei.cyou/rssbox/wechat-tengxunjishugongcheng.xml",
+        "enabled": true,
+        "category": "wechat-account"
+      },
+      {
+        "name": "前端之巅",
+        "url": "https://decemberpei.cyou/rssbox/wechat-qianduanzhidian.xml",
+        "enabled": true,
+        "category": "wechat-account"
+      },
+      {
+        "name": "架构师之路",
+        "url": "https://decemberpei.cyou/rssbox/wechat-jiagoushizhilu.xml",
+        "enabled": true,
+        "category": "wechat-account"
+      },
+      {
+        "name": "GitHubDaily",
+        "url": "https://decemberpei.cyou/rssbox/wechat-githubdaily.xml",
+        "enabled": true,
+        "category": "wechat-account"
+      },
+      {
+        "name": "经纬创投",
+        "url": "https://decemberpei.cyou/rssbox/wechat-jingweichuangtou.xml",
+        "enabled": true,
+        "category": "wechat-account"
+      },
+      {
+        "name": "红杉汇",
+        "url": "https://decemberpei.cyou/rssbox/wechat-hongshanhui.xml",
+        "enabled": true,
+        "category": "wechat-account"
+      },
+      {
+        "name": "乱翻书",
+        "url": "https://decemberpei.cyou/rssbox/wechat-luanfanshu.xml",
+        "enabled": true,
+        "category": "wechat-account"
+      },
+      {
+        "name": "Founder Park",
+        "url": "https://decemberpei.cyou/rssbox/wechat-founderpark.xml",
         "enabled": true,
         "category": "wechat-account"
       },
@@ -292,67 +442,40 @@
         "category": "ai-aggregator"
       },
       {
-        "name": "CNBC World News",
-        "url": "https://www.cnbc.com/id/100727362/device/rss/rss.html",
+        "name": "InfoQ CN",
+        "url": "https://www.infoq.cn/feed",
         "enabled": true,
-        "category": "finance-news",
-        "source_group": "finance"
+        "category": "chinese-media"
       },
       {
-        "name": "CNBC US News",
-        "url": "https://www.cnbc.com/id/15837362/device/rss/rss.html",
+        "name": "36氪",
+        "url": "https://36kr.com/feed",
         "enabled": true,
-        "category": "finance-news",
-        "source_group": "finance"
+        "category": "chinese-media"
       },
       {
-        "name": "CNBC Business",
-        "url": "https://www.cnbc.com/id/10001147/device/rss/rss.html",
+        "name": "少数派",
+        "url": "https://sspai.com/feed",
         "enabled": true,
-        "category": "finance-news",
-        "source_group": "finance"
+        "category": "chinese-media"
       },
       {
-        "name": "CNBC Earnings",
-        "url": "https://www.cnbc.com/id/15839135/device/rss/rss.html",
+        "name": "ReadHub",
+        "url": "https://readhub.cn/rss",
         "enabled": true,
-        "category": "finance-news",
-        "source_group": "finance"
+        "category": "chinese-aggregator"
       },
       {
-        "name": "CNBC Economy",
-        "url": "https://www.cnbc.com/id/20910258/device/rss/rss.html",
+        "name": "美团技术团队",
+        "url": "https://tech.meituan.com/feed",
         "enabled": true,
-        "category": "finance-news",
-        "source_group": "finance"
+        "category": "chinese-official"
       },
       {
-        "name": "CNBC Finance",
-        "url": "https://www.cnbc.com/id/10000664/device/rss/rss.html",
+        "name": "Matthew Garrett / mjg59",
+        "url": "http://mjg59.dreamwidth.org/data/rss",
         "enabled": true,
-        "category": "finance-news",
-        "source_group": "finance"
-      },
-      {
-        "name": "CNBC Technology",
-        "url": "https://www.cnbc.com/id/19854910/device/rss/rss.html",
-        "enabled": true,
-        "category": "finance-news",
-        "source_group": "finance"
-      },
-      {
-        "name": "CNBC Wealth",
-        "url": "https://www.cnbc.com/id/10001054/device/rss/rss.html",
-        "enabled": true,
-        "category": "finance-news",
-        "source_group": "finance"
-      },
-      {
-        "name": "CNBC Energy",
-        "url": "https://www.cnbc.com/id/19836768/device/rss/rss.html",
-        "enabled": true,
-        "category": "finance-news",
-        "source_group": "finance"
+        "category": "foreign-blogger"
       }
     ],
     "reddit": {
@@ -458,22 +581,31 @@
   "filtering": {
     "ai_score_threshold": 7.0,
     "time_window_hours": 24,
-    "max_items": 15
+    "max_items": 30,
+    "category_groups": {},
+    "default_group": "other",
+    "default_group_limit": null
   },
   "email": null,
   "webhook": {
-    "enabled": false,
     "url_env": "DINGTALK_WEBHOOK_URL",
-    "delivery": "summary_and_items",
-    "platform": "dingtalk",
-    "layout": "markdown",
-    "languages": ["zh"],
     "request_body": {
       "msgtype": "markdown",
       "markdown": {
         "title": "Horizon #{date} Daily",
         "text": "Horizon result: #{result}\n\nHorizon important items: #{important_items}/#{all_items}\n\n#{summary}"
       }
-    }
+    },
+    "headers": null,
+    "delivery": "summary_and_items",
+    "overview_position": "first",
+    "platform": "dingtalk",
+    "layout": "markdown",
+    "fallback_layout": "markdown",
+    "languages": [
+      "zh"
+    ],
+    "enabled": false,
+    "max_items": null
   }
 }
