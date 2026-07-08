@@ -7,9 +7,11 @@ import TopicCard from '../components/TopicCard'
 import LoadingSkeleton from '../components/LoadingSkeleton'
 import EmptyState from '../components/EmptyState'
 import type { NewsItem } from '../api/types'
+import type { BackTarget } from '../utils/backTo'
 
 const TOP_ITEMS_COUNT = 5
 const TOPICS_PREVIEW_COUNT = 6
+const BACK_TO_HOME: BackTarget = { path: '/', label: '← 返回首页' }
 
 export default function HomePage() {
   const today = todayStr()
@@ -25,7 +27,7 @@ export default function HomePage() {
   }
   const displayTopics = featuredTopics.slice(0, TOPICS_PREVIEW_COUNT)
 
-  if (loading) return <LoadingSkeleton />
+  if (loading && !dailyData) return <LoadingSkeleton />
   if (error) return <EmptyState icon="⚠️" title="加载失败" description={error} />
 
   return (
@@ -39,6 +41,7 @@ export default function HomePage() {
           </div>
           <Link
             to={`/daily/${today}`}
+            state={{ backTo: BACK_TO_HOME }}
             className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
           >
             查看完整日报 →
@@ -52,9 +55,9 @@ export default function HomePage() {
                 <div className="flex items-start gap-2 mb-1">
                   <ScoreBadge score={item.ai_score} size="sm" />
                   <h3 className="text-sm font-medium text-gray-900 leading-snug">
-                    <a href={item.url} target="_blank" rel="noopener noreferrer" className="hover:text-blue-600">
+                    <Link to={`/items/${item.id}`} state={{ backTo: BACK_TO_HOME }} className="hover:text-blue-600">
                       {item.metadata?.title_zh || item.title}
-                    </a>
+                    </Link>
                   </h3>
                 </div>
                 {item.ai_summary && (
@@ -86,7 +89,7 @@ export default function HomePage() {
         {displayTopics.length > 0 ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {displayTopics.map(topic => (
-              <TopicCard key={topic.slug} topic={topic} from="/" />
+              <TopicCard key={topic.slug} topic={topic} backTo={BACK_TO_HOME} />
             ))}
           </div>
         ) : (

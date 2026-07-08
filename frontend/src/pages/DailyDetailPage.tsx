@@ -1,11 +1,13 @@
-import { useParams, Link } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
 import { useApi } from '../hooks/useApi'
 import { getDailyDetail } from '../api/client'
 import { formatDate } from '../utils/date'
 import SectionBlock from '../components/SectionBlock'
+import BackLink from '../components/BackLink'
 import LoadingSkeleton from '../components/LoadingSkeleton'
 import EmptyState from '../components/EmptyState'
 import type { NewsItem } from '../api/types'
+import type { BackTarget } from '../utils/backTo'
 
 // Map content-type topic slugs to 4 merged sections
 const SECTION_MAP: Record<string, string> = {
@@ -49,12 +51,13 @@ export default function DailyDetailPage() {
   const { date } = useParams<{ date: string }>()
   const { data, loading, error } = useApi(() => getDailyDetail(date!), [date])
 
-  if (loading) return <LoadingSkeleton />
+  if (loading && !data) return <LoadingSkeleton />
   if (error) return <EmptyState icon="⚠️" title="加载失败" description={error} />
   if (!data) return <EmptyState icon="📭" title="暂无数据" />
 
   const { stats, items } = data
   const sections = groupBySection(items)
+  const backTo: BackTarget = { path: `/daily/${date}`, label: '← 返回当日日报' }
 
   // Render sections in a defined order
   const orderedSections: [string, NewsItem[]][] = []
@@ -78,7 +81,7 @@ export default function DailyDetailPage() {
     <div>
       {/* Header */}
       <div className="mb-6">
-        <Link to="/daily" className="text-sm text-blue-600 hover:text-blue-700 mb-2 inline-block">← 返回日报列表</Link>
+        <BackLink fallback={{ path: '/daily', label: '← 返回日报列表' }} />
         <h1 className="text-2xl font-bold text-gray-900">{formatDate(date!)} 日报</h1>
 
         {/* Overview stats */}
@@ -94,7 +97,7 @@ export default function DailyDetailPage() {
       {/* Sections */}
       {items.length > 0 ? (
         orderedSections.map(([name, sectionItems]) => (
-          <SectionBlock key={name} title={name} items={sectionItems} />
+          <SectionBlock key={name} title={name} items={sectionItems} backTo={backTo} />
         ))
       ) : (
         <EmptyState icon="📭" title="该日暂无内容" />

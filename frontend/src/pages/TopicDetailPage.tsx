@@ -1,31 +1,18 @@
 import { useState, useCallback } from 'react'
-import { useParams, Link, useSearchParams } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
 import { useApi } from '../hooks/useApi'
 import { getTopicNews } from '../api/client'
 import ItemCard from '../components/ItemCard'
 import Pagination from '../components/Pagination'
+import BackLink from '../components/BackLink'
 import LoadingSkeleton from '../components/LoadingSkeleton'
 import EmptyState from '../components/EmptyState'
 
-function BackLink() {
-  const [params] = useSearchParams()
-  const from = params.get('from')
-  if (from === '/') {
-    return (
-      <Link to="/" className="text-sm text-blue-600 hover:text-blue-700 mb-2 inline-block">
-        ← 返回首页
-      </Link>
-    )
-  }
-  return (
-    <Link to="/topics" className="text-sm text-blue-600 hover:text-blue-700 mb-2 inline-block">
-      ← 返回主题总览
-    </Link>
-  )
-}
-
 export default function TopicDetailPage() {
   const { slug } = useParams<{ slug: string }>()
+  // TODO: sort/order/page aren't synced to the URL, so returning here via
+  // backTo always lands on page 1 / default sort rather than where the user
+  // left off. Worth revisiting alongside URL query state for this page.
   const [sort, setSort] = useState('ai_score')
   const [order, setOrder] = useState('desc')
   const [page, setPage] = useState(1)
@@ -41,16 +28,17 @@ export default function TopicDetailPage() {
     setPage(1)
   }, [])
 
-  if (loading) return <LoadingSkeleton />
+  if (loading && !data) return <LoadingSkeleton />
   if (error) return <EmptyState icon="⚠️" title="加载失败" description={error} />
   if (!data || !data.topic) return <EmptyState icon="📭" title="主题不存在" />
 
   const { topic, items, total, pages } = data
+  const backTo = { path: `/topics/${slug}`, label: `← 返回主题：${topic.name}` }
 
   return (
     <div>
       {/* Breadcrumb */}
-      <BackLink />
+      <BackLink fallback={{ path: '/topics', label: '← 返回主题总览' }} />
 
       {/* Topic header */}
       <div className="mb-6 p-5 bg-white border border-gray-200 rounded-lg">
@@ -82,7 +70,7 @@ export default function TopicDetailPage() {
         <>
           <div className="space-y-3">
             {items.map(item => (
-              <ItemCard key={item.id} item={item} />
+              <ItemCard key={item.id} item={item} backTo={backTo} />
             ))}
           </div>
           <Pagination page={page} pages={pages} onPageChange={setPage} />

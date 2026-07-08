@@ -3,10 +3,14 @@ import type { NewsItem, SourceProvenance, ContentBlock } from '../api/types'
 import ScoreBadge from './ScoreBadge'
 import { sourceLabel, roleLabelZh } from '../utils/source'
 import { Link } from 'react-router-dom'
+import { backToState, type BackTarget } from '../utils/backTo'
 
 interface ItemCardProps {
   item: NewsItem
   showTopics?: boolean
+  /** Where "back" should return to from the item detail / topic pages this
+   * card links into — i.e. the page this card is currently rendered on. */
+  backTo?: BackTarget
 }
 
 /** Resolve the best available content for the active display language. */
@@ -30,7 +34,7 @@ function resolveContent(
   return fallback
 }
 
-export default function ItemCard({ item, showTopics = true }: ItemCardProps) {
+export default function ItemCard({ item, showTopics = true, backTo }: ItemCardProps) {
   const contentBlock = item.content_block as ContentBlock | undefined
   const originalLang = contentBlock?.original_language ?? 'unknown'
   const defaultLang = contentBlock?.default_language ?? 'zh'
@@ -77,14 +81,13 @@ export default function ItemCard({ item, showTopics = true }: ItemCardProps) {
         <ScoreBadge score={item.ai_score} />
         <div className="flex-1 min-w-0">
           <h3 className="text-base font-medium text-gray-900 leading-snug">
-            <a
-              href={primaryUrl}
-              target="_blank"
-              rel="noopener noreferrer"
+            <Link
+              to={`/items/${item.id}`}
+              state={backToState(backTo)}
               className="hover:text-blue-600 transition-colors"
             >
               {content.title}
-            </a>
+            </Link>
           </h3>
           {/* Translation badge + toggle */}
           {showTranslationUI && (
@@ -166,7 +169,7 @@ export default function ItemCard({ item, showTopics = true }: ItemCardProps) {
 
       {/* Reason */}
       {content.reason && (
-        <div className="border-l-2 border-blue-400 pl-3 my-2 text-sm text-gray-500 italic">
+        <div className="border-l-2 border-blue-400 pl-3 my-2 text-sm text-gray-500 italic line-clamp-2">
           {content.reason}
         </div>
       )}
@@ -176,6 +179,25 @@ export default function ItemCard({ item, showTopics = true }: ItemCardProps) {
         <p className="text-sm text-gray-600 mt-2 line-clamp-3">{content.summary}</p>
       )}
 
+      {/* Actions */}
+      <div className="flex items-center gap-3 mt-3 text-xs">
+        <Link
+          to={`/items/${item.id}`}
+          state={backToState(backTo)}
+          className="text-blue-600 hover:text-blue-700 font-medium"
+        >
+          查看详情 →
+        </Link>
+        <a
+          href={primaryUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-gray-400 hover:text-gray-600"
+        >
+          🔗 原文
+        </a>
+      </div>
+
       {/* Topics */}
       {showTopics && topics.length > 0 && (
         <div className="flex flex-wrap gap-1.5 mt-3">
@@ -183,6 +205,7 @@ export default function ItemCard({ item, showTopics = true }: ItemCardProps) {
             <Link
               key={t.slug}
               to={`/topics/${t.slug}`}
+              state={backToState(backTo)}
               className="inline-block text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors"
             >
               {t.name}

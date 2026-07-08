@@ -1,15 +1,18 @@
 import { Link } from 'react-router-dom'
 import type { DailyReport } from '../api/types'
 import { formatDate } from '../utils/date'
+import { backToState, type BackTarget } from '../utils/backTo'
 
 interface DailyReportCardProps {
   report: DailyReport
+  backTo?: BackTarget
 }
 
-export default function DailyReportCard({ report }: DailyReportCardProps) {
+export default function DailyReportCard({ report, backTo }: DailyReportCardProps) {
   return (
     <Link
       to={`/daily/${report.date}`}
+      state={backToState(backTo)}
       className="block border border-gray-200 rounded-lg p-5 hover:shadow-md hover:border-blue-300 transition-all"
     >
       <div className="flex items-center justify-between mb-2">

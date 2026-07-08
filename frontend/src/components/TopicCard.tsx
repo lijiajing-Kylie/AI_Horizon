@@ -1,16 +1,17 @@
 import { Link } from 'react-router-dom'
 import type { Topic } from '../api/types'
+import { backToState, type BackTarget } from '../utils/backTo'
 
 interface TopicCardProps {
   topic: Topic
-  from?: string
+  backTo?: BackTarget
 }
 
-export default function TopicCard({ topic, from }: TopicCardProps) {
-  const to = from ? `/topics/${topic.slug}?from=${encodeURIComponent(from)}` : `/topics/${topic.slug}`
+export default function TopicCard({ topic, backTo }: TopicCardProps) {
   return (
     <Link
-      to={to}
+      to={`/topics/${topic.slug}`}
+      state={backToState(backTo)}
       className="block border border-gray-200 rounded-lg p-4 hover:shadow-md hover:border-blue-300 transition-all"
     >
       <h3 className="font-medium text-gray-900 mb-1">{topic.name}</h3>

@@ -1,12 +1,14 @@
 import type { NewsItem } from '../api/types'
 import ItemCard from './ItemCard'
+import type { BackTarget } from '../utils/backTo'
 
 interface SectionBlockProps {
   title: string
   items: NewsItem[]
+  backTo?: BackTarget
 }
 
-export default function SectionBlock({ title, items }: SectionBlockProps) {
+export default function SectionBlock({ title, items, backTo }: SectionBlockProps) {
   if (items.length === 0) return null
 
   return (
@@ -16,7 +18,7 @@ export default function SectionBlock({ title, items }: SectionBlockProps) {
       </h2>
       <div className="space-y-3">
         {items.map(item => (
-          <ItemCard key={item.id} item={item} showTopics={false} />
+          <ItemCard key={item.id} item={item} showTopics={false} backTo={backTo} />
         ))}
       </div>
     </section>
