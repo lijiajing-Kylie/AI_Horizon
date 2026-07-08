@@ -30,6 +30,7 @@ export interface ContentLangBlock {
   title: string
   summary: string
   reason: string
+  community_discussion: string
 }
 
 export interface ContentBlock {
@@ -37,6 +38,15 @@ export interface ContentBlock {
   default_language: string
   is_ai_translated: boolean
   content: Record<string, ContentLangBlock>
+  enrichment_sources: EnrichmentSource[]
+  discussion_url?: string
+  source_provenance?: SourceProvenance
+  source_attribution?: SourceAttribution
+}
+
+export interface EnrichmentSource {
+  url: string
+  title: string
 }
 
 export interface Topic {
@@ -50,12 +60,25 @@ export interface Topic {
   count?: number
 }
 
+export interface ArticleImage {
+  url: string
+  alt: string
+  caption: string
+  source: string
+}
+
 export interface NewsItem {
   id: string
   source_type: string
   title: string
   url: string
   content: string | null
+  raw_content: string | null
+  clean_content: string | null
+  raw_html: string | null
+  display_html: string | null
+  cover_image: string | null
+  images: ArticleImage[]
   author: string | null
   published_at: string
   fetched_at: string

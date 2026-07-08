@@ -775,7 +775,7 @@ class TestClose:
         db = HorizonDB(db_path=str(tmp_path / "test.db"))
         db.close()
         db.close()  # Should not raise
-        assert db._conn is None
+        assert getattr(db._local, "conn", None) is None
 
 
 # ---------------------------------------------------------------------------
@@ -816,3 +816,77 @@ class TestRowToItem:
         # save_items treats None as falsy → stores 0 → _row_to_item reads as False
         assert result["ai_relevant"] is False
         db.close()
+
+
+# ---------------------------------------------------------------------------
+# raw_html / display_html
+# ---------------------------------------------------------------------------
+
+
+class TestRawAndDisplayHtml:
+    def test_round_trips_raw_and_display_html(self, tmp_path):
+        db = HorizonDB(db_path=str(tmp_path / "test.db"))
+        item = _make_item(id="test:html:1", content="Plain text body.")
+        item.raw_html = "<h2>Title</h2><p>Body &amp; more</p>"
+        item.display_html = "<h2>Title</h2><p>Body &amp; more</p>"
+
+        db.save_items([item], run_date="2026-07-06", total_fetched=1)
+        result = db.get_item("test:html:1")
+
+        assert result["raw_html"] == "<h2>Title</h2><p>Body &amp; more</p>"
+        assert result["display_html"] == "<h2>Title</h2><p>Body &amp; more</p>"
+        # content (plain text) is untouched by the new HTML fields.
+        assert result["content"] == "Plain text body."
+        db.close()
+
+    def test_defaults_to_none_when_not_set(self, tmp_path):
+        """Items saved without HTML extraction results (e.g. skipped URLs)
+        must not break — raw_html/display_html should just be None, and the
+        existing content field is unaffected."""
+        db = HorizonDB(db_path=str(tmp_path / "test.db"))
+        item = _make_item(id="test:html:2", content="Only plain text, no HTML.")
+
+        db.save_items([item], run_date="2026-07-06", total_fetched=1)
+        result = db.get_item("test:html:2")
+
+        assert result["raw_html"] is None
+        assert result["display_html"] is None
+        assert result["content"] == "Only plain text, no HTML."
+        db.close()
+
+    def test_legacy_row_without_html_columns_still_reads(self, tmp_path):
+        """Simulates a DB file created before this migration: raw_html/
+        display_html columns don't exist on the row, and _row_to_item must
+        fall back to None instead of raising."""
+        import sqlite3
+
+        db = HorizonDB(db_path=str(tmp_path / "test.db"))
+        db.conn  # force schema creation + migrations to run
+        db.close()
+
+        conn = sqlite3.connect(str(tmp_path / "test.db"))
+        conn.row_factory = sqlite3.Row
+        conn.execute(
+            """INSERT INTO items (id, source_type, title, url, content,
+                   published_at, fetched_at, run_date)
+               VALUES ('legacy:1', 'rss', 'Legacy', 'https://example.com/legacy',
+                   'legacy content', '2026-07-06T00:00:00+00:00',
+                   '2026-07-06T00:00:00+00:00', '2026-07-06')"""
+        )
+        conn.commit()
+        # Select every column except raw_html/display_html, simulating a
+        # pre-migration row shape (all other _row_to_item fields still need
+        # to be present so this doesn't fail on an unrelated missing key).
+        row = conn.execute(
+            """SELECT id, source_type, title, url, content, cover_image,
+                   images_json, author, published_at, fetched_at, ai_relevant,
+                   ai_score, ai_reason, ai_summary, ai_tags_json, metadata_json,
+                   run_date, selected, drop_reason
+               FROM items WHERE id = 'legacy:1'"""
+        ).fetchone()
+        conn.close()
+
+        item = _row_to_item(row)
+        assert item["raw_html"] is None
+        assert item["display_html"] is None
+        assert item["content"] == "legacy content"

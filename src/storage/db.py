@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, List, Optional
@@ -18,6 +19,10 @@ CREATE TABLE IF NOT EXISTS items (
     title           TEXT NOT NULL,
     url             TEXT NOT NULL,
     content         TEXT,
+    raw_html        TEXT,
+    display_html    TEXT,
+    cover_image     TEXT,
+    images_json     TEXT NOT NULL DEFAULT '[]',
     author          TEXT,
     published_at    TEXT NOT NULL,
     fetched_at      TEXT NOT NULL,
@@ -28,8 +33,14 @@ CREATE TABLE IF NOT EXISTS items (
     ai_tags_json    TEXT NOT NULL DEFAULT '[]',
     metadata_json   TEXT NOT NULL DEFAULT '{}',
     run_date        TEXT NOT NULL,
-    created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    selected        INTEGER NOT NULL DEFAULT 0,
+    drop_reason     TEXT
 );
+
+CREATE INDEX IF NOT EXISTS idx_items_selected ON items(selected);
+CREATE INDEX IF NOT EXISTS idx_items_drop_reason ON items(drop_reason);
+CREATE INDEX IF NOT EXISTS idx_items_run_date_selected ON items(run_date, selected);
 
 CREATE INDEX IF NOT EXISTS idx_items_run_date ON items(run_date);
 CREATE INDEX IF NOT EXISTS idx_items_ai_score ON items(ai_score);
@@ -100,6 +111,24 @@ CREATE INDEX IF NOT EXISTS idx_news_topics_topic_id ON news_topics(topic_id);
 """
 
 
+# Columns added after the initial schema — applied via ALTER TABLE for
+# existing DB files, since CREATE TABLE IF NOT EXISTS won't add them.
+_ITEMS_COLUMN_MIGRATIONS: list[tuple[str, str]] = [
+    ("cover_image", "TEXT"),
+    ("images_json", "TEXT NOT NULL DEFAULT '[]'"),
+    ("raw_html", "TEXT"),
+    ("display_html", "TEXT"),
+]
+
+
+def _migrate_items_table(conn: sqlite3.Connection) -> None:
+    existing = {row["name"] for row in conn.execute("PRAGMA table_info(items)")}
+    for column, ddl in _ITEMS_COLUMN_MIGRATIONS:
+        if column not in existing:
+            conn.execute(f"ALTER TABLE items ADD COLUMN {column} {ddl}")
+    conn.commit()
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -110,6 +139,21 @@ def _dt_iso(dt: Optional[datetime]) -> Optional[str]:
     return dt.isoformat()
 
 
+def _to_sqlite_param(value: Any) -> Any:
+    """Coerce a value to a type sqlite3 can bind (str/int/float/bytes/None).
+
+    ``date``/``datetime`` values (which sqlite3 cannot bind directly and
+    raises ``InterfaceError: bad parameter or other API misuse`` for) are
+    converted to their ISO string form. Anything else that isn't already a
+    primitive sqlite3 type is stringified as a last resort.
+    """
+    if value is None or isinstance(value, (str, int, float, bytes)):
+        return value
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return str(value)
+
+
 def _row_to_item(row: sqlite3.Row) -> dict[str, Any]:
     """Convert a DB row to a JSON-serializable dict matching the ContentItem shape."""
     return {
@@ -118,6 +162,10 @@ def _row_to_item(row: sqlite3.Row) -> dict[str, Any]:
         "title": row["title"],
         "url": row["url"],
         "content": row["content"],
+        "raw_html": row["raw_html"] if "raw_html" in row.keys() else None,
+        "display_html": row["display_html"] if "display_html" in row.keys() else None,
+        "cover_image": row["cover_image"] if "cover_image" in row.keys() else None,
+        "images": json.loads(row["images_json"]) if "images_json" in row.keys() and row["images_json"] else [],
         "author": row["author"],
         "published_at": row["published_at"],
         "fetched_at": row["fetched_at"],
@@ -128,6 +176,8 @@ def _row_to_item(row: sqlite3.Row) -> dict[str, Any]:
         "ai_tags": json.loads(row["ai_tags_json"]),
         "metadata": json.loads(row["metadata_json"]),
         "run_date": row["run_date"],
+        "selected": bool(row["selected"]) if "selected" in row.keys() else False,
+        "drop_reason": row["drop_reason"] if "drop_reason" in row.keys() else None,
     }
 
 
@@ -137,41 +187,78 @@ class HorizonDB:
     def __init__(self, db_path: str = "data/horizon.db"):
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn: Optional[sqlite3.Connection] = None
+        # FastAPI's sync endpoints run in a threadpool, so concurrent requests
+        # can call into HorizonDB from different threads at the same time.
+        # A single shared sqlite3.Connection is not safe for concurrent use
+        # from multiple threads (even with check_same_thread=False) — it
+        # intermittently raises "sqlite3.InterfaceError: bad parameter or
+        # other API misuse" under concurrent execute() calls. Give each
+        # thread its own connection instead.
+        self._local = threading.local()
 
     @property
     def conn(self) -> sqlite3.Connection:
-        if self._conn is None:
+        conn = getattr(self._local, "conn", None)
+        if conn is None:
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
-            self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
-            self._conn.row_factory = sqlite3.Row
-            self._conn.executescript(_SCHEMA)
-            self._conn.commit()
-        return self._conn
+            conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
+            conn.row_factory = sqlite3.Row
+            conn.executescript(_SCHEMA)
+            conn.commit()
+            _migrate_items_table(conn)
+            self._local.conn = conn
+        return conn
 
     def close(self) -> None:
-        if self._conn is not None:
-            self._conn.close()
-            self._conn = None
+        conn = getattr(self._local, "conn", None)
+        if conn is not None:
+            conn.close()
+            self._local.conn = None
 
     # -- write ----------------------------------------------------------------
 
-    def save_items(self, items: List[ContentItem], run_date: str, total_fetched: int) -> int:
+    def save_items(
+        self,
+        items: List[ContentItem],
+        run_date: str,
+        total_fetched: int,
+        *,
+        selected: bool = True,
+        replace: bool = True,
+    ) -> int:
         """Persist scored/enriched items for a given date.
 
-        Replaces any existing items for the same run_date (idempotent).
+        By default (``replace=True``) existing items for *run_date* are
+        deleted first — the original behaviour that keeps the table as a
+        point-in-time snapshot.  Set ``replace=False`` to UPSERT without
+        deleting siblings; used by the orchestrator to refresh enrichment
+        data for final items while preserving dropped-item audit trails.
+
+        Args:
+            items: Items to persist.
+            run_date: Date key for this run (YYYY-MM-DD).
+            total_fetched: Total items fetched (for daily_runs tracking).
+            selected: Whether these items passed all filters (default True,
+                keeps backward compat with callers that only write final items).
+            replace: When True (default), DELETE all items for *run_date*
+                before inserting.  Set to False for incremental updates.
         """
-        # Delete existing items for this date first
-        self.conn.execute("DELETE FROM items WHERE run_date = ?", (run_date,))
+        if replace:
+            self.conn.execute("DELETE FROM items WHERE run_date = ?", (run_date,))
 
         rows: list[tuple] = []
         for item in items:
+            drop_reason = None if selected else item.metadata.get("_drop_reason")
             rows.append((
                 item.id,
                 item.source_type.value,
                 item.title,
                 str(item.url),
                 item.content,
+                item.raw_html,
+                item.display_html,
+                item.cover_image,
+                json.dumps(item.images, ensure_ascii=False, default=str),
                 item.author,
                 _dt_iso(item.published_at),
                 _dt_iso(item.fetched_at),
@@ -183,15 +270,40 @@ class HorizonDB:
                 json.dumps(item.metadata, ensure_ascii=False, default=str),
                 run_date,
                 _now_iso(),
+                1 if selected else 0,
+                drop_reason,
             ))
 
         self.conn.executemany(
             """INSERT INTO items (
-                id, source_type, title, url, content, author,
+                id, source_type, title, url, content, raw_html, display_html,
+                cover_image, images_json, author,
                 published_at, fetched_at, ai_relevant, ai_score,
                 ai_reason, ai_summary, ai_tags_json, metadata_json,
-                run_date, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                run_date, created_at, selected, drop_reason
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                source_type = excluded.source_type,
+                title = excluded.title,
+                url = excluded.url,
+                content = excluded.content,
+                raw_html = excluded.raw_html,
+                display_html = excluded.display_html,
+                cover_image = excluded.cover_image,
+                images_json = excluded.images_json,
+                author = excluded.author,
+                published_at = excluded.published_at,
+                fetched_at = excluded.fetched_at,
+                ai_relevant = excluded.ai_relevant,
+                ai_score = excluded.ai_score,
+                ai_reason = excluded.ai_reason,
+                ai_summary = excluded.ai_summary,
+                ai_tags_json = excluded.ai_tags_json,
+                metadata_json = excluded.metadata_json,
+                run_date = excluded.run_date,
+                created_at = excluded.created_at,
+                selected = excluded.selected,
+                drop_reason = excluded.drop_reason""",
             rows,
         )
 
@@ -210,6 +322,63 @@ class HorizonDB:
         self.conn.commit()
         return len(items)
 
+    def mark_selected(
+        self,
+        selected_ids: set[str],
+        drop_reason_map: dict[str, str],
+        run_date: str,
+    ) -> int:
+        """Mark which items survived all filtering stages and tag dropped items.
+
+        After ``save_items(items, selected=False)`` writes the full scored set,
+        call this to mark the survivors and annotate why each other item was
+        dropped.
+
+        Args:
+            selected_ids: Item IDs that passed all filters.
+            drop_reason_map: Mapping from item ID to drop reason
+                (``"relevance"``, ``"score"``, ``"topic_duplicate"``,
+                ``"category_quota"``).
+            run_date: Date key for this run.
+
+        Returns:
+            Number of items updated.
+        """
+        # Reset all items for this run_date to not-selected
+        self.conn.execute(
+            "UPDATE items SET selected = 0, drop_reason = NULL WHERE run_date = ?",
+            (run_date,),
+        )
+
+        # Mark selected items
+        if selected_ids:
+            placeholders = ",".join("?" for _ in selected_ids)
+            self.conn.execute(
+                f"UPDATE items SET selected = 1, drop_reason = NULL "
+                f"WHERE run_date = ? AND id IN ({placeholders})",
+                (run_date, *selected_ids),
+            )
+
+        # Tag dropped items with their reason
+        updated = 0
+        for item_id, reason in drop_reason_map.items():
+            cur = self.conn.execute(
+                "UPDATE items SET drop_reason = ? WHERE run_date = ? AND id = ?",
+                (reason, run_date, item_id),
+            )
+            updated += cur.rowcount
+
+        self.conn.execute(
+            """INSERT INTO daily_runs (date, total_fetched, total_selected, languages)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(date) DO UPDATE SET
+               total_selected = excluded.total_selected""",
+            (run_date, 0, len(selected_ids), "[]"),
+        )
+
+        self.conn.commit()
+        return updated
+
     # -- read ----------------------------------------------------------------
 
     def get_items(
@@ -225,14 +394,24 @@ class HorizonDB:
         order: str = "desc",
         page: int = 1,
         per_page: int = 20,
+        selected_only: bool = True,
     ) -> dict[str, Any]:
-        """Paginated item query with optional filters."""
+        """Paginated item query with optional filters.
+
+        Args:
+            selected_only: When True (default), only return items that passed
+                all filtering stages. Set to False to include dropped items
+                for auditing.
+        """
         where = []
         params: list[Any] = []
 
         if run_date:
             where.append("run_date = ?")
             params.append(run_date)
+
+        if selected_only:
+            where.append("selected = 1")
 
         if category:
             where.append("json_extract(metadata_json, '$.category') = ?")
@@ -264,6 +443,10 @@ class HorizonDB:
         else:
             base_from = f"FROM items WHERE {where_clause}"
 
+        # Ensure every bound value is a type sqlite3 can bind (str/int/float/
+        # bytes/None) — e.g. a stray date/datetime never reaches execute().
+        params = [_to_sqlite_param(p) for p in params]
+
         # Count
         count_row = self.conn.execute(
             f"SELECT COUNT(*) as cnt {base_from}", params
@@ -276,9 +459,10 @@ class HorizonDB:
         order_dir = "DESC" if order.lower() == "desc" else "ASC"
         offset = (page - 1) * per_page
 
+        page_params = params + [per_page, offset]
         rows = self.conn.execute(
             f"SELECT * {base_from} ORDER BY {sort_col} {order_dir} LIMIT ? OFFSET ?",
-            params + [per_page, offset],
+            page_params,
         ).fetchall()
 
         items = [_row_to_item(r) for r in rows]
@@ -304,13 +488,19 @@ class HorizonDB:
         item["topics"] = self.get_news_topics(item_id)
         return item
 
-    def get_tags(self, run_date: Optional[str] = None, min_count: int = 1) -> list[dict[str, Any]]:
-        """Get all tags with occurrence counts."""
+    def get_tags(self, run_date: Optional[str] = None, min_count: int = 1, *, selected_only: bool = True) -> list[dict[str, Any]]:
+        """Get all tags with occurrence counts.
+
+        Args:
+            selected_only: When True (default), only count tags from selected items.
+        """
         where = "1=1"
         params: list[Any] = []
         if run_date:
             where = "run_date = ?"
             params.append(run_date)
+        if selected_only:
+            where += " AND selected = 1"
 
         rows = self.conn.execute(
             f"""SELECT value AS tag, COUNT(*) AS count
@@ -347,13 +537,19 @@ class HorizonDB:
         ).fetchall()
         return [r["run_date"] for r in rows]
 
-    def get_category_counts(self, run_date: Optional[str] = None) -> list[dict[str, Any]]:
-        """Get item counts by category."""
+    def get_category_counts(self, run_date: Optional[str] = None, *, selected_only: bool = True) -> list[dict[str, Any]]:
+        """Get item counts by category.
+
+        Args:
+            selected_only: When True (default), only count selected items.
+        """
         where = "1=1"
         params: list[Any] = []
         if run_date:
             where = "run_date = ?"
             params.append(run_date)
+        if selected_only:
+            where += " AND selected = 1"
 
         rows = self.conn.execute(
             f"""SELECT json_extract(metadata_json, '$.category') AS category,
@@ -366,13 +562,20 @@ class HorizonDB:
         ).fetchall()
         return [{"category": r["category"] or "unknown", "count": r["count"]} for r in rows]
 
-    def get_stats(self, run_date: Optional[str] = None) -> dict[str, Any]:
-        """Get aggregate statistics."""
+    def get_stats(self, run_date: Optional[str] = None, *, selected_only: bool = True) -> dict[str, Any]:
+        """Get aggregate statistics.
+
+        Args:
+            selected_only: When True (default), only aggregate selected items.
+                Set to False to include dropped items in stats.
+        """
         where = "1=1"
         params: list[Any] = []
         if run_date:
             where = "run_date = ?"
             params.append(run_date)
+        if selected_only:
+            where += " AND selected = 1"
 
         row = self.conn.execute(
             f"""SELECT
@@ -391,12 +594,17 @@ class HorizonDB:
             "source_types": row["source_types"],
         }
 
-    def search(self, query: str, *, limit: int = 20) -> list[dict[str, Any]]:
-        """Full-text search across title, summary, reason, and tags."""
+    def search(self, query: str, *, limit: int = 20, selected_only: bool = True) -> list[dict[str, Any]]:
+        """Full-text search across title, summary, reason, and tags.
+
+        Args:
+            selected_only: When True (default), only search across selected items.
+        """
+        selected_clause = "AND items.selected = 1" if selected_only else ""
         rows = self.conn.execute(
-            """SELECT items.* FROM items
+            f"""SELECT items.* FROM items
                JOIN items_fts ON items.rowid = items_fts.rowid
-               WHERE items_fts MATCH ?
+               WHERE items_fts MATCH ? {selected_clause}
                ORDER BY rank
                LIMIT ?""",
             (query, limit),

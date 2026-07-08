@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, FileResponse
 
+from ..content_extractor import clean_article_content
 from ..storage.db import HorizonDB
 
 
@@ -49,6 +50,10 @@ def _build_content(item: dict) -> dict:
                 meta.get(f"reason_{lang}")
                 or item.get("ai_reason", "")
             ),
+            "community_discussion": (
+                meta.get(f"community_discussion_{lang}")
+                or meta.get("community_discussion", "")
+            ),
         }
 
     return {
@@ -56,12 +61,30 @@ def _build_content(item: dict) -> dict:
         "default_language": meta.get("default_display_language", "zh"),
         "is_ai_translated": meta.get("is_ai_translated", False),
         "content": content,
+        "enrichment_sources": meta.get("enrichment_sources", []),
+        "discussion_url": meta.get("discussion_url"),
+        "source_provenance": meta.get("source_provenance"),
+        "source_attribution": meta.get("source_attribution"),
     }
 
 
 def _attach_content(item: dict) -> dict:
-    """Attach the ``content`` block to a single item dict (mutates and returns)."""
+    """Attach the ``content`` block plus raw/clean article text (mutates and returns).
+
+    ``raw_content`` mirrors the untouched scraped text (for traceability);
+    ``clean_content`` is derived from it with scraping boilerplate stripped,
+    and is what the frontend should render.
+
+    ``raw_html``/``display_html`` (structured article HTML) pass through
+    unchanged from the DB row — they're already present on ``item`` here,
+    computed once at extraction time rather than per-request like
+    ``clean_content``. The frontend should prefer ``display_html`` and only
+    fall back to ``clean_content`` when it's empty (e.g. extraction failed
+    or found no structured content).
+    """
     item["content_block"] = _build_content(item)
+    item["raw_content"] = item.get("content")
+    item["clean_content"] = clean_article_content(item.get("content"), title=item.get("title"))
     return item
 
 
@@ -234,12 +257,18 @@ def run_dates(limit: int = Query(30, ge=1, le=365)) -> list[str]:
 @app.get("/api/daily/{date}")
 def daily_detail(date: str) -> dict:
     """Get all items and stats for a specific date."""
-    result = db.get_items(run_date=date, per_page=200)
-    stats = db.get_stats(run_date=date)
-    tags = db.get_tags(run_date=date)
+    # `date` is a path param typed `str`, so FastAPI never hands us a
+    # datetime.date here — but normalize defensively in case this is ever
+    # called with one (e.g. from other Python code), since sqlite3 can't
+    # bind date/datetime objects directly.
+    run_date = date.isoformat() if hasattr(date, "isoformat") else str(date)
+
+    result = db.get_items(run_date=run_date, per_page=200)
+    stats = db.get_stats(run_date=run_date)
+    tags = db.get_tags(run_date=run_date)
     topics = db.get_topics(grouped=True)
     return {
-        "date": date,
+        "date": run_date,
         "stats": stats,
         "tags": tags,
         "topics": topics,

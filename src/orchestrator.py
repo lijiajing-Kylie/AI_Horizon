@@ -1,13 +1,18 @@
 """Main orchestrator coordinating the entire workflow."""
 
 import asyncio
+import json
+import logging
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import List, Dict, Optional
 from urllib.parse import urlparse
 import httpx
 from rich.console import Console
+
+logger = logging.getLogger(__name__)
 
 from .models import Config, ContentItem, SourceRole, classify_url_role, SOURCE_ROLE_PRIORITY
 from .storage.manager import StorageManager
@@ -30,6 +35,29 @@ from .ai.analyzer import ContentAnalyzer
 from .ai.summarizer import DailySummarizer
 from .ai.enricher import ContentEnricher
 from .ai.tokens import get_usage_snapshot
+from .content_extractor import extract_full_content
+
+_MAX_MERGED_IMAGES = 20
+
+
+def _merge_item_images(primary: ContentItem, other: ContentItem) -> None:
+    """Fold ``other``'s cover image / image list into ``primary``, in place.
+
+    Used when duplicate items are merged (cross-source URL dedup, AI topic
+    dedup) so an image found via a secondary source isn't lost just because
+    that item wasn't picked as primary.
+    """
+    if not primary.cover_image and other.cover_image:
+        primary.cover_image = other.cover_image
+
+    if other.images and len(primary.images) < _MAX_MERGED_IMAGES:
+        seen = {img.get("url") for img in primary.images}
+        for img in other.images:
+            if len(primary.images) >= _MAX_MERGED_IMAGES:
+                break
+            if img.get("url") not in seen:
+                primary.images.append(img)
+                seen.add(img.get("url"))
 
 
 @dataclass
@@ -94,6 +122,9 @@ class HorizonOrchestrator:
             all_items = await self.fetch_all_sources(since)
             self.console.print(f"📥 Fetched {len(all_items)} items from all sources\n")
 
+            # 2.5 Extract full article text for each item
+            all_items = await self._extract_full_content(all_items)
+
             if not all_items:
                 self.console.print("[yellow]No new content found. Exiting.[/yellow]")
                 return
@@ -110,6 +141,12 @@ class HorizonOrchestrator:
             analyzed_items = await self._analyze_content(merged_items)
             self.console.print(f"🤖 Analyzed {len(analyzed_items)} items with AI\n")
 
+            # 4.1 Persist ALL scored items immediately (selected=False) so
+            #     dropped items are available for later audit queries.
+            today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            self.db.save_items(analyzed_items, today, len(all_items), selected=False, replace=True)
+            self.console.print(f"💾 Persisted {len(analyzed_items)} scored items to SQLite (pre-filter)\n")
+
             # 4.5 Filter by AI relevance (binary gate — only AI/LLM content passes)
             relevant_items = [
                 item for item in analyzed_items
@@ -121,6 +158,7 @@ class HorizonOrchestrator:
                     f"🎯 {len(relevant_items)} items are AI-relevant "
                     f"({skipped_relevance} non-relevant items dropped)\n"
                 )
+            relevant_ids = {item.id for item in relevant_items}
 
             # 5. Filter by score threshold
             threshold = self.config.filtering.ai_score_threshold
@@ -155,6 +193,7 @@ class HorizonOrchestrator:
                 self.console.print(
                     f"⭐️ {len(important_items)} items scored ≥ {threshold}\n"
                 )
+            score_passed_ids = {item.id for item in important_items}
 
             # 5.5 Semantic deduplication: drop items covering the same topic
             deduped_items = await self.merge_topic_duplicates(important_items)
@@ -164,6 +203,7 @@ class HorizonOrchestrator:
                     f"→ {len(deduped_items)} unique items\n"
                 )
             important_items = deduped_items
+            deduped_ids = {item.id for item in important_items}
 
             # 5.51 Build unified source attribution for display
             self._build_source_attribution(important_items)
@@ -177,6 +217,30 @@ class HorizonOrchestrator:
             # 5.8 Apply per-category and global digest limits before enrichment
             balanced_result = self.apply_balanced_digest(important_items)
             important_items = balanced_result.items
+            final_ids = {item.id for item in important_items}
+
+            # 5.9 Compute drop reasons and mark selection in SQLite
+            drop_reason_map: dict[str, str] = {}
+            for item in analyzed_items:
+                if item.id not in relevant_ids:
+                    drop_reason_map[item.id] = "relevance"
+                elif item.id not in score_passed_ids:
+                    drop_reason_map[item.id] = "score"
+                elif item.id not in deduped_ids:
+                    drop_reason_map[item.id] = "topic_duplicate"
+                elif item.id not in final_ids:
+                    drop_reason_map[item.id] = "category_quota"
+
+            self.db.mark_selected(final_ids, drop_reason_map, today)
+            dropped_count = len(drop_reason_map)
+            if dropped_count > 0:
+                self.console.print(
+                    f"📋 Audited {dropped_count} dropped items in SQLite "
+                    f"(relevance: {sum(1 for v in drop_reason_map.values() if v == 'relevance')}, "
+                    f"score: {sum(1 for v in drop_reason_map.values() if v == 'score')}, "
+                    f"topic_dup: {sum(1 for v in drop_reason_map.values() if v == 'topic_duplicate')}, "
+                    f"quota: {sum(1 for v in drop_reason_map.values() if v == 'category_quota')})\n"
+                )
 
             # Show per-sub-source selection breakdown
             selected_counts: Dict[str, int] = defaultdict(int)
@@ -190,10 +254,9 @@ class HorizonOrchestrator:
             # 6. Search related stories + enrich with background knowledge (2nd AI pass)
             await self._enrich_important_items(important_items)
 
-            # 6.5 Persist scored + enriched items to SQLite for API serving
-            today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-            saved = self.db.save_items(important_items, today, len(all_items))
-            self.console.print(f"💾 Persisted {saved} items to SQLite\n")
+            # 6.5 Update persisted items with enrichment results
+            saved = self.db.save_items(important_items, today, len(all_items), selected=True, replace=False)
+            self.console.print(f"💾 Updated {saved} items with enrichment data in SQLite\n")
 
             # 6.6 Persist topic classifications to news_topics
             topic_count = 0
@@ -382,6 +445,138 @@ class HorizonOrchestrator:
                     all_items.extend(result)
 
             return all_items
+
+    async def _extract_full_content(self, items: List[ContentItem]) -> List[ContentItem]:
+        """Extract full article text for each item's URL using trafilatura.
+
+        For each item, fetches the original URL and runs readability-based
+        extraction. On success, the original RSS summary is preserved in
+        ``item.metadata["rss_summary"]`` and ``item.content`` is replaced
+        with the clean full-text article.  Failures are silent — the
+        original content is left unchanged.
+
+        Args:
+            items: Content items from all scrapers.
+
+        Returns:
+            The same list (mutated in-place).
+        """
+        if not items:
+            return items
+
+        # source_label -> {"total": n, "extracted": n, "skipped": n}
+        source_stats: Dict[str, Dict[str, int]] = defaultdict(
+            lambda: {"total": 0, "extracted": 0, "skipped": 0}
+        )
+        skipped_records: List[dict] = []
+
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+            semaphore = asyncio.Semaphore(8)  # limit concurrent fetches
+
+            async def _extract_one(item: ContentItem) -> None:
+                source_label = f"{item.source_type.value}:{self._sub_source_label(item)}"
+                original_content = item.content or ""
+
+                async with semaphore:
+                    extract_debug: dict = {}
+                    result = await extract_full_content(
+                        str(item.url), client, debug=extract_debug
+                    )
+
+                stats = source_stats[source_label]
+                stats["total"] += 1
+
+                if result:
+                    item.metadata["rss_summary"] = item.content
+                    item.content = result.text
+                    item.cover_image = result.cover_image
+                    item.images = result.images
+                    item.raw_html = result.raw_html
+                    item.display_html = result.display_html
+                    stats["extracted"] += 1
+                else:
+                    stats["skipped"] += 1
+                    skipped_records.append(
+                        {
+                            "title": item.title,
+                            "url": str(item.url),
+                            "source": source_label,
+                            "skip_reason": extract_debug.get("skip_reason"),
+                            "http_status": extract_debug.get("http_status"),
+                            "rss_had_content": bool(original_content.strip()),
+                            "rss_content_length": len(original_content.strip()),
+                        }
+                    )
+
+            await asyncio.gather(*[_extract_one(item) for item in items])
+
+        extracted = sum(1 for item in items if "rss_summary" in item.metadata)
+        skipped = len(items) - extracted
+        self.console.print(
+            f"📄 成功提取 {extracted} 篇完整正文 / {skipped} 篇跳过\n"
+        )
+
+        logger.debug("Full-content extraction stats by source:")
+        for source_label, stats in sorted(source_stats.items()):
+            total = stats["total"]
+            skip_ratio = stats["skipped"] / total if total else 0.0
+            logger.debug(
+                "  source=%s total=%d extracted=%d skipped=%d skip_ratio=%.1f%%",
+                source_label, total, stats["extracted"], stats["skipped"], skip_ratio * 100,
+            )
+
+        for record in skipped_records:
+            logger.debug(
+                "skipped item title=%r url=%s source=%s skip_reason=%s http_status=%s "
+                "rss_had_content=%s rss_content_length=%d",
+                record["title"], record["url"], record["source"], record["skip_reason"],
+                record["http_status"], record["rss_had_content"], record["rss_content_length"],
+            )
+
+        if skipped_records:
+            self._write_extraction_debug_file(source_stats, skipped_records)
+
+        return items
+
+    def _write_extraction_debug_file(
+        self, source_stats: Dict[str, Dict[str, int]], skipped_records: List[dict]
+    ) -> Path:
+        """Write a JSON debug export of full-content extraction results.
+
+        Args:
+            source_stats: Per-source total/extracted/skipped counts.
+            skipped_records: Per-item details for every skipped item.
+
+        Returns:
+            Path to the written debug file.
+        """
+        debug_dir = Path("data/debug")
+        debug_dir.mkdir(parents=True, exist_ok=True)
+
+        timestamp = datetime.now(timezone.utc)
+        by_source = {
+            source_label: {
+                **stats,
+                "skip_ratio": round(stats["skipped"] / stats["total"], 4) if stats["total"] else 0.0,
+            }
+            for source_label, stats in sorted(source_stats.items())
+        }
+
+        payload = {
+            "generated_at": timestamp.isoformat(),
+            "total_items": sum(s["total"] for s in source_stats.values()),
+            "total_extracted": sum(s["extracted"] for s in source_stats.values()),
+            "total_skipped": sum(s["skipped"] for s in source_stats.values()),
+            "by_source": by_source,
+            "skipped_items": skipped_records,
+        }
+
+        debug_path = debug_dir / f"extraction_debug_{timestamp.strftime('%Y%m%d_%H%M%S')}.json"
+        debug_path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        self.console.print(f"🐛 正文提取 debug 导出: {debug_path}\n")
+        return debug_path
 
     async def _fetch_with_progress(self, name: str, scraper, since: datetime) -> List[ContentItem]:
         """Fetch from a scraper with progress indication.
@@ -606,6 +801,8 @@ class HorizonOrchestrator:
                 if item is not primary and item.content:
                     if primary.content and item.content not in primary.content:
                         primary.content = (primary.content or "") + f"\n\n--- From {item.source_type.value} ---\n" + item.content
+                if item is not primary:
+                    _merge_item_images(primary, item)
 
             # --- Select primary by provenance priority (not just content length) ---
             # Sort by SOURCE_ROLE_PRIORITY ascending (lower = more authoritative)
@@ -759,6 +956,7 @@ class HorizonOrchestrator:
                     if not primary.content or dup.content not in primary.content:
                         label = dup.source_type.value
                         primary.content = (primary.content or "") + f"\n\n--- From {label} ---\n{dup.content}"
+                _merge_item_images(primary, dup)
                 # Record source attribution for the dropped item (backward-compat)
                 primary_topic_sources.append({
                     "source_type": dup.source_type.value,
