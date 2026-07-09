@@ -183,6 +183,7 @@ class ContentItem(BaseModel):
     content: Optional[str] = None
     raw_html: Optional[str] = None  # structured main-content HTML, unsanitized
     display_html: Optional[str] = None  # raw_html after nh3 whitelist sanitize
+    display_html_zh: Optional[str] = None  # display_html with text blocks translated to Chinese
     cover_image: Optional[str] = None  # Primary/cover image URL, if any
     images: List[Dict[str, Any]] = Field(default_factory=list)  # [{url, alt, caption, source}, ...]
     author: Optional[str] = None

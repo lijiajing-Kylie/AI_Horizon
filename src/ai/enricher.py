@@ -16,6 +16,7 @@ from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, MofNCo
 from ddgs import DDGS
 
 from .client import AIClient
+from .html_translator import translate_display_html
 from .prompts import (
     CONCEPT_EXTRACTION_SYSTEM, CONCEPT_EXTRACTION_USER,
     CONTENT_ENRICHMENT_SYSTEM, CONTENT_ENRICHMENT_USER,
@@ -107,6 +108,10 @@ class ContentEnricher:
                 except Exception as e:
                     print(f"Error enriching item {item.id}: {e}, falling back to translation")
                     await self._translate_item(item)
+                try:
+                    await self._translate_html(item)
+                except Exception as e:
+                    print(f"Error translating article HTML for {item.id}: {e}")
             progress.advance(progress_task)
 
         with Progress(
@@ -308,3 +313,19 @@ class ContentEnricher:
             _stamp_language_metadata(item)
         except Exception:
             pass
+
+    async def _translate_html(self, item: ContentItem) -> None:
+        """Populate ``display_html_zh`` when the article body isn't already Chinese.
+
+        Runs independently of ``_enrich_item``/``_translate_item`` (title/summary
+        translation) so a failure or skip here never affects them, and vice
+        versa. Never raises — a failed translation just leaves
+        ``display_html_zh`` unset, and the frontend falls back to
+        ``display_html``.
+        """
+        if not item.display_html:
+            return
+        if _detect_original_language(item) == "zh":
+            item.display_html_zh = item.display_html
+            return
+        item.display_html_zh = await translate_display_html(self.client, item.display_html)

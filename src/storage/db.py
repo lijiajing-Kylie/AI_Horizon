@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS items (
     content         TEXT,
     raw_html        TEXT,
     display_html    TEXT,
+    display_html_zh TEXT,
     cover_image     TEXT,
     images_json     TEXT NOT NULL DEFAULT '[]',
     author          TEXT,
@@ -118,6 +119,7 @@ _ITEMS_COLUMN_MIGRATIONS: list[tuple[str, str]] = [
     ("images_json", "TEXT NOT NULL DEFAULT '[]'"),
     ("raw_html", "TEXT"),
     ("display_html", "TEXT"),
+    ("display_html_zh", "TEXT"),
 ]
 
 
@@ -164,6 +166,7 @@ def _row_to_item(row: sqlite3.Row) -> dict[str, Any]:
         "content": row["content"],
         "raw_html": row["raw_html"] if "raw_html" in row.keys() else None,
         "display_html": row["display_html"] if "display_html" in row.keys() else None,
+        "display_html_zh": row["display_html_zh"] if "display_html_zh" in row.keys() else None,
         "cover_image": row["cover_image"] if "cover_image" in row.keys() else None,
         "images": json.loads(row["images_json"]) if "images_json" in row.keys() and row["images_json"] else [],
         "author": row["author"],
@@ -257,6 +260,7 @@ class HorizonDB:
                 item.content,
                 item.raw_html,
                 item.display_html,
+                item.display_html_zh,
                 item.cover_image,
                 json.dumps(item.images, ensure_ascii=False, default=str),
                 item.author,
@@ -277,11 +281,11 @@ class HorizonDB:
         self.conn.executemany(
             """INSERT INTO items (
                 id, source_type, title, url, content, raw_html, display_html,
-                cover_image, images_json, author,
+                display_html_zh, cover_image, images_json, author,
                 published_at, fetched_at, ai_relevant, ai_score,
                 ai_reason, ai_summary, ai_tags_json, metadata_json,
                 run_date, created_at, selected, drop_reason
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 source_type = excluded.source_type,
                 title = excluded.title,
@@ -289,6 +293,7 @@ class HorizonDB:
                 content = excluded.content,
                 raw_html = excluded.raw_html,
                 display_html = excluded.display_html,
+                display_html_zh = excluded.display_html_zh,
                 cover_image = excluded.cover_image,
                 images_json = excluded.images_json,
                 author = excluded.author,
@@ -665,12 +670,15 @@ class HorizonDB:
         When grouped=False, returns:
             {"topics": [...]}
 
-        Each topic includes a `count` of associated news items.
+        Each topic includes a `count` of associated news items — only items
+        that made the final digest (``selected = 1``) are counted, so this
+        matches what ``get_topic_news`` actually returns for the same topic.
         """
         rows = self.conn.execute(
-            """SELECT t.*, COUNT(nt.news_id) AS count
+            """SELECT t.*, COUNT(i.id) AS count
                FROM topics t
                LEFT JOIN news_topics nt ON t.id = nt.topic_id
+               LEFT JOIN items i ON nt.news_id = i.id AND i.selected = 1
                WHERE t.is_active = 1
                GROUP BY t.id
                ORDER BY t.group_name, t.sort_order, t.name""",
@@ -835,7 +843,14 @@ class HorizonDB:
         sort: str = "ai_score",
         order: str = "desc",
     ) -> dict[str, Any]:
-        """Get paginated news items for a specific topic by slug."""
+        """Get paginated news items for a specific topic by slug.
+
+        Only items that made the final digest (``selected = 1``) are
+        returned — items dropped after topic classification (e.g. by the
+        balanced-digest category quota) keep their ``news_topics`` rows for
+        audit purposes but were never enriched/published, so they must not
+        surface here.
+        """
         topic = self.conn.execute(
             "SELECT id, name, slug, group_name, description FROM topics WHERE slug = ?",
             (slug,),
@@ -852,7 +867,7 @@ class HorizonDB:
         count_row = self.conn.execute(
             """SELECT COUNT(*) AS cnt FROM news_topics nt
                JOIN items i ON nt.news_id = i.id
-               WHERE nt.topic_id = ?""",
+               WHERE nt.topic_id = ? AND i.selected = 1""",
             (topic["id"],),
         ).fetchone()
         total = count_row["cnt"] if count_row else 0
@@ -860,7 +875,7 @@ class HorizonDB:
         rows = self.conn.execute(
             f"""SELECT i.* FROM news_topics nt
                 JOIN items i ON nt.news_id = i.id
-                WHERE nt.topic_id = ?
+                WHERE nt.topic_id = ? AND i.selected = 1
                 ORDER BY i.{sort_col} {order_dir}
                 LIMIT ? OFFSET ?""",
             (topic["id"], per_page, offset),

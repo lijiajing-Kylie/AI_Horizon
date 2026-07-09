@@ -77,6 +77,7 @@ export interface NewsItem {
   clean_content: string | null
   raw_html: string | null
   display_html: string | null
+  display_html_zh: string | null
   cover_image: string | null
   images: ArticleImage[]
   author: string | null

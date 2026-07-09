@@ -562,6 +562,11 @@ def clean_article_content(raw: Optional[str], *, title: Optional[str] = None) ->
     if not raw or not raw.strip():
         return ""
 
+    # Some sources (e.g. the HN API) hand back HTML-entity-escaped text
+    # (I&#x27;m, &#x2F;) even after tags have been stripped upstream — decode
+    # it here so display never shows raw entity codes.
+    raw = html_module.unescape(raw)
+
     lines = [ln.strip() for ln in raw.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
 
     # Drop leading line(s) that just repeat the title.

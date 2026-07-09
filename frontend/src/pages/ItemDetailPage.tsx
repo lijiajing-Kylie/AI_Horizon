@@ -57,21 +57,32 @@ function resolveItemContent(
   }
 }
 
-// clean_content is the display-ready article body; fall back to the AI
-// summary, then the untouched raw_content, if it's empty.
+// clean_content is the display-ready article body (comments section already
+// stripped server-side); fall back to the AI summary if it's empty.
+// Deliberately does NOT fall back to raw_content — that field is the
+// untouched scrape, which for comment-fetching sources (HN/Reddit/Twitter)
+// still contains the "--- Top Comments ---" section, and community replies
+// must never be shown as if they were the article body.
 function resolveArticleBody(
-  item: { clean_content: string | null; raw_content: string | null },
+  item: { clean_content: string | null },
   summary: string | null,
 ): string {
   if (item.clean_content && item.clean_content.trim()) return item.clean_content
   if (summary && summary.trim()) return summary
-  if (item.raw_content && item.raw_content.trim()) return item.raw_content
   return ''
 }
 
 // display_html (structured, sanitized article HTML) is preferred when
 // present; everything else falls back to the plain-text chain above.
-function resolveArticleHtml(item: { display_html: string | null }): string {
+// display_html_zh (AI-translated body) is shown when displayLang is 'zh'
+// and a translation exists, falling back to the original-language HTML.
+function resolveArticleHtml(
+  item: { display_html: string | null; display_html_zh: string | null },
+  displayLang: string,
+): string {
+  if (displayLang === 'zh' && item.display_html_zh && item.display_html_zh.trim()) {
+    return item.display_html_zh
+  }
   if (item.display_html && item.display_html.trim()) return item.display_html
   return ''
 }
@@ -142,7 +153,7 @@ export default function ItemDetailPage() {
   // Topic tags always send you back to *this* item detail page — never
   // chained to wherever this page itself was reached from.
   const topicBackTo = { path: `/items/${id}`, label: '← 返回新闻详情' }
-  const articleHtml = resolveArticleHtml(item)
+  const articleHtml = resolveArticleHtml(item, displayLang)
   const articleBody = resolveArticleBody(item, content.summary)
   // Extracted article text (trafilatura) separates paragraphs with a single
   // newline rather than a blank line, so split on any run of newlines.
@@ -164,16 +175,6 @@ export default function ItemDetailPage() {
             {content.title}
           </h1>
         </div>
-
-        {/* Cover image */}
-        {item.cover_image && (
-          <img
-            src={item.cover_image}
-            alt={content.title}
-            className="w-full max-h-[420px] object-cover rounded-lg mb-3"
-            onError={e => { e.currentTarget.style.display = 'none' }}
-          />
-        )}
 
         {/* Translation toggle */}
         {showTranslationUI && (
@@ -264,11 +265,6 @@ export default function ItemDetailPage() {
       )}
 
       {/* 3. 正文 */}
-      {/* TODO: display_html is always shown in its original extraction
-          language — there is no "中文正文 / 原文" toggle or on-demand
-          translation endpoint yet (only title/summary/reason/community
-          discussion are bilingual today, via content_block). Deferred to a
-          later phase; see the design doc discussion. */}
       {articleHtml ? (
         <section className="mb-6">
           <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-2">
@@ -304,7 +300,24 @@ export default function ItemDetailPage() {
             </div>
           </div>
         </section>
-      ) : null}
+      ) : (
+        <section className="mb-6">
+          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-2">
+            正文
+          </h2>
+          <div className="bg-white border border-gray-200 rounded-lg p-5 text-sm text-gray-500">
+            暂无正文内容，可点击{' '}
+            <a
+              href={primaryUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-500 hover:text-blue-700"
+            >
+              查看原文 ↗
+            </a>
+          </div>
+        </section>
+      )}
 
       {/* 4. 社区讨论 */}
       {content.communityDiscussion && (

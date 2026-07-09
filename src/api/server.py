@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, FileResponse
 
+from ..ai.utils import split_content_and_comments
 from ..content_extractor import clean_article_content
 from ..storage.db import HorizonDB
 
@@ -81,10 +82,19 @@ def _attach_content(item: dict) -> dict:
     ``clean_content``. The frontend should prefer ``display_html`` and only
     fall back to ``clean_content`` when it's empty (e.g. extraction failed
     or found no structured content).
+
+    Some scrapers (Hacker News, Reddit, Twitter) append a ``--- Top
+    Comments ---`` section to ``content`` for AI scoring/enrichment context.
+    That section is dropped before computing ``clean_content`` — it's
+    community discussion, not article body, and must never be what the
+    detail page renders as "正文" (a link post with no article text but
+    fetched comments would otherwise show the comments as if they were the
+    article).
     """
     item["content_block"] = _build_content(item)
     item["raw_content"] = item.get("content")
-    item["clean_content"] = clean_article_content(item.get("content"), title=item.get("title"))
+    main_content, _comments = split_content_and_comments(item.get("content"))
+    item["clean_content"] = clean_article_content(main_content, title=item.get("title"))
     return item
 
 

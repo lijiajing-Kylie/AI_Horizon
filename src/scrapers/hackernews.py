@@ -1,5 +1,6 @@
 """Hacker News scraper implementation."""
 
+import html
 import logging
 import re
 from datetime import datetime, timezone
@@ -14,6 +15,18 @@ logger = logging.getLogger(__name__)
 
 # Max top-level comments to fetch per story
 TOP_COMMENTS_LIMIT = 5
+
+
+def _clean_hn_text(text: str) -> str:
+    """Strip HTML tags and decode entities from HN API text fields.
+
+    The HN Firebase API returns ``text``/comment bodies as HTML (``<p>``
+    paragraph breaks, ``<a href>`` links, HTML-entity-escaped punctuation
+    like ``&#x27;``/``&#x2F;``) rather than plain text — both need to be
+    handled or raw tags/entities leak into ``ContentItem.content``.
+    """
+    stripped = re.sub(r'<[^>]+>', ' ', text)
+    return html.unescape(stripped).strip()
 
 
 class HackerNewsScraper(BaseScraper):
@@ -107,15 +120,13 @@ class HackerNewsScraper(BaseScraper):
         # Build content: original text + top comments
         parts = []
         if story.get("text"):
-            parts.append(story["text"])
+            parts.append(_clean_hn_text(story["text"]))
 
         if comments:
             parts.append("\n--- Top Comments ---")
             for c in comments:
                 commenter = c.get("by", "anon")
-                text = c.get("text", "")
-                # Strip HTML tags roughly
-                text = re.sub(r'<[^>]+>', ' ', text).strip()
+                text = _clean_hn_text(c.get("text", ""))
                 # Truncate very long comments
                 if len(text) > 500:
                     text = text[:497] + "..."
