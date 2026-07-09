@@ -34,11 +34,17 @@ def _detect_original_language(item: ContentItem) -> str:
 
     Returns ``"zh"`` when > 30 % of the characters are CJK, ``"en"`` otherwise.
     Falls back to ``"unknown"`` when there is too little text.
+
+    Deliberately excludes ``item.ai_summary``: the first-pass analyzer
+    prompt (``CONTENT_ANALYSIS_USER``) forces that field to always be
+    written in Chinese regardless of the source language, so including it
+    would bias every item toward "zh" instead of reflecting the actual
+    source text. Only ``title``/``content`` (both untouched since scraping)
+    are genuine signals of the original language.
     """
     text = " ".join([
         item.title or "",
         item.content or "",
-        item.ai_summary or "",
     ])
     if not text.strip():
         return "unknown"
