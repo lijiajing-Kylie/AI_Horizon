@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS items (
     title           TEXT NOT NULL,
     url             TEXT NOT NULL,
     content         TEXT,
+    raw_content     TEXT,
     raw_html        TEXT,
     display_html    TEXT,
     display_html_zh TEXT,
@@ -120,6 +121,7 @@ _ITEMS_COLUMN_MIGRATIONS: list[tuple[str, str]] = [
     ("raw_html", "TEXT"),
     ("display_html", "TEXT"),
     ("display_html_zh", "TEXT"),
+    ("raw_content", "TEXT"),
 ]
 
 
@@ -164,6 +166,7 @@ def _row_to_item(row: sqlite3.Row) -> dict[str, Any]:
         "title": row["title"],
         "url": row["url"],
         "content": row["content"],
+        "raw_content": row["raw_content"] if "raw_content" in row.keys() else None,
         "raw_html": row["raw_html"] if "raw_html" in row.keys() else None,
         "display_html": row["display_html"] if "display_html" in row.keys() else None,
         "display_html_zh": row["display_html_zh"] if "display_html_zh" in row.keys() else None,
@@ -252,12 +255,28 @@ class HorizonDB:
         rows: list[tuple] = []
         for item in items:
             drop_reason = None if selected else item.metadata.get("_drop_reason")
+            # Extraction-provenance fields have no dedicated columns — fold
+            # them into metadata_json alongside the item's own metadata dict
+            # (same precedent as source_provenance/original_language).
+            metadata_out = dict(item.metadata)
+            metadata_out.update({
+                "rss_summary": item.rss_summary,
+                "content_source": item.content_source,
+                "extraction_status": item.extraction_status,
+                "extraction_error": item.extraction_error,
+                "http_status": item.http_status,
+                "final_url": item.final_url,
+                "text_length": item.text_length,
+                "extracted_at": _dt_iso(item.extracted_at),
+                "extractor_version": item.extractor_version,
+            })
             rows.append((
                 item.id,
                 item.source_type.value,
                 item.title,
                 str(item.url),
                 item.content,
+                item.raw_content,
                 item.raw_html,
                 item.display_html,
                 item.display_html_zh,
@@ -271,44 +290,51 @@ class HorizonDB:
                 item.ai_reason,
                 item.ai_summary,
                 json.dumps(item.ai_tags, ensure_ascii=False),
-                json.dumps(item.metadata, ensure_ascii=False, default=str),
+                json.dumps(metadata_out, ensure_ascii=False, default=str),
                 run_date,
                 _now_iso(),
                 1 if selected else 0,
                 drop_reason,
             ))
 
+        # Extraction-stage columns are set once (step 2.5, before analysis)
+        # and must survive the later incremental enrichment write (step 6.5,
+        # replace=False) even if the item object passed in that time didn't
+        # carry them — COALESCE keeps whatever's already stored instead of
+        # nulling it out. The replace=True snapshot write (preceded by a
+        # DELETE) keeps today's exact blind-overwrite behavior.
+        extraction_cols = (
+            "content", "raw_content", "raw_html", "display_html",
+            "display_html_zh", "cover_image", "images_json",
+        )
+        def _update_expr(col: str) -> str:
+            if not replace and col in extraction_cols:
+                # Unqualified `col` refers to the pre-update (existing) row;
+                # `excluded.col` is the value from this INSERT attempt.
+                return f"{col} = COALESCE(excluded.{col}, {col})"
+            return f"{col} = excluded.{col}"
+
+        update_clause = ",\n                ".join(
+            _update_expr(col) for col in (
+                "source_type", "title", "url", "content", "raw_content",
+                "raw_html", "display_html", "display_html_zh", "cover_image",
+                "images_json", "author", "published_at", "fetched_at",
+                "ai_relevant", "ai_score", "ai_reason", "ai_summary",
+                "ai_tags_json", "metadata_json", "run_date", "created_at",
+                "selected", "drop_reason",
+            )
+        )
+
         self.conn.executemany(
-            """INSERT INTO items (
-                id, source_type, title, url, content, raw_html, display_html,
-                display_html_zh, cover_image, images_json, author,
+            f"""INSERT INTO items (
+                id, source_type, title, url, content, raw_content, raw_html,
+                display_html, display_html_zh, cover_image, images_json, author,
                 published_at, fetched_at, ai_relevant, ai_score,
                 ai_reason, ai_summary, ai_tags_json, metadata_json,
                 run_date, created_at, selected, drop_reason
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
-                source_type = excluded.source_type,
-                title = excluded.title,
-                url = excluded.url,
-                content = excluded.content,
-                raw_html = excluded.raw_html,
-                display_html = excluded.display_html,
-                display_html_zh = excluded.display_html_zh,
-                cover_image = excluded.cover_image,
-                images_json = excluded.images_json,
-                author = excluded.author,
-                published_at = excluded.published_at,
-                fetched_at = excluded.fetched_at,
-                ai_relevant = excluded.ai_relevant,
-                ai_score = excluded.ai_score,
-                ai_reason = excluded.ai_reason,
-                ai_summary = excluded.ai_summary,
-                ai_tags_json = excluded.ai_tags_json,
-                metadata_json = excluded.metadata_json,
-                run_date = excluded.run_date,
-                created_at = excluded.created_at,
-                selected = excluded.selected,
-                drop_reason = excluded.drop_reason""",
+                {update_clause}""",
             rows,
         )
 

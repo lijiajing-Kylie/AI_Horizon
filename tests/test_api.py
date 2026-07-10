@@ -516,3 +516,217 @@ class TestDebugDashboard:
         # FileResponse returns 200 if the file exists
         assert r.status_code == 200
         assert "text/html" in r.headers["content-type"]
+
+
+# ---------------------------------------------------------------------------
+# Scrape diagnostics (dev-only debug block)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def debug_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """A client seeded with one richly-populated item, for debug-block tests."""
+    db = HorizonDB(db_path=str(tmp_path / "debug_test.db"))
+
+    selected_item = ContentItem(
+        id="rss:diag:selected",
+        source_type=SourceType.RSS,
+        title="Diagnostics Selected Item",
+        url="https://example.com/selected",
+        content="body --- Top Comments --- some comments here",
+        raw_content="Full extracted article body. " * 30,
+        rss_summary="short rss snippet",
+        raw_html="<p>unsanitized <script>x</script></p>",
+        display_html="<p>Hello world</p>",
+        display_html_zh="<p>你好世界</p>",
+        http_status=200,
+        final_url="https://example.com/selected-final",
+        extraction_status="success",
+        extraction_error=None,
+        content_source="full_text",
+        text_length=900,
+        extractor_version="1",
+        published_at=datetime(2026, 7, 9, 8, 0, 0, tzinfo=timezone.utc),
+        ai_relevant=True,
+        ai_score=8.0,
+        ai_reason="reason",
+        ai_summary="summary",
+        ai_tags=["AI"],
+        metadata={"original_language": "en"},
+    )
+    dropped_item = ContentItem(
+        id="rss:diag:dropped",
+        source_type=SourceType.RSS,
+        title="Diagnostics Dropped Item",
+        url="https://example.com/dropped",
+        content="short",
+        raw_content=None,
+        rss_summary="only a summary, extraction failed",
+        display_html="<p>Original only</p>",
+        display_html_zh=None,
+        http_status=404,
+        extraction_status="failed",
+        extraction_error="bad_status:404",
+        content_source="rss_summary",
+        published_at=datetime(2026, 7, 9, 8, 0, 0, tzinfo=timezone.utc),
+        ai_relevant=False,
+        ai_score=2.0,
+        metadata={"original_language": "en"},
+    )
+
+    db.save_items([selected_item], run_date="2026-07-09", total_fetched=2, selected=True, replace=True)
+    db.save_items([dropped_item], run_date="2026-07-09", total_fetched=2, selected=False, replace=False)
+
+    import src.api.server as server_module
+    monkeypatch.setattr(server_module, "db", db)
+
+    c = TestClient(app)
+    yield c
+    db.close()
+
+
+class TestScrapeDiagnostics:
+    def test_debug_omitted_by_default(self, debug_client):
+        """Without include_debug, the field must not exist at all — not even null."""
+        r = debug_client.get("/api/items/rss:diag:selected")
+        assert r.status_code == 200
+        assert "debug" not in r.json()
+
+    def test_debug_omitted_in_production_even_with_param(self, debug_client, monkeypatch):
+        """HORIZON_API_ENV unset (defaults to production) must block debug regardless of the query param."""
+        monkeypatch.delenv("HORIZON_API_ENV", raising=False)
+        r = debug_client.get("/api/items/rss:diag:selected?include_debug=true")
+        assert r.status_code == 200
+        assert "debug" not in r.json()
+
+    def test_debug_omitted_when_env_is_production(self, debug_client, monkeypatch):
+        monkeypatch.setenv("HORIZON_API_ENV", "production")
+        r = debug_client.get("/api/items/rss:diag:selected?include_debug=true")
+        assert "debug" not in r.json()
+
+    def test_debug_attached_in_development(self, debug_client, monkeypatch):
+        monkeypatch.setenv("HORIZON_API_ENV", "development")
+        r = debug_client.get("/api/items/rss:diag:selected?include_debug=true")
+        assert r.status_code == 200
+        data = r.json()
+        assert "debug" in data
+        debug = data["debug"]
+
+        assert debug["source"]["original_title"] == "Diagnostics Selected Item"
+        assert debug["source"]["rss_summary"] == "short rss snippet"
+
+        assert debug["fetch"]["http_status"] == 200
+        assert debug["fetch"]["extraction_status"] == "success"
+        assert debug["fetch"]["content_type"] is None  # not persisted upstream — documented gap
+
+        assert debug["raw_html"] == "<p>unsanitized <script>x</script></p>"
+        assert debug["raw_html_length"] == len(debug["raw_html"])
+        assert debug["raw_content_length"] == len("Full extracted article body. " * 30)
+        assert debug["clean_content_length"] > 0
+
+        # analysis/enrichment inputs must be full, untruncated text (the seeded
+        # article is well under both the 1000 and 4000-char caps)
+        assert debug["analysis"]["truncation_limit"] == 1000
+        assert debug["analysis"]["sent_length"] == debug["analysis"]["original_length"]
+        assert debug["enrichment"]["truncation_limit"] == 4000
+
+        assert debug["translation"]["status"] == "success"
+        assert debug["translation"]["output"] == "<p>你好世界</p>"
+
+    def test_debug_no_truncation_for_long_content(self, tmp_path, monkeypatch):
+        """Debug builder must never truncate — analysis/enrichment inputs mirror
+        the real pipeline's caps, but raw/clean content stays full-length."""
+        db = HorizonDB(db_path=str(tmp_path / "long.db"))
+        long_body = "Long article sentence. " * 500  # well over the 4000-char enrichment cap
+        item = ContentItem(
+            id="rss:diag:long",
+            source_type=SourceType.RSS,
+            title="Long Item",
+            url="https://example.com/long",
+            content=long_body,
+            raw_content=long_body,
+            published_at=datetime(2026, 7, 9, 8, 0, 0, tzinfo=timezone.utc),
+            extraction_status="success",
+            content_source="full_text",
+            metadata={"original_language": "en"},
+        )
+        db.save_items([item], run_date="2026-07-09", total_fetched=1, selected=True, replace=True)
+
+        import src.api.server as server_module
+        monkeypatch.setattr(server_module, "db", db)
+        monkeypatch.setenv("HORIZON_API_ENV", "development")
+
+        c = TestClient(app)
+        r = c.get("/api/items/rss:diag:long?include_debug=true")
+        data = r.json()
+        debug = data["debug"]
+
+        # raw_content/clean_content are never truncated regardless of length
+        assert debug["raw_content_length"] == len(long_body)
+        assert len(debug["raw_content"]) == len(long_body)
+
+        # analysis/enrichment inputs ARE truncated, matching the real pipeline
+        assert debug["analysis"]["sent_length"] == 1000
+        assert len(debug["analysis"]["input"]) == 1000
+        assert debug["enrichment"]["sent_length"] == 4000
+        assert len(debug["enrichment"]["input"]) == 4000
+        db.close()
+
+    def test_translation_status_not_attempted_for_dropped_item(self, debug_client, monkeypatch):
+        monkeypatch.setenv("HORIZON_API_ENV", "development")
+        r = debug_client.get("/api/items/rss:diag:dropped?include_debug=true")
+        debug = r.json()["debug"]
+        assert debug["translation"]["status"] == "not_attempted"
+        assert debug["fetch"]["extraction_status"] == "failed"
+        assert debug["fetch"]["extraction_error"] == "bad_status:404"
+        # extraction produced no raw_content; _attach_content's legacy fallback
+        # to the scraper's own `content` field ("short") is what's shown here —
+        # existing behavior, not something this feature changes.
+        assert debug["raw_content"] == "short"
+
+    def test_translation_status_empty_input(self, tmp_path, monkeypatch):
+        db = HorizonDB(db_path=str(tmp_path / "empty_html.db"))
+        item = ContentItem(
+            id="rss:diag:noHtml",
+            source_type=SourceType.RSS,
+            title="No structured HTML",
+            url="https://example.com/no-html",
+            content="text",
+            published_at=datetime(2026, 7, 9, 8, 0, 0, tzinfo=timezone.utc),
+            metadata={"original_language": "en"},
+        )
+        db.save_items([item], run_date="2026-07-09", total_fetched=1, selected=True, replace=True)
+
+        import src.api.server as server_module
+        monkeypatch.setattr(server_module, "db", db)
+        monkeypatch.setenv("HORIZON_API_ENV", "development")
+
+        c = TestClient(app)
+        r = c.get("/api/items/rss:diag:noHtml?include_debug=true")
+        debug = r.json()["debug"]
+        assert debug["translation"]["status"] == "empty_input"
+        db.close()
+
+    def test_translation_status_skipped_already_chinese(self, tmp_path, monkeypatch):
+        db = HorizonDB(db_path=str(tmp_path / "zh.db"))
+        item = ContentItem(
+            id="rss:diag:zh",
+            source_type=SourceType.RSS,
+            title="中文标题",
+            url="https://example.com/zh",
+            content="中文正文",
+            display_html="<p>中文正文</p>",
+            display_html_zh="<p>中文正文</p>",
+            published_at=datetime(2026, 7, 9, 8, 0, 0, tzinfo=timezone.utc),
+            metadata={"original_language": "zh"},
+        )
+        db.save_items([item], run_date="2026-07-09", total_fetched=1, selected=True, replace=True)
+
+        import src.api.server as server_module
+        monkeypatch.setattr(server_module, "db", db)
+        monkeypatch.setenv("HORIZON_API_ENV", "development")
+
+        c = TestClient(app)
+        r = c.get("/api/items/rss:diag:zh?include_debug=true")
+        debug = r.json()["debug"]
+        assert debug["translation"]["status"] == "skipped_already_chinese"

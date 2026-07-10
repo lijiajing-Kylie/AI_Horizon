@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useApi } from '../hooks/useApi'
 import { getItem } from '../api/client'
@@ -8,6 +8,8 @@ import EmptyState from '../components/EmptyState'
 import BackLink from '../components/BackLink'
 import { sourceLabel, roleLabelZh } from '../utils/source'
 import { backToState } from '../utils/backTo'
+import ArticleHtml from '../components/ArticleHtml'
+import ScrapeDiagnosticsPanel from '../components/ScrapeDiagnosticsPanel'
 import type { ArticleImage, ContentBlock, SourceProvenance, EnrichmentSource } from '../api/types'
 
 // ── helpers ───────────────────────────────────────────────────────────────
@@ -58,60 +60,35 @@ function resolveItemContent(
 }
 
 // clean_content is the display-ready article body (comments section already
-// stripped server-side); fall back to the AI summary if it's empty.
-// Deliberately does NOT fall back to raw_content — that field is the
-// untouched scrape, which for comment-fetching sources (HN/Reddit/Twitter)
-// still contains the "--- Top Comments ---" section, and community replies
-// must never be shown as if they were the article body.
-function resolveArticleBody(
-  item: { clean_content: string | null },
-  summary: string | null,
-): string {
+// stripped server-side). Deliberately does NOT fall back to raw_content —
+// that field is the untouched scrape, which for comment-fetching sources
+// (HN/Reddit/Twitter) still contains the "--- Top Comments ---" section —
+// nor to the AI summary, which belongs in its own "完整摘要" section and
+// must never be presented as if it were the article body.
+function resolveArticleBody(item: { clean_content: string | null }): string {
   if (item.clean_content && item.clean_content.trim()) return item.clean_content
-  if (summary && summary.trim()) return summary
   return ''
 }
 
 // display_html (structured, sanitized article HTML) is preferred when
 // present; everything else falls back to the plain-text chain above.
 // display_html_zh (AI-translated body) is shown when displayLang is 'zh'
-// and a translation exists, falling back to the original-language HTML.
+// and a translation exists, falling back to the original-language HTML —
+// in which case translationFailed flags that the fallback happened because
+// translation didn't produce a usable result, not because the user asked
+// to see the original (toggling displayLang away from 'zh' is a normal
+// user choice, not a failure).
 function resolveArticleHtml(
   item: { display_html: string | null; display_html_zh: string | null },
   displayLang: string,
-): string {
+): { html: string; translationFailed: boolean } {
   if (displayLang === 'zh' && item.display_html_zh && item.display_html_zh.trim()) {
-    return item.display_html_zh
+    return { html: item.display_html_zh, translationFailed: false }
   }
-  if (item.display_html && item.display_html.trim()) return item.display_html
-  return ''
-}
-
-// Renders sanitized article HTML via dangerouslySetInnerHTML. Images inside
-// raw HTML don't get React's onError handling for free, so a broken image
-// (dead link, blocked hotlink) is hidden via a plain DOM listener instead —
-// mirrors the behavior of the plain-text-fallback ImageThumb component.
-function ArticleHtml({ html }: { html: string }) {
-  const ref = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    const container = ref.current
-    if (!container) return
-    const imgs = Array.from(container.querySelectorAll('img'))
-    const hide = (e: Event) => {
-      (e.currentTarget as HTMLImageElement).style.display = 'none'
-    }
-    imgs.forEach(img => img.addEventListener('error', hide))
-    return () => imgs.forEach(img => img.removeEventListener('error', hide))
-  }, [html])
-
-  return (
-    <div
-      ref={ref}
-      className="article-html text-sm text-gray-800 leading-[1.7]"
-      dangerouslySetInnerHTML={{ __html: html }}
-    />
-  )
+  if (item.display_html && item.display_html.trim()) {
+    return { html: item.display_html, translationFailed: displayLang === 'zh' }
+  }
+  return { html: '', translationFailed: false }
 }
 
 // ── component ─────────────────────────────────────────────────────────────
@@ -145,16 +122,13 @@ export default function ItemDetailPage() {
     originalLang !== 'unknown' &&
     contentBlock.is_ai_translated
   const showingTranslation = displayLang !== originalLang && displayLang === defaultLang
-  const toggleLabel =
-    displayLang === defaultLang
-      ? originalLang === 'en' ? '显示原文' : '显示原文'
-      : '显示译文'
+  const toggleLabel = displayLang === defaultLang ? '显示原文' : '显示译文'
   const topics = item.topics || []
   // Topic tags always send you back to *this* item detail page — never
   // chained to wherever this page itself was reached from.
   const topicBackTo = { path: `/items/${id}`, label: '← 返回新闻详情' }
-  const articleHtml = resolveArticleHtml(item, displayLang)
-  const articleBody = resolveArticleBody(item, content.summary)
+  const { html: articleHtml, translationFailed } = resolveArticleHtml(item, displayLang)
+  const articleBody = resolveArticleBody(item)
   // Extracted article text (trafilatura) separates paragraphs with a single
   // newline rather than a blank line, so split on any run of newlines.
   const paragraphs = articleBody.split(/\n+/).map(p => p.trim()).filter(Boolean)
@@ -270,6 +244,9 @@ export default function ItemDetailPage() {
           <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-2">
             正文
           </h2>
+          {translationFailed && (
+            <p className="text-xs text-amber-600 mb-2">正文翻译失败，以下为原文</p>
+          )}
           <div className="bg-white border border-gray-200 rounded-lg p-5">
             <div className="mx-auto max-w-[760px]">
               <ArticleHtml html={articleHtml} />
@@ -306,15 +283,18 @@ export default function ItemDetailPage() {
             正文
           </h2>
           <div className="bg-white border border-gray-200 rounded-lg p-5 text-sm text-gray-500">
-            暂无正文内容，可点击{' '}
-            <a
-              href={primaryUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-blue-500 hover:text-blue-700"
-            >
-              查看原文 ↗
-            </a>
+            <p>
+              因原网站限制、抓取失败或正文不可解析，当前无法显示正文。请点击
+              <a
+                href={primaryUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-blue-600 hover:text-blue-700"
+              >
+                查看原文
+              </a>
+              。
+            </p>
           </div>
         </section>
       )}
@@ -410,6 +390,11 @@ export default function ItemDetailPage() {
             ))}
           </div>
         </section>
+      )}
+
+      {/* Scrape diagnostics — dev-only, never rendered in a production build */}
+      {import.meta.env.DEV && item.debug && (
+        <ScrapeDiagnosticsPanel debug={item.debug} />
       )}
 
       {/* Divider */}

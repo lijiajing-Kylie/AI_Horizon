@@ -31,7 +31,13 @@ export function getItems(params?: {
 }
 
 export function getItem(id: string) {
-  return get<NewsItem>(`/api/items/${id}`)
+  // include_debug is harmless to send outside dev — the backend only ever
+  // attaches the debug block when it's also running with
+  // HORIZON_API_ENV=development — but we only ask for it in dev to avoid
+  // bloating the response for a field the production UI never renders.
+  return get<NewsItem>(`/api/items/${id}`, {
+    include_debug: import.meta.env.DEV ? 'true' : undefined,
+  })
 }
 
 // Tags & Categories

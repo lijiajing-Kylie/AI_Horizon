@@ -126,3 +126,68 @@ def test_load_config_expands_env_vars_in_ai_base_url(tmp_path, monkeypatch):
     storage = StorageManager(data_dir=str(tmp_path))
     config = storage.load_config()
     assert config.ai.base_url == "https://private-proxy.example/v1"
+
+
+class TestSubscribers:
+    """Email subscriber list persistence (data/subscribers.json)."""
+
+    def test_load_subscribers_returns_empty_list_when_file_missing(self, tmp_path):
+        storage = StorageManager(data_dir=str(tmp_path))
+        assert storage.load_subscribers() == []
+
+    def test_load_subscribers_returns_empty_list_on_invalid_json(self, tmp_path):
+        storage = StorageManager(data_dir=str(tmp_path))
+        (tmp_path / "subscribers.json").write_text("not valid json", encoding="utf-8")
+        assert storage.load_subscribers() == []
+
+    def test_add_subscriber_creates_file_and_persists(self, tmp_path):
+        storage = StorageManager(data_dir=str(tmp_path))
+        storage.add_subscriber("alice@example.com")
+
+        subscribers_path = tmp_path / "subscribers.json"
+        assert subscribers_path.exists()
+        assert storage.load_subscribers() == ["alice@example.com"]
+
+    def test_add_subscriber_appends_to_existing_list(self, tmp_path):
+        storage = StorageManager(data_dir=str(tmp_path))
+        storage.add_subscriber("alice@example.com")
+        storage.add_subscriber("bob@example.com")
+
+        assert storage.load_subscribers() == ["alice@example.com", "bob@example.com"]
+
+    def test_add_subscriber_is_idempotent(self, tmp_path):
+        storage = StorageManager(data_dir=str(tmp_path))
+        storage.add_subscriber("alice@example.com")
+        storage.add_subscriber("alice@example.com")
+
+        assert storage.load_subscribers() == ["alice@example.com"]
+
+    def test_remove_subscriber_removes_existing(self, tmp_path):
+        storage = StorageManager(data_dir=str(tmp_path))
+        storage.add_subscriber("alice@example.com")
+        storage.add_subscriber("bob@example.com")
+
+        storage.remove_subscriber("alice@example.com")
+
+        assert storage.load_subscribers() == ["bob@example.com"]
+
+    def test_remove_subscriber_is_a_no_op_when_not_present(self, tmp_path):
+        storage = StorageManager(data_dir=str(tmp_path))
+        storage.add_subscriber("alice@example.com")
+
+        storage.remove_subscriber("nobody@example.com")
+
+        assert storage.load_subscribers() == ["alice@example.com"]
+
+    def test_remove_subscriber_when_no_file_exists_does_not_raise(self, tmp_path):
+        storage = StorageManager(data_dir=str(tmp_path))
+        storage.remove_subscriber("alice@example.com")  # must not raise
+        assert storage.load_subscribers() == []
+
+    def test_subscribers_persist_across_manager_instances(self, tmp_path):
+        StorageManager(data_dir=str(tmp_path)).add_subscriber("alice@example.com")
+
+        # A fresh StorageManager pointed at the same data_dir (e.g. a
+        # different process run) must see what the first instance wrote.
+        reloaded = StorageManager(data_dir=str(tmp_path))
+        assert reloaded.load_subscribers() == ["alice@example.com"]

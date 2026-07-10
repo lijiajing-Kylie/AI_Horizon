@@ -3,9 +3,12 @@ import asyncio
 import httpx
 
 from src.content_extractor import (
+    EXTRACTOR_VERSION,
     clean_article_content,
     extract_full_content,
     sanitize_article_html,
+    _strip_boilerplate_containers,
+    _strip_cta_sentences,
 )
 
 
@@ -122,6 +125,22 @@ def test_extract_full_content_returns_images_and_cover_from_og_tag():
     assert "<img" not in result.text
 
 
+def test_extract_full_content_reports_http_status_final_url_and_extractor_version():
+    html = _article_html(og_image="https://cdn.example.com/cover.jpg")
+    client = _client_for_html(html)
+
+    async def run():
+        return await extract_full_content("https://example.com/article", client)
+
+    result = asyncio.run(run())
+    asyncio.run(client.aclose())
+
+    assert result is not None
+    assert result.http_status == 200
+    assert result.final_url == "https://example.com/article"
+    assert result.extractor_version == EXTRACTOR_VERSION
+
+
 def test_extract_full_content_falls_back_to_first_non_icon_image_for_cover():
     html = _article_html(og_image=None)
     client = _client_for_html(html)
@@ -220,13 +239,14 @@ def test_extract_full_content_preserves_formatting_links_and_lists():
     assert result.display_html is not None
 
     assert "<strong>bold text</strong>" in result.display_html
-    assert '<a href="https://example.com/ref"' in result.display_html
     assert "reference link" in result.display_html
     assert "<blockquote>" in result.display_html and "important quoted remark" in result.display_html
     assert "<ul>" in result.display_html and "<li>" in result.display_html
     assert "First point" in result.display_html and "Second point" in result.display_html
 
-    # javascript: link must never survive as a clickable <a> — only as text.
+    # Body-internal links are never clickable — only their text survives.
+    # This holds regardless of scheme (http(s) or javascript:).
+    assert "<a " not in result.display_html and "<a>" not in result.display_html
     assert "javascript:" not in result.display_html
     assert "click me" in result.display_html
 
@@ -291,3 +311,197 @@ def test_sanitize_article_html_empty_input():
     assert sanitize_article_html(None) == ""
     assert sanitize_article_html("") == ""
     assert sanitize_article_html("   ") == ""
+
+
+# ── boilerplate container removal ─────────────────────────────────────────
+
+
+def test_strip_boilerplate_containers_removes_aside_and_footer():
+    html = (
+        "<article><p>Real content paragraph.</p>"
+        '<aside class="newsletter-signup"><p>Subscribe now!</p></aside>'
+        "<footer><p>Site footer text.</p></footer>"
+        "</article>"
+    )
+    cleaned = _strip_boilerplate_containers(html)
+    assert "Real content paragraph" in cleaned
+    assert "Subscribe now" not in cleaned
+    assert "Site footer text" not in cleaned
+
+
+def test_strip_boilerplate_containers_removes_class_and_id_keyword_matches():
+    html = (
+        "<div><p>Real content.</p>"
+        '<div class="join-us-cta"><p>Careers: apply today.</p></div>'
+        '<div id="promo-banner"><p>Limited offer!</p></div>'
+        "</div>"
+    )
+    cleaned = _strip_boilerplate_containers(html)
+    assert "Real content" in cleaned
+    assert "Careers: apply today" not in cleaned
+    assert "Limited offer" not in cleaned
+
+
+def test_strip_boilerplate_containers_no_false_positive_on_substring_matches():
+    # "header" and "lazy-load" both contain the "ad"/"load" substrings a
+    # naive match would trip on — token-boundary matching must not flag them.
+    html = (
+        '<div class="page-header"><p>Real header content, e.g. a byline.</p></div>'
+        '<div class="lazy-load"><p>Lazily loaded content.</p></div>'
+    )
+    cleaned = _strip_boilerplate_containers(html)
+    assert "Real header content" in cleaned
+    assert "Lazily loaded content" in cleaned
+
+
+# ── sentence-level CTA stripping ───────────────────────────────────────────
+
+
+def test_strip_cta_sentences_removes_only_the_cta_sentence():
+    text = "This is a real informative sentence about the news. Subscribe to our newsletter today!"
+    cleaned, changed = _strip_cta_sentences(text)
+    assert changed is True
+    assert "real informative sentence" in cleaned
+    assert "Subscribe" not in cleaned
+
+
+def test_strip_cta_sentences_no_cta_leaves_text_unchanged():
+    text = "This is a normal sentence with no CTA content at all."
+    cleaned, changed = _strip_cta_sentences(text)
+    assert changed is False
+    assert cleaned == text
+
+
+# ── clean_article_content: sentence-level CTA cleaning + over-clean guard ─
+
+
+def test_clean_article_content_single_paragraph_strips_trailing_cta_sentence():
+    # A news item whose entire article is one paragraph — the naive "drop
+    # the whole paragraph if it contains a CTA keyword" approach would wipe
+    # out the entire article here. Only the CTA sentence should go.
+    raw = (
+        "This single-paragraph article covers a major product launch event "
+        "with plenty of substantive detail about the new features, pricing, "
+        "and availability that readers actually came here for, along with "
+        "commentary from analysts and early customers who tried the product "
+        "ahead of the public release and shared their first impressions. "
+        "Subscribe to our newsletter for more updates."
+    )
+
+    cleaned = clean_article_content(raw)
+
+    assert "product launch event" in cleaned
+    assert "pricing, and availability" in cleaned
+    assert "early customers" in cleaned
+    assert "Subscribe to our newsletter" not in cleaned
+
+
+def test_clean_article_content_hiring_cta_sentence_removed_keeps_rest():
+    raw = (
+        "The company reported strong quarterly earnings driven by growth in "
+        "its core cloud division, beating analyst expectations across the board. "
+        "We're hiring! Join our team and help us build the future. "
+        "Executives also announced a new investment in AI infrastructure for next year."
+    )
+
+    cleaned = clean_article_content(raw)
+
+    assert "strong quarterly earnings" in cleaned
+    assert "AI infrastructure" in cleaned
+    assert "We're hiring" not in cleaned
+    assert "Join our team" not in cleaned
+
+
+def test_clean_article_content_overclean_guard_falls_back_to_raw():
+    real_content = "Real short update: prices rose today."
+    cta_noise = (
+        " Subscribe now for more! Sign up today! Join our team! "
+        "We're hiring engineers! Apply here!"
+    ) * 5
+    raw = real_content + cta_noise
+
+    cleaned = clean_article_content(raw)
+
+    # Sentence-level CTA stripping alone would gut this down to well under
+    # 200 chars / 30% of the original — the over-clean guard should keep
+    # the (title-deduped) original text instead of shipping the gutted result.
+    assert real_content in cleaned
+    assert "Subscribe now" in cleaned
+
+
+# ── extract_full_content: end-to-end container + link-text-only behavior ──
+
+
+def _article_html_with_boilerplate_containers() -> str:
+    body = "A" * 250
+    return f"""<html><body><article>
+<h1>Container Test</h1>
+<p>Real paragraph with substantive content about the topic at hand today. {body}</p>
+<aside class="newsletter-signup"><p>Subscribe to our newsletter for daily updates on
+everything happening in the industry right now and beyond, today. {body}</p></aside>
+<footer class="careers-cta"><p>We're hiring! Join our team, apply today for open
+engineering and product roles across the company worldwide. {body}</p></footer>
+</article></body></html>"""
+
+
+def test_extract_full_content_strips_ad_and_hiring_containers():
+    html = _article_html_with_boilerplate_containers()
+    client = _client_for_html(html)
+
+    async def run():
+        return await extract_full_content("https://example.com/container-test", client)
+
+    result = asyncio.run(run())
+    asyncio.run(client.aclose())
+
+    assert result is not None
+    assert "Real paragraph with substantive content" in result.text
+    assert "Subscribe to our newsletter" not in result.text
+    assert "We're hiring" not in result.text
+    assert result.display_html is not None
+    assert "Subscribe to our newsletter" not in result.display_html
+    assert "We're hiring" not in result.display_html
+
+
+def test_extract_full_content_product_and_paper_links_become_text_only():
+    body = "A" * 250
+    html = f"""<html><body><article><h1>T</h1>
+<p>We benchmarked against <a href="https://arxiv.org/abs/2401.00001">the original paper</a>
+and the <a href="https://example.com/product">product page</a> for comparison. {body} {body}</p>
+</article></body></html>"""
+    client = _client_for_html(html)
+
+    async def run():
+        return await extract_full_content("https://example.com/links", client)
+
+    result = asyncio.run(run())
+    asyncio.run(client.aclose())
+
+    assert result is not None
+    assert result.display_html is not None
+    assert "the original paper" in result.display_html
+    assert "product page" in result.display_html
+    assert "<a " not in result.display_html
+    assert "arxiv.org" not in result.display_html
+
+
+def test_extract_full_content_structured_html_overclean_falls_back_to_none():
+    real = "Real short update: prices rose today."
+    cta = (
+        " Subscribe now for more! Sign up today! Join our team! "
+        "We're hiring engineers! Apply here!"
+    ) * 6
+    html = f"<html><body><article><h1>T</h1><p>{real}{cta}</p></article></body></html>"
+    client = _client_for_html(html)
+
+    async def run():
+        return await extract_full_content("https://example.com/overclean", client)
+
+    result = asyncio.run(run())
+    asyncio.run(client.aclose())
+
+    assert result is not None
+    # Structured HTML bails out to (None, None) when CTA-sentence cleaning
+    # would gut the block — callers fall back to the plain-text field.
+    assert result.display_html is None
+    assert real in result.text

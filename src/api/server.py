@@ -2,19 +2,46 @@
 
 from __future__ import annotations
 
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Optional
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, FileResponse
 
+from ..ai.content_selection import build_analysis_input, build_enrichment_input
 from ..ai.utils import split_content_and_comments
 from ..content_extractor import clean_article_content
+from ..models import ContentItem
 from ..storage.db import HorizonDB
+
+# Other Horizon entry points (main.py, wizard.py, webhook_cli.py, the MCP
+# adapter) each call load_dotenv() themselves; the API server historically
+# didn't need to since it never read secrets — it does now, for
+# HORIZON_API_ENV below, so it needs the same call.
+load_dotenv()
+
+
+# ── dev-environment gate for the scrape-diagnostics panel ────────────────
+#
+# Horizon has no other dev/prod distinction anywhere in the backend today
+# (horizon-api's entry point hardcodes reload=True regardless of
+# environment). HORIZON_API_ENV is a new, narrowly-scoped env var that only
+# controls whether /api/items/{id}?include_debug=true is allowed to attach
+# the debug block — it has no effect on scraping, scoring, or any other
+# pipeline behavior. Defaults to "production" (fail-closed): an unset or
+# misconfigured deployment never leaks diagnostics.
+
+
+def _debug_env_enabled() -> bool:
+    return os.environ.get("HORIZON_API_ENV", "production").strip().lower() in (
+        "development", "dev", "local",
+    )
 
 
 # ── content object builder ──────────────────────────────────────────────
@@ -72,9 +99,13 @@ def _build_content(item: dict) -> dict:
 def _attach_content(item: dict) -> dict:
     """Attach the ``content`` block plus raw/clean article text (mutates and returns).
 
-    ``raw_content`` mirrors the untouched scraped text (for traceability);
-    ``clean_content`` is derived from it with scraping boilerplate stripped,
-    and is what the frontend should render.
+    ``raw_content`` is the DB's own ``raw_content`` column — trafilatura's
+    verbatim extraction output, populated only when extraction succeeded.
+    Rows written before that column existed have it as ``NULL``; the
+    fallback to ``content`` (the legacy ambiguous field) keeps those old
+    rows serving the same text as before this column existed.
+    ``clean_content`` is derived from ``raw_content`` with scraping
+    boilerplate stripped, and is what the frontend should render.
 
     ``raw_html``/``display_html`` (structured article HTML) pass through
     unchanged from the DB row — they're already present on ``item`` here,
@@ -92,10 +123,207 @@ def _attach_content(item: dict) -> dict:
     article).
     """
     item["content_block"] = _build_content(item)
-    item["raw_content"] = item.get("content")
-    main_content, _comments = split_content_and_comments(item.get("content"))
+    item["raw_content"] = item.get("raw_content") or item.get("content")
+    main_content, _comments = split_content_and_comments(item.get("raw_content"))
     item["clean_content"] = clean_article_content(main_content, title=item.get("title"))
     return item
+
+
+# ── scrape-diagnostics block (dev-only) ───────────────────────────────────
+#
+# Read-only: every value below is either already persisted on the DB row
+# (or folded into metadata_json by storage/db.py's save_items) or the
+# output of a pure function applied to that same persisted data. Nothing
+# here re-fetches the item's URL or calls the AI, and nothing here mutates
+# the DB.
+
+
+def _reconstruct_content_item(item: dict) -> ContentItem:
+    """Rehydrate a ``ContentItem`` from a DB row dict.
+
+    ``resolve_content``/``build_analysis_input``/``build_enrichment_input``
+    (in ``src/ai/content_selection.py``) are written against the
+    ``ContentItem`` model, reading attributes like ``.raw_content`` and
+    ``.rss_summary``. The API layer only ever sees the flattened dict shape
+    ``HorizonDB`` returns — where extraction-provenance fields have no
+    dedicated columns and live inside ``metadata`` instead (see
+    ``storage/db.py:save_items``). This rebuilds the shape those functions
+    expect, so the diagnostics endpoint reuses the exact same
+    content-selection logic the real pipeline runs, instead of a second
+    hand-written copy of it.
+    """
+    meta: dict = dict(item.get("metadata") or {})
+    return ContentItem(
+        id=item["id"],
+        source_type=item["source_type"],
+        title=item.get("title") or "",
+        url=item["url"],
+        content=item.get("content"),
+        raw_content=item.get("raw_content"),
+        rss_summary=meta.get("rss_summary"),
+        content_source=meta.get("content_source"),
+        extraction_status=meta.get("extraction_status"),
+        extraction_error=meta.get("extraction_error"),
+        http_status=meta.get("http_status"),
+        final_url=meta.get("final_url"),
+        text_length=meta.get("text_length"),
+        extractor_version=meta.get("extractor_version"),
+        author=item.get("author"),
+        published_at=item["published_at"],
+        metadata=meta,
+        ai_relevant=item.get("ai_relevant"),
+        ai_score=item.get("ai_score"),
+        ai_reason=item.get("ai_reason"),
+        ai_summary=item.get("ai_summary"),
+        ai_tags=item.get("ai_tags") or [],
+    )
+
+
+def _infer_translation_status(item: dict, meta: dict) -> tuple[str, Optional[str]]:
+    """Infer the article-body HTML translation outcome.
+
+    No dedicated status field is persisted for this stage — the pipeline
+    (``ai/enricher.py:_translate_html``) only ever writes the resulting
+    ``display_html_zh`` (or leaves it unset on failure), so this walks the
+    same decision path the enricher does and reconstructs which branch it
+    must have taken. Branches marked "推断值" below can't be distinguished
+    from stored data alone (e.g. an AI/parse failure looks identical to a
+    guard-rail rejection, and a dropped item looks identical to "never
+    reached enrichment" only because ``selected`` happens to correlate with
+    that today) — the returned reason string says so explicitly rather than
+    presenting a guess as a recorded fact.
+    """
+    display_html = item.get("display_html")
+    display_html_zh = item.get("display_html_zh")
+    original_language = meta.get("original_language", "unknown")
+
+    if not display_html or not display_html.strip():
+        return "empty_input", "display_html 为空，没有可翻译的正文"
+
+    if not item.get("selected", False):
+        return (
+            "not_attempted",
+            "推断值：该条目未被选入最终简报（selected=false），从未进入 enrichment/翻译阶段；"
+            "管道本身没有为此单独记录状态",
+        )
+
+    if original_language == "zh":
+        return (
+            "skipped_already_chinese",
+            "原文已是中文，enricher._translate_html 直接复用 display_html，未实际调用翻译",
+        )
+
+    if not display_html_zh or not display_html_zh.strip():
+        return (
+            "failed",
+            "推断值：翻译已尝试但未产出结果（AI 调用失败/JSON 解析失败/过清洗保护/图片数量校验未通过均可能导致），"
+            "具体失败原因未持久化，translate_display_html() 失败时只写运行时 debug 日志，不落库",
+        )
+
+    if display_html_zh.strip() == display_html.strip():
+        return (
+            "fallback_to_original",
+            "display_html_zh 与 display_html 内容完全相同，但原文非中文——"
+            "当前管道代码路径不会主动产生这个状态，多半是历史数据或手工改库导致",
+        )
+
+    return "success", None
+
+
+def _build_debug_block(item: dict) -> dict:
+    """Assemble the scrape/AI-input diagnostics block for one item (dev-only)."""
+    meta: dict = item.get("metadata") or {}
+
+    raw_html = item.get("raw_html")
+    raw_content = item.get("raw_content")
+    clean_content = item.get("clean_content")
+    display_html = item.get("display_html")
+    display_html_zh = item.get("display_html_zh")
+
+    provenance = meta.get("source_provenance") or {}
+    source_name = provenance.get("primary_source_name") or item.get("author") or item.get("source_type")
+
+    try:
+        content_item = _reconstruct_content_item(item)
+        analysis_input = build_analysis_input(content_item)
+        enrichment_input = build_enrichment_input(content_item)
+        analysis_block = {
+            "input": analysis_input.text,
+            "input_length": analysis_input.sent_length,
+            "content_source": analysis_input.content_source,
+            "original_length": analysis_input.original_length,
+            "sent_length": analysis_input.sent_length,
+            "truncation_limit": analysis_input.truncation_limit,
+            "source_note": analysis_input.source_note,
+        }
+        enrichment_block = {
+            "input": enrichment_input.text,
+            "input_length": enrichment_input.sent_length,
+            "content_source": enrichment_input.content_source,
+            "original_length": enrichment_input.original_length,
+            "sent_length": enrichment_input.sent_length,
+            "truncation_limit": enrichment_input.truncation_limit,
+            "source_note": enrichment_input.source_note,
+        }
+    except Exception as exc:
+        # Never let a diagnostics-only computation break the item response.
+        placeholder = {
+            "input": None, "input_length": 0, "content_source": None,
+            "original_length": 0, "sent_length": 0, "truncation_limit": None,
+            "source_note": f"无法重建 AI 输入预览：{exc}",
+        }
+        analysis_block = dict(placeholder)
+        enrichment_block = dict(placeholder)
+
+    translation_status, translation_skipped_reason = _infer_translation_status(item, meta)
+
+    return {
+        "source": {
+            "original_title": item.get("title"),
+            "original_url": item.get("url"),
+            "rss_summary": meta.get("rss_summary"),
+            "source_name": source_name,
+            "published_at": item.get("published_at"),
+        },
+        "fetch": {
+            "http_status": meta.get("http_status"),
+            # Not persisted anywhere in the current pipeline — capturing it
+            # would require touching content_extractor.py/orchestrator.py,
+            # out of scope for this read-only diagnostics addition.
+            "content_type": None,
+            "final_url": meta.get("final_url"),
+            "extraction_status": meta.get("extraction_status"),
+            "extraction_error": meta.get("extraction_error"),
+            "content_source": meta.get("content_source"),
+            "text_length": meta.get("text_length"),
+            "extracted_at": meta.get("extracted_at"),
+            "extractor_version": meta.get("extractor_version"),
+        },
+        "raw_html": raw_html,
+        "raw_html_length": len(raw_html or ""),
+        "raw_content": raw_content,
+        "raw_content_length": len(raw_content or ""),
+        "clean_content": clean_content,
+        "clean_content_length": len(clean_content or ""),
+        "display_html": display_html,
+        "display_html_length": len(display_html or ""),
+        "display_html_zh": display_html_zh,
+        "display_html_zh_length": len(display_html_zh or ""),
+        "analysis": analysis_block,
+        "enrichment": enrichment_block,
+        "translation": {
+            "status": translation_status,
+            "source": "display_html",
+            "input": display_html,
+            "input_length": len(display_html or ""),
+            "output": display_html_zh,
+            "output_length": len(display_html_zh or ""),
+            # translate_display_html() never persists a failure reason —
+            # only a runtime logger.debug() call, which this can't recover.
+            "error": None,
+            "skipped_reason": translation_skipped_reason,
+        },
+    }
 
 
 @asynccontextmanager
@@ -158,12 +386,25 @@ def list_items(
 
 
 @app.get("/api/items/{item_id}")
-def get_item(item_id: str) -> dict:
+def get_item(
+    item_id: str,
+    include_debug: bool = Query(
+        False,
+        description=(
+            "Attach a full scrape/AI-input diagnostics block. Dev-only: "
+            "ignored (debug omitted entirely) unless the server is running "
+            "with HORIZON_API_ENV=development."
+        ),
+    ),
+) -> dict:
     """Get a single item by ID."""
     item = db.get_item(item_id)
     if item is None:
         raise HTTPException(status_code=404, detail="Item not found")
-    return _attach_content(item)
+    item = _attach_content(item)
+    if include_debug and _debug_env_enabled():
+        item["debug"] = _build_debug_block(item)
+    return item
 
 
 # ---------------------------------------------------------------------------

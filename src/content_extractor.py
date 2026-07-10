@@ -65,16 +65,27 @@ _REQUEST_HEADERS = {
 _MIN_CONTENT_LENGTH = 200  # fewer chars than this → treat as failed extraction
 _MAX_IMAGES = 20  # cap the inline image list for image-heavy pages (galleries, etc.)
 
+# Bumped when extraction logic changes materially, so persisted items can be
+# identified as having been extracted by an older algorithm version.
+EXTRACTOR_VERSION = "1"
+
 
 @dataclass
 class ExtractedArticle:
-    """Result of a successful full-content extraction."""
+    """Result of a successful full-content extraction.
+
+    ``text`` is trafilatura's plain-text output only — never HTML, never
+    boilerplate-cleaned. It is the canonical source for ``ContentItem.raw_content``.
+    """
 
     text: str
     cover_image: Optional[str] = None
     images: List[Dict[str, Any]] = field(default_factory=list)
     raw_html: Optional[str] = None  # structured main-content HTML, unsanitized
     display_html: Optional[str] = None  # raw_html after nh3 whitelist sanitize
+    http_status: Optional[int] = None
+    final_url: Optional[str] = None  # response.url after redirects
+    extractor_version: str = EXTRACTOR_VERSION
 
 
 def _should_skip(url: str) -> Optional[str]:
@@ -98,6 +109,110 @@ def _should_skip(url: str) -> Optional[str]:
             return f"skip_extension:{ext}"
 
     return None
+
+
+# ── boilerplate container removal ────────────────────────────────────────
+#
+# Ad/subscribe/newsletter/hiring blocks are usually their own dedicated HTML
+# container, not text woven into the article — so they're removed as whole
+# DOM nodes *before* trafilatura ever sees them, rather than by pattern-
+# matching extracted text afterwards (which risks nuking an entire
+# single-paragraph article that happens to contain one of these words).
+
+_BOILERPLATE_CONTAINER_TAGS = ("aside", "footer")
+
+_BOILERPLATE_CLASS_KEYWORDS = (
+    "subscribe", "newsletter", "ad", "promo", "paywall",
+    "signup", "join-us", "careers",
+)
+# Token-boundary match (hyphen/underscore/space/start/end) so e.g. "load" or
+# "header" never match the bare "ad" keyword.
+_BOILERPLATE_CLASS_RE = re.compile(
+    r"(?:^|[-_\s])(" + "|".join(re.escape(k) for k in _BOILERPLATE_CLASS_KEYWORDS) + r")(?:[-_\s]|$)",
+    re.IGNORECASE,
+)
+
+
+def _strip_boilerplate_containers(html: str) -> str:
+    """Remove ad/subscribe/newsletter/hiring HTML containers before extraction.
+
+    Decomposes ``<aside>``/``<footer>`` elements and any element whose
+    ``class``/``id`` matches a boilerplate keyword (subscribe, newsletter,
+    ad, promo, paywall, signup, join-us, careers). Returns the original
+    HTML unchanged on any parse error.
+    """
+    try:
+        soup = BeautifulSoup(html, "html.parser")
+    except Exception as exc:
+        logger.debug("boilerplate container strip parse error: %s", exc)
+        return html
+
+    try:
+        for tag_name in _BOILERPLATE_CONTAINER_TAGS:
+            for tag in soup.find_all(tag_name):
+                tag.decompose()
+
+        for tag in soup.find_all(True):
+            if tag.decomposed:
+                continue
+            class_attr = " ".join(tag.get("class") or [])
+            id_attr = tag.get("id") or ""
+            haystack = f"{class_attr} {id_attr}".strip()
+            if haystack and _BOILERPLATE_CLASS_RE.search(haystack):
+                tag.decompose()
+    except Exception as exc:
+        logger.debug("boilerplate container strip error: %s", exc)
+        return html
+
+    return str(soup)
+
+
+# ── sentence-level CTA cleaning ──────────────────────────────────────────
+#
+# Once obvious ad/subscribe/hiring *containers* are gone (above), a CTA can
+# still be one sentence tacked onto an otherwise-real paragraph (e.g. "...
+# reasons explained above. Subscribe to our newsletter for more."). This
+# drops only the offending sentence, never the whole paragraph/line — a
+# single-paragraph article with a trailing CTA keeps its real content.
+
+_CTA_KEYWORDS = (
+    "订阅", "会员", "newsletter", "ad-free", "立即订阅", "注册", "联系我们",
+    "we're hiring", "we are hiring", "apply", "join our team",
+    # English equivalents of 订阅/会员 for English-language articles.
+    "subscribe", "sign up", "sign-up",
+)
+_CTA_SENTENCE_RE = re.compile(
+    "|".join(re.escape(k) for k in _CTA_KEYWORDS), re.IGNORECASE
+)
+# Splits on a sentence-ending punctuation mark (CJK or Latin), keeping the
+# rest of the string attached to the next sentence.
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[。！？.!?])\s*")
+
+# Over-cleaning guard, shared by the structured-HTML and plain-text
+# pipelines: if cleaning removes this much of the article, it's more likely
+# a false-positive CTA match ate real content than that the article really
+# was mostly boilerplate — bail out to a lighter-touch fallback instead.
+_OVERCLEAN_MIN_RATIO = 0.3
+_OVERCLEAN_MIN_CHARS = 200
+
+
+def _split_sentences(text: str) -> List[str]:
+    text = text.strip()
+    if not text:
+        return []
+    return [s for s in _SENTENCE_SPLIT_RE.split(text) if s.strip()]
+
+
+def _strip_cta_sentences(text: str) -> tuple[str, bool]:
+    """Drop only the sentence(s) containing a CTA signal from ``text``.
+
+    Returns ``(cleaned_text, changed)`` — ``changed`` is ``True`` iff at
+    least one sentence was removed, so callers can tell "nothing to do"
+    apart from "everything was CTA" (cleaned_text == "").
+    """
+    sentences = _split_sentences(text)
+    kept = [s for s in sentences if not _CTA_SENTENCE_RE.search(s)]
+    return " ".join(kept).strip(), len(kept) != len(sentences)
 
 
 # ── image extraction ─────────────────────────────────────────────────────
@@ -283,9 +398,10 @@ def _render_inline_content(el: ElementTree.Element) -> str:
     """Render a ``p``/``quote``/``item``/``head`` element's inner HTML.
 
     Escapes all text nodes and maps trafilatura's inline XML tags to HTML:
-    ``hi rend="#b"`` -> ``strong``, ``hi rend="#i"`` -> ``em``, and
-    ``ref target="..."`` -> ``a href="..."`` (only for http(s) targets —
-    anything else is rendered as plain text, dropping the link).
+    ``hi rend="#b"`` -> ``strong``, ``hi rend="#i"`` -> ``em``. ``ref``
+    (in-body links) is rendered as plain text only — the detail page keeps
+    exactly one outbound link ("查看原文"); links woven into the article
+    body are never made clickable.
     """
     parts = [html_module.escape(el.text or "")]
     for child in el:
@@ -298,16 +414,28 @@ def _render_inline_content(el: ElementTree.Element) -> str:
                 parts.append(f"<em>{inner}</em>")
             else:
                 parts.append(inner)
-        elif child.tag == "ref":
-            target = (child.get("target") or "").strip()
-            if target.startswith("http://") or target.startswith("https://"):
-                parts.append(f'<a href="{html_module.escape(target, quote=True)}">{inner}</a>')
-            else:
-                parts.append(inner)
         else:
             parts.append(inner)
         parts.append(html_module.escape(child.tail or ""))
     return "".join(parts)
+
+
+def _render_cta_filtered(el: ElementTree.Element) -> str:
+    """Render a block element's inner HTML, dropping only CTA sentences.
+
+    When no sentence in the block matches a CTA signal, formatting
+    (bold/italic) is preserved exactly via ``_render_inline_content``. When
+    some sentences are CTA, the block degrades to plain escaped text with
+    just those sentences removed — real content in the rest of the block
+    (and the rest of the article) survives even when a CTA is tacked onto
+    an otherwise-genuine paragraph. Returns ``""`` (caller drops the block)
+    only when *every* sentence in the block is a CTA signal.
+    """
+    block_text = "".join(el.itertext())
+    cleaned_text, changed = _strip_cta_sentences(block_text)
+    if not changed:
+        return _render_inline_content(el)
+    return html_module.escape(cleaned_text)
 
 
 def _build_structured_html(
@@ -334,18 +462,18 @@ def _build_structured_html(
             if text.strip():
                 blocks.append(f"<{html_tag}>{text}</{html_tag}>")
         elif tag == "p":
-            text = _render_inline_content(el)
+            text = _render_cta_filtered(el)
             if text.strip():
                 blocks.append(f"<p>{text}</p>")
         elif tag == "quote":
-            text = _render_inline_content(el)
+            text = _render_cta_filtered(el)
             if text.strip():
                 blocks.append(f"<blockquote>{text}</blockquote>")
         elif tag == "list":
             list_tag = "ol" if (el.get("rend") or "ul") == "ol" else "ul"
             items = []
             for item_el in el.findall("item"):
-                item_text = _render_inline_content(item_el)
+                item_text = _render_cta_filtered(item_el)
                 if item_text.strip():
                     items.append(f"<li>{item_text}</li>")
             if items:
@@ -398,8 +526,29 @@ def _extract_structured_html(html: str, url: str) -> tuple[Optional[str], Option
     except Exception:
         figcaptions = {}
 
+    # Baseline for the over-cleaning guard below: main-content text length
+    # *before* sentence-level CTA filtering (container-level removal has
+    # already happened upstream, in extract_full_content, so this doesn't
+    # penalize legitimate ad/subscribe container removal — only excessive
+    # sentence-level cleaning).
+    main = root.find("main")
+    original_len = len("".join(main.itertext()).strip()) if main is not None else 0
+
     raw_html = _build_structured_html(root, url, figcaptions)
     if not raw_html.strip():
+        return None, None
+
+    cleaned_len = len(re.sub(r"<[^>]+>", "", raw_html))
+    if original_len and (
+        cleaned_len < original_len * _OVERCLEAN_MIN_RATIO or cleaned_len < _OVERCLEAN_MIN_CHARS
+    ):
+        # Cleaning removed too much of the article — don't ship a gutted
+        # structured body; let the caller fall back to the plain-text
+        # clean_content pipeline instead.
+        logger.debug(
+            "structured html over-cleaned (%d -> %d chars), falling back to plain text",
+            original_len, cleaned_len,
+        )
         return None, None
 
     return raw_html, sanitize_article_html(raw_html)
@@ -478,6 +627,13 @@ async def extract_full_content(
         logger.debug("skip url=%s reason=%s", url, debug["skip_reason"])
         return None
 
+    # Strip obvious ad/subscribe/newsletter/hiring containers before any
+    # extraction runs, so both the plain-text and structured-HTML pipelines
+    # (and image extraction) see the same cleaned document. Checked against
+    # the original fetch length above so a blocked/empty page is still
+    # caught as such, not misread as "everything was boilerplate".
+    html = _strip_boilerplate_containers(html)
+
     try:
         text = trafilatura.extract(
             html,
@@ -505,6 +661,8 @@ async def extract_full_content(
         images=images,
         raw_html=raw_html,
         display_html=display_html,
+        http_status=response.status_code,
+        final_url=str(response.url),
     )
 
 
@@ -542,15 +700,42 @@ def _normalize_for_compare(text: str) -> str:
     return _WHITESPACE_RE.sub("", text).lower()
 
 
+def _collapse_blank_lines(lines: list[str]) -> str:
+    """Join lines, collapsing runs of blank lines down to a single blank line."""
+    collapsed: list[str] = []
+    prev_blank = False
+    for ln in lines:
+        if ln == "":
+            if prev_blank:
+                continue
+            prev_blank = True
+        else:
+            prev_blank = False
+        collapsed.append(ln)
+    return "\n".join(collapsed).strip("\n").strip()
+
+
 def clean_article_content(raw: Optional[str], *, title: Optional[str] = None) -> str:
     """Derive display-ready ``clean_content`` from ``raw_content``.
 
     Strips common scraping noise — "阅读原文 · 域名" / "原文链接" boilerplate,
     "Read more" / "Continue reading" prompts, RSS "appeared first on ..."
-    footers, trailing site-name attribution lines, and a leading duplicate
-    of the item title — and collapses runs of blank lines to one. The input
-    string is never modified; callers that need the untouched original
-    should keep using the raw content separately.
+    footers, trailing site-name attribution lines, a leading duplicate of
+    the item title, and CTA sentences (subscribe/newsletter/hiring prompts
+    etc., see ``_strip_cta_sentences``) — and collapses runs of blank lines
+    to one. CTA cleaning is sentence-level, not line-level: a line that
+    mixes real content with a trailing CTA keeps its real content, so a
+    single-paragraph article never gets nuked just because it contains one
+    CTA sentence.
+
+    If CTA-sentence cleaning ends up removing most of what was left after
+    established boilerplate-line stripping (under 30% of that, or under 200
+    characters), that's more likely an overzealous CTA match than a
+    genuinely ad-only article — in that case this returns the pre-CTA text
+    instead (title-dedup, noise-line, and blank-line handling still
+    applied, just not sentence-level CTA removal) rather than shipping a
+    gutted result. The input string is never modified; callers that need
+    the untouched original should keep using the raw content separately.
 
     Args:
         raw: The raw extracted/scraped article text.
@@ -591,16 +776,27 @@ def clean_article_content(raw: Optional[str], *, title: Optional[str] = None) ->
 
     kept = [ln for ln in lines if not (ln and _NOISE_LINE_RE.match(ln))]
 
-    # Collapse runs of blank lines down to a single blank line.
-    collapsed: list[str] = []
-    prev_blank = False
-    for ln in kept:
-        if ln == "":
-            if prev_blank:
-                continue
-            prev_blank = True
-        else:
-            prev_blank = False
-        collapsed.append(ln)
+    # Baseline for the over-cleaning guard below: text length *after*
+    # established boilerplate-line removal (阅读原文/Read more/etc, already
+    # covered by tests and not in question here) but *before* sentence-level
+    # CTA cleaning — so the guard only reacts to the new CTA step cutting
+    # too deep, not to legitimate noise-line stripping.
+    pre_cta_text = _collapse_blank_lines(kept)
+    pre_cta_len = len(pre_cta_text)
 
-    return "\n".join(collapsed).strip("\n").strip()
+    kept = [_strip_cta_sentences(ln)[0] if ln else ln for ln in kept]
+    cleaned = _collapse_blank_lines(kept)
+
+    if pre_cta_len and (
+        len(cleaned) < pre_cta_len * _OVERCLEAN_MIN_RATIO or len(cleaned) < _OVERCLEAN_MIN_CHARS
+    ):
+        # Over-cleaning guard: CTA-sentence removal cut too deep — keep the
+        # pre-CTA text (noise lines still stripped) rather than a result
+        # that's mostly gone.
+        logger.debug(
+            "clean_article_content CTA-cleaning over-cleaned (%d -> %d chars), using pre-CTA fallback",
+            pre_cta_len, len(cleaned),
+        )
+        return pre_cta_text
+
+    return cleaned

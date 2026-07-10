@@ -36,11 +36,14 @@ logger = logging.getLogger(__name__)
 # img/figure/ul/ol/br — those are structural and never sent to the AI.
 _BLOCK_TAGS = ["h2", "h3", "h4", "p", "blockquote", "li", "figcaption"]
 
-# Inline tags/attributes a translated block is allowed to contain, mirroring
+# Inline tags a translated block is allowed to contain, mirroring
 # content_extractor's whitelist minus the block-level tags (a block's inner
-# HTML can only ever contain inline markup).
-_ALLOWED_INLINE_TAGS = {"strong", "em", "a", "br"}
-_ALLOWED_INLINE_ATTRIBUTES = {"a": {"href"}}
+# HTML can only ever contain inline markup). No "a" here: the body never
+# renders clickable links (content_extractor._render_inline_content no
+# longer emits them either) — if the AI hallucinates one in translation,
+# nh3 strips the tag and keeps just the anchor text.
+_ALLOWED_INLINE_TAGS = {"strong", "em", "br"}
+_ALLOWED_INLINE_ATTRIBUTES: dict[str, set[str]] = {}
 _ALLOWED_URL_SCHEMES = {"http", "https"}
 
 # Batching keeps individual prompts small enough to stay reliable and fast;

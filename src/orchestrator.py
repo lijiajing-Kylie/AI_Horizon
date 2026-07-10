@@ -35,7 +35,7 @@ from .ai.analyzer import ContentAnalyzer
 from .ai.summarizer import DailySummarizer
 from .ai.enricher import ContentEnricher
 from .ai.tokens import get_usage_snapshot
-from .content_extractor import extract_full_content
+from .content_extractor import extract_full_content, EXTRACTOR_VERSION
 
 _MAX_MERGED_IMAGES = 20
 
@@ -58,6 +58,31 @@ def _merge_item_images(primary: ContentItem, other: ContentItem) -> None:
             if img.get("url") not in seen:
                 primary.images.append(img)
                 seen.add(img.get("url"))
+
+
+_EXTRACTION_FIELDS = (
+    "raw_content", "raw_html", "display_html", "content_source",
+    "extraction_status", "extraction_error", "http_status",
+    "final_url", "text_length", "extracted_at", "extractor_version",
+)
+
+
+def _merge_extraction_fields(primary: ContentItem, other: ContentItem) -> None:
+    """Promote ``other``'s full-content extraction result onto ``primary``, in place.
+
+    Mirrors ``_merge_item_images``: cross-source URL dedup picks ``primary``
+    by raw ``content`` length, which has nothing to do with whether that
+    item's own extraction succeeded. If ``primary``'s extraction failed
+    while a same-URL duplicate's succeeded, without this the good
+    raw_content/raw_html/display_html would simply be discarded.
+    """
+    if primary.extraction_status == "success":
+        return
+    if other.extraction_status != "success":
+        return
+    for field_name in _EXTRACTION_FIELDS:
+        setattr(primary, field_name, getattr(other, field_name))
+    primary.content = primary.raw_content  # keep legacy alias consistent
 
 
 @dataclass
@@ -450,10 +475,14 @@ class HorizonOrchestrator:
         """Extract full article text for each item's URL using trafilatura.
 
         For each item, fetches the original URL and runs readability-based
-        extraction. On success, the original RSS summary is preserved in
-        ``item.metadata["rss_summary"]`` and ``item.content`` is replaced
-        with the clean full-text article.  Failures are silent — the
-        original content is left unchanged.
+        extraction. ``item.rss_summary`` always captures the scraper's
+        original snippet, success or failure. On success, ``item.raw_content``
+        holds the extractor's plain-text output and ``item.content`` (the
+        legacy alias) is updated to match it. On failure/skip, ``content``
+        is left unchanged (it already equals the scraper snippet).
+        ``content_source``/``extraction_status``/``extraction_error`` record
+        which case happened, so downstream AI prompts don't mistake "only a
+        summary" for "thin content".
 
         Args:
             items: Content items from all scrapers.
@@ -476,6 +505,7 @@ class HorizonOrchestrator:
             async def _extract_one(item: ContentItem) -> None:
                 source_label = f"{item.source_type.value}:{self._sub_source_label(item)}"
                 original_content = item.content or ""
+                item.rss_summary = original_content
 
                 async with semaphore:
                     extract_debug: dict = {}
@@ -486,22 +516,39 @@ class HorizonOrchestrator:
                 stats = source_stats[source_label]
                 stats["total"] += 1
 
+                item.http_status = extract_debug.get("http_status")
+                item.extracted_at = datetime.now(timezone.utc)
+                item.extractor_version = EXTRACTOR_VERSION
+
                 if result:
-                    item.metadata["rss_summary"] = item.content
-                    item.content = result.text
+                    item.raw_content = result.text
+                    item.content = result.text  # legacy alias, unchanged behavior
                     item.cover_image = result.cover_image
                     item.images = result.images
                     item.raw_html = result.raw_html
                     item.display_html = result.display_html
+                    item.final_url = result.final_url
+                    item.text_length = len(result.text)
+                    item.content_source = "full_text"
+                    item.extraction_status = "success"
+                    item.extraction_error = None
                     stats["extracted"] += 1
                 else:
+                    skip_reason = extract_debug.get("skip_reason")
+                    item.extraction_error = skip_reason
+                    item.extraction_status = (
+                        "skipped"
+                        if skip_reason and skip_reason.startswith(("skip_domain:", "skip_extension:"))
+                        else "failed"
+                    )
+                    item.content_source = "rss_summary" if original_content.strip() else "none"
                     stats["skipped"] += 1
                     skipped_records.append(
                         {
                             "title": item.title,
                             "url": str(item.url),
                             "source": source_label,
-                            "skip_reason": extract_debug.get("skip_reason"),
+                            "skip_reason": skip_reason,
                             "http_status": extract_debug.get("http_status"),
                             "rss_had_content": bool(original_content.strip()),
                             "rss_content_length": len(original_content.strip()),
@@ -510,7 +557,7 @@ class HorizonOrchestrator:
 
             await asyncio.gather(*[_extract_one(item) for item in items])
 
-        extracted = sum(1 for item in items if "rss_summary" in item.metadata)
+        extracted = sum(1 for item in items if item.extraction_status == "success")
         skipped = len(items) - extracted
         self.console.print(
             f"📄 成功提取 {extracted} 篇完整正文 / {skipped} 篇跳过\n"
@@ -796,6 +843,13 @@ class HorizonOrchestrator:
                 for mk, mv in item.metadata.items():
                     if mk not in primary.metadata or not primary.metadata[mk]:
                         primary.metadata[mk] = mv
+
+                if item is not primary:
+                    # Promote a successful extraction found on a duplicate
+                    # before the content-append below, so primary.content
+                    # ends up as (promoted raw_content) + appended comments
+                    # rather than the promotion clobbering the append.
+                    _merge_extraction_fields(primary, item)
 
                 # Append content (e.g., comments from another source)
                 if item is not primary and item.content:

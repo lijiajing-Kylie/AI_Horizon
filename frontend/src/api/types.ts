@@ -92,6 +92,80 @@ export interface NewsItem {
   topics: Topic[]
   run_date: string
   content_block?: ContentBlock
+  debug?: ScrapeDiagnostics
+}
+
+// ---- Scrape diagnostics (dev-only) ----
+// Mirrors the grouped shape built by `_build_debug_block()` in
+// src/api/server.py. Only ever present when the request was made with
+// `include_debug=true` AND the API is running with HORIZON_API_ENV=development.
+
+export interface DiagnosticsSource {
+  original_title: string | null
+  original_url: string | null
+  rss_summary: string | null
+  source_name: string | null
+  published_at: string | null
+}
+
+export interface DiagnosticsFetch {
+  http_status: number | null
+  content_type: string | null // never populated today — not persisted upstream
+  final_url: string | null
+  extraction_status: string | null
+  extraction_error: string | null
+  content_source: string | null
+  text_length: number | null
+  extracted_at: string | null
+  extractor_version: string | null
+}
+
+// Shared shape for both the analysis and enrichment stage previews.
+export interface DiagnosticsStageInput {
+  input: string | null
+  input_length: number
+  content_source: string | null
+  original_length: number
+  sent_length: number
+  truncation_limit: number | null
+  source_note: string
+}
+
+export type TranslationStatus =
+  | 'success'
+  | 'skipped_already_chinese'
+  | 'failed'
+  | 'fallback_to_original'
+  | 'not_attempted'
+  | 'empty_input'
+
+export interface DiagnosticsTranslation {
+  status: TranslationStatus
+  source: string
+  input: string | null
+  input_length: number
+  output: string | null
+  output_length: number
+  error: string | null // always null today — translate_display_html() never persists a failure reason
+  skipped_reason: string | null
+}
+
+export interface ScrapeDiagnostics {
+  source: DiagnosticsSource
+  fetch: DiagnosticsFetch
+  raw_html: string | null
+  raw_html_length: number
+  raw_content: string | null
+  raw_content_length: number
+  clean_content: string | null
+  clean_content_length: number
+  display_html: string | null
+  display_html_length: number
+  display_html_zh: string | null
+  display_html_zh_length: number
+  analysis: DiagnosticsStageInput
+  enrichment: DiagnosticsStageInput
+  translation: DiagnosticsTranslation
 }
 
 export interface PaginatedResponse<T> {

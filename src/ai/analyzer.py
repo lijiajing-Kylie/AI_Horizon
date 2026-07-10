@@ -6,6 +6,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, MofNCompleteColumn
 
 from .client import AIClient
+from .content_selection import resolve_content, build_analysis_input
 from .prompts import CONTENT_ANALYSIS_SYSTEM, CONTENT_ANALYSIS_USER
 from .prompts import TOPIC_CLASSIFICATION_SYSTEM, TOPIC_CLASSIFICATION_USER
 from .utils import parse_json_response, split_content_and_comments, build_discussion_section
@@ -77,11 +78,11 @@ class ContentAnalyzer:
         Args:
             item: Content item to analyze (modified in-place)
         """
-        # Prepare content section
-        text, comments = split_content_and_comments(item.content)
-        has_comments = "--- Top Comments ---" in (item.content or "")
-        content_limit = 800 if has_comments else 1000
-        content_section = f"Content: {text[:content_limit]}" if text else ""
+        # Prepare content section — clean_content > raw_content > rss_summary
+        resolved = resolve_content(item)
+        _text, comments = split_content_and_comments(resolved.text)
+        analysis_input = build_analysis_input(item)
+        content_section = f"Content: {analysis_input.text}" if analysis_input.original_length else ""
 
         # Prepare discussion section (comments, engagement)
         discussion_section = build_discussion_section(item.metadata, comments[:1500])
@@ -93,6 +94,7 @@ class ContentAnalyzer:
             author=item.author or "Unknown",
             url=str(item.url),
             content_section=content_section,
+            source_note=analysis_input.source_note,
             discussion_section=discussion_section
         )
 
@@ -115,10 +117,40 @@ class ContentAnalyzer:
 
         # Update item with analysis results
         item.ai_relevant = result.get("relevant", False)
-        item.ai_score = float(result.get("score", 0))
+        item.ai_score = self._compute_score(result, item.ai_relevant)
         item.ai_reason = result.get("reason", "")
         item.ai_summary = result.get("summary", item.title)
         item.ai_tags = result.get("tags", [])
+
+    @staticmethod
+    def _compute_score(result: dict, relevant: bool) -> float:
+        """Compute the final 0-10 score from the AI's per-dimension ratings.
+
+        The AI rates individual dimensions rather than the total, so scoring
+        stays consistent and auditable instead of depending on the model's
+        own arithmetic.
+        """
+        if not relevant:
+            return 0.0
+
+        positive_score = (
+            float(result.get("source_authority", 0))
+            + float(result.get("novelty", 0))
+            + float(result.get("technical_substance", 0))
+            + float(result.get("real_world_impact", 0))
+            + float(result.get("community_validation", 0))
+            + float(result.get("content_completeness", 0))
+        )
+
+        penalty_score = (
+            float(result.get("marketing_penalty", 0))
+            + float(result.get("duplicate_penalty", 0))
+            + float(result.get("thin_content_penalty", 0))
+            + float(result.get("weak_ai_relevance_penalty", 0))
+        )
+
+        score = positive_score + penalty_score
+        return max(0.0, min(10.0, score))
 
     # -- topic classification (second-stage) ----------------------------------
 
@@ -219,11 +251,11 @@ class ContentAnalyzer:
         Returns:
             List of topic dicts with slug, name, group_name, confidence, reason.
         """
-        # Prepare content section
-        text, comments = split_content_and_comments(item.content)
-        has_comments = "--- Top Comments ---" in (item.content or "")
-        content_limit = 800 if has_comments else 1000
-        content_section = f"Content: {text[:content_limit]}" if text else ""
+        # Prepare content section — clean_content > raw_content > rss_summary
+        resolved = resolve_content(item)
+        _text, comments = split_content_and_comments(resolved.text)
+        analysis_input = build_analysis_input(item)
+        content_section = f"Content: {analysis_input.text}" if analysis_input.original_length else ""
 
         # Prepare discussion section
         discussion_section = build_discussion_section(item.metadata, comments[:1500])
@@ -238,6 +270,7 @@ class ContentAnalyzer:
             summary=item.ai_summary or item.title,
             tags=", ".join(item.ai_tags) if item.ai_tags else "",
             content_section=content_section,
+            source_note=analysis_input.source_note,
             discussion_section=discussion_section,
         )
 

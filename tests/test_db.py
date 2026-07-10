@@ -890,3 +890,73 @@ class TestRawAndDisplayHtml:
         assert item["raw_html"] is None
         assert item["display_html"] is None
         assert item["content"] == "legacy content"
+
+
+class TestRawContentAndExtractionMetadata:
+    def test_round_trips_raw_content_and_extraction_fields(self, tmp_path):
+        db = HorizonDB(db_path=str(tmp_path / "test.db"))
+        item = _make_item(id="test:raw:1", content="full article text")
+        item.raw_content = "full article text"
+        item.rss_summary = "original rss snippet"
+        item.content_source = "full_text"
+        item.extraction_status = "success"
+        item.http_status = 200
+        item.final_url = "https://example.com/article-1"
+        item.text_length = 18
+        item.extractor_version = "1"
+
+        db.save_items([item], run_date="2026-07-06", total_fetched=1)
+        result = db.get_item("test:raw:1")
+
+        assert result["raw_content"] == "full article text"
+        # Extraction provenance has no dedicated columns — it lives in metadata_json.
+        assert result["metadata"]["rss_summary"] == "original rss snippet"
+        assert result["metadata"]["content_source"] == "full_text"
+        assert result["metadata"]["extraction_status"] == "success"
+        assert result["metadata"]["http_status"] == 200
+        db.close()
+
+    def test_legacy_row_without_raw_content_column_falls_back_to_content(self, tmp_path):
+        """A row written before this change has no raw_content column value —
+        api/server.py's _attach_content fallback (not _row_to_item itself)
+        is what covers this; _row_to_item should just surface None."""
+        db = HorizonDB(db_path=str(tmp_path / "test.db"))
+        item = _make_item(id="test:raw:2", content="legacy plain content")
+        # Simulate a pre-change item: raw_content was never set.
+        db.save_items([item], run_date="2026-07-06", total_fetched=1)
+        result = db.get_item("test:raw:2")
+
+        assert result["raw_content"] is None
+        assert result["content"] == "legacy plain content"
+        db.close()
+
+    def test_incremental_enrichment_write_does_not_clobber_raw_content(self, tmp_path):
+        """Step 4.1 (replace=True) persists raw_content/raw_html/display_html.
+        Step 6.5 (replace=False) refreshes enrichment data for the same id
+        with a *different, partially-populated* ContentItem object (as a
+        future caller like MCP run_store resumption might pass) — it must
+        not null out what step 4.1 already stored."""
+        db = HorizonDB(db_path=str(tmp_path / "test.db"))
+
+        full_item = _make_item(id="test:coalesce:1", content="full article text")
+        full_item.raw_content = "full article text"
+        full_item.raw_html = "<main><p>full article text</p></main>"
+        full_item.display_html = "<p>full article text</p>"
+        db.save_items([full_item], run_date="2026-07-06", total_fetched=1, selected=False, replace=True)
+
+        # A distinct object for the same id, as if reconstructed without the
+        # extraction fields — only ai_summary changed (simulating enrichment).
+        partial_item = _make_item(id="test:coalesce:1", content="full article text")
+        partial_item.ai_summary = "updated by enrichment"
+        assert partial_item.raw_content is None
+        assert partial_item.raw_html is None
+        assert partial_item.display_html is None
+
+        db.save_items([partial_item], run_date="2026-07-06", total_fetched=1, selected=True, replace=False)
+
+        result = db.get_item("test:coalesce:1")
+        assert result["raw_content"] == "full article text"
+        assert result["raw_html"] == "<main><p>full article text</p></main>"
+        assert result["display_html"] == "<p>full article text</p>"
+        assert result["ai_summary"] == "updated by enrichment"
+        db.close()

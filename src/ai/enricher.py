@@ -16,6 +16,7 @@ from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, MofNCo
 from ddgs import DDGS
 
 from .client import AIClient
+from .content_selection import resolve_content, build_enrichment_input, content_hash
 from .html_translator import translate_display_html
 from .prompts import (
     CONCEPT_EXTRACTION_SYSTEM, CONCEPT_EXTRACTION_USER,
@@ -39,12 +40,13 @@ def _detect_original_language(item: ContentItem) -> str:
     prompt (``CONTENT_ANALYSIS_USER``) forces that field to always be
     written in Chinese regardless of the source language, so including it
     would bias every item toward "zh" instead of reflecting the actual
-    source text. Only ``title``/``content`` (both untouched since scraping)
-    are genuine signals of the original language.
+    source text. Only ``title`` and the resolved article text (clean/raw
+    extraction, or the scraper's own summary — never the ambiguous legacy
+    ``content`` field) are genuine signals of the original language.
     """
     text = " ".join([
         item.title or "",
-        item.content or "",
+        resolve_content(item).text,
     ])
     if not text.strip():
         return "unknown"
@@ -157,12 +159,13 @@ class ContentEnricher:
             for r in (results or [])
         ]
 
-    async def _extract_concepts(self, item: ContentItem, content_text: str) -> List[str]:
+    async def _extract_concepts(self, item: ContentItem, content_text: str, source_note: str = "") -> List[str]:
         """Ask AI to identify concepts that need explanation.
 
         Args:
             item: Content item
             content_text: Extracted content text
+            source_note: Warning line when content_text is only a summary (see build_source_note)
 
         Returns:
             List of search queries for concepts that need explanation
@@ -172,6 +175,7 @@ class ContentEnricher:
             summary=item.ai_summary or item.title,
             tags=", ".join(item.ai_tags) if item.ai_tags else "",
             content=content_text[:1000],
+            source_note=source_note,
         )
 
         try:
@@ -202,13 +206,15 @@ class ContentEnricher:
         Args:
             item: Content item to enrich (modified in-place via metadata)
         """
-        # Extract content text and comments separately
-        content_text, comments_text = split_content_and_comments(item.content)
-        content_text = content_text[:4000]
+        # Extract content text and comments separately — clean_content > raw_content > rss_summary
+        _text, comments_text = split_content_and_comments(resolve_content(item).text)
         comments_text = comments_text[:2000]
+        enrichment_input = build_enrichment_input(item)
+        content_text = enrichment_input.text
+        source_note = enrichment_input.source_note
 
         # Step 1: AI identifies concepts to explain
-        queries = await self._extract_concepts(item, content_text)
+        queries = await self._extract_concepts(item, content_text, source_note)
 
         # Step 2: Search web for each concept
         all_results = []
@@ -233,6 +239,7 @@ class ContentEnricher:
             reason=item.ai_reason or "",
             tags=", ".join(item.ai_tags) if item.ai_tags else "",
             content=content_text,
+            source_note=source_note,
             comments_section=f"\n**Community Comments:**\n{comments_text}" if comments_text else "",
             related_context=web_context or "No related background available.",
         )
@@ -294,6 +301,11 @@ class ContentEnricher:
         # Stamp original-language tracking metadata
         _stamp_language_metadata(item)
 
+        # Record only — see content_hash() docstring: nothing reads this
+        # back to skip a future enrichment call, it's bookkeeping for later
+        # staleness detection.
+        item.metadata["enrichment_source_hash"] = content_hash(content_text)
+
     async def _translate_item(self, item: ContentItem) -> None:
         """Lightweight translation fallback: when full enrichment fails, at least
         translate the title and summary to Chinese so the item is not dropped."""
@@ -316,6 +328,10 @@ class ContentEnricher:
                     item.metadata["detailed_summary_zh"] = result["summary_zh"]
                 if result.get("reason_zh"):
                     item.metadata["reason_zh"] = result["reason_zh"]
+                # Record only, per content_hash()'s docstring — no skip logic reads this.
+                item.metadata["enrichment_source_hash"] = content_hash(
+                    f"{item.title}|{item.ai_summary}|{item.ai_reason}"
+                )
             _stamp_language_metadata(item)
         except Exception:
             pass
@@ -335,3 +351,7 @@ class ContentEnricher:
             item.display_html_zh = item.display_html
             return
         item.display_html_zh = await translate_display_html(self.client, item.display_html)
+        if item.display_html_zh:
+            # Record only, per content_hash()'s docstring — no skip logic
+            # reads this back; every run still re-translates unconditionally.
+            item.metadata["display_html_source_hash"] = content_hash(item.display_html)

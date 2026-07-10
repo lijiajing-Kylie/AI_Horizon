@@ -180,12 +180,26 @@ class ContentItem(BaseModel):
     source_type: SourceType
     title: str
     url: HttpUrl
-    content: Optional[str] = None
+    content: Optional[str] = None  # legacy alias: raw_content if extraction succeeded, else the original scraper snippet
+    raw_content: Optional[str] = None  # trafilatura plain-text extraction output, verbatim; None if extraction never succeeded
+    rss_summary: Optional[str] = None  # scraper-provided snippet/summary, captured before extraction runs, always set
     raw_html: Optional[str] = None  # structured main-content HTML, unsanitized
     display_html: Optional[str] = None  # raw_html after nh3 whitelist sanitize
     display_html_zh: Optional[str] = None  # display_html with text blocks translated to Chinese
     cover_image: Optional[str] = None  # Primary/cover image URL, if any
     images: List[Dict[str, Any]] = Field(default_factory=list)  # [{url, alt, caption, source}, ...]
+
+    # Full-article extraction provenance — persisted via metadata_json (see
+    # storage/db.py), not dedicated DB columns.
+    content_source: Optional[str] = None  # "full_text" | "rss_summary" | "none"
+    extraction_status: Optional[str] = None  # "success" | "failed" | "skipped"
+    extraction_error: Optional[str] = None  # skip/failure reason from content_extractor
+    http_status: Optional[int] = None
+    final_url: Optional[str] = None  # response URL after redirects
+    text_length: Optional[int] = None  # len(raw_content) when extraction succeeded
+    extracted_at: Optional[datetime] = None
+    extractor_version: Optional[str] = None
+
     author: Optional[str] = None
     published_at: datetime
     fetched_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
