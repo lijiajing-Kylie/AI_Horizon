@@ -93,6 +93,8 @@ export interface NewsItem {
   run_date: string
   content_block?: ContentBlock
   debug?: ScrapeDiagnostics
+  /** Only present when the request carried X-User-Id (see utils/userId.ts). */
+  is_favorited?: boolean
 }
 
 // ---- Scrape diagnostics (dev-only) ----
@@ -214,6 +216,15 @@ export interface TopicNewsResponse {
   page: number
   per_page: number
   pages: number
+}
+
+// ---- Favorites & topic preferences ----
+
+export type TopicPrefState = 'subscribed' | 'blocked'
+
+export interface TopicPrefs {
+  subscribed: string[]
+  blocked: string[]
 }
 
 // ---- Daily ----

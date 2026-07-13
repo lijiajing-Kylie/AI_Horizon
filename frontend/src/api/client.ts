@@ -1,24 +1,55 @@
+import { getOrCreateUserId } from '../utils/userId'
+
 const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? ''
 
-async function get<T>(path: string, params?: Record<string, string | number | undefined>): Promise<T> {
+function buildUrl(path: string, params?: Record<string, string | number | undefined>): string {
   const url = new URL(`${BASE_URL}${path}`, window.location.origin)
   if (params) {
     Object.entries(params).forEach(([k, v]) => {
       if (v !== undefined && v !== '') url.searchParams.set(k, String(v))
     })
   }
-  const res = await fetch(url.toString())
+  return url.toString()
+}
+
+async function handle<T>(res: Response, path: string): Promise<T> {
   if (!res.ok) {
     throw new Error(`API error: ${res.status} ${res.statusText} for ${path}`)
   }
-  return res.json()
+  const text = await res.text()
+  return text ? JSON.parse(text) : (null as unknown as T)
+}
+
+// Sends X-User-Id on every request (the anonymous per-browser id — see
+// utils/userId.ts) so endpoints that support personalization (is_favorited,
+// blocked-topic filtering) apply it automatically. The backend treats the
+// header as entirely optional, so this has no effect on endpoints that
+// don't look at it.
+async function get<T>(path: string, params?: Record<string, string | number | undefined>): Promise<T> {
+  const res = await fetch(buildUrl(path, params), {
+    headers: { 'X-User-Id': getOrCreateUserId() },
+  })
+  return handle<T>(res, path)
+}
+
+/** PUT/DELETE against a caller-scoped resource. */
+async function mutate<T>(method: 'PUT' | 'DELETE', path: string, body?: unknown): Promise<T> {
+  const res = await fetch(buildUrl(path), {
+    method,
+    headers: {
+      'X-User-Id': getOrCreateUserId(),
+      ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+    },
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  })
+  return handle<T>(res, path)
 }
 
 import type {
   NewsItem, PaginatedResponse, TagCount, CategoryCount,
   TopicsResponse, TopicNewsResponse,
   DailyListResponse, DailyDetailResponse,
-  Stats, Run
+  Stats, Run, TopicPrefs, TopicPrefState,
 } from './types'
 
 // Items
@@ -82,4 +113,26 @@ export function getRuns(limit?: number) {
 // Search
 export function searchItems(q: string, limit?: number) {
   return get<NewsItem[]>('/api/search', { q, limit })
+}
+
+// Favorites
+export function putFavorite(itemId: string) {
+  return mutate<{ item_id: string; is_favorited: boolean }>('PUT', `/api/favorites/${itemId}`)
+}
+
+export function deleteFavorite(itemId: string) {
+  return mutate<{ item_id: string; is_favorited: boolean }>('DELETE', `/api/favorites/${itemId}`)
+}
+
+export function getFavorites(params?: { page?: number; per_page?: number }) {
+  return get<PaginatedResponse<NewsItem>>('/api/favorites', params as Record<string, string | number | undefined>)
+}
+
+// Topic preferences (subscribe / block)
+export function getTopicPrefs() {
+  return get<TopicPrefs>('/api/topic-prefs')
+}
+
+export function putTopicPref(slug: string, state: TopicPrefState | null) {
+  return mutate<{ slug: string; state: TopicPrefState | null }>('PUT', `/api/topic-prefs/${slug}`, { state })
 }

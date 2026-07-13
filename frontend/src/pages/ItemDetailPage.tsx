@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom'
 import { useApi } from '../hooks/useApi'
 import { getItem } from '../api/client'
 import ScoreBadge from '../components/ScoreBadge'
+import FavoriteButton from '../components/FavoriteButton'
 import LoadingSkeleton from '../components/LoadingSkeleton'
 import EmptyState from '../components/EmptyState'
 import BackLink from '../components/BackLink'
@@ -145,9 +146,10 @@ export default function ItemDetailPage() {
       <header className="mb-6">
         <div className="flex items-start gap-3 mb-3">
           <ScoreBadge score={item.ai_score} />
-          <h1 className="text-xl font-bold text-gray-900 leading-snug">
+          <h1 className="flex-1 text-xl font-bold text-gray-900 leading-snug">
             {content.title}
           </h1>
+          <FavoriteButton itemId={item.id} initialFavorited={item.is_favorited ?? false} size="md" />
         </div>
 
         {/* Translation toggle */}

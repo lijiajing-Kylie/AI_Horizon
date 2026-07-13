@@ -6,13 +6,14 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Literal, Optional
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, FileResponse
+from pydantic import BaseModel
 
 from ..ai.content_selection import build_analysis_input, build_enrichment_input
 from ..ai.utils import split_content_and_comments
@@ -42,6 +43,30 @@ def _debug_env_enabled() -> bool:
     return os.environ.get("HORIZON_API_ENV", "production").strip().lower() in (
         "development", "dev", "local",
     )
+
+
+# ── caller identity for favorites / topic preferences ────────────────────
+#
+# There is no login system — the frontend generates a random per-browser id
+# (see frontend/src/utils/userId.ts) and sends it as X-User-Id. This is an
+# opaque string as far as the API/DB are concerned; nothing here validates
+# or authenticates it. Read/list endpoints treat the header as optional
+# (unauthenticated callers just don't get personalization); write endpoints
+# for a specific user's data require it.
+
+
+def _get_user_id_optional(x_user_id: Optional[str] = Header(None)) -> Optional[str]:
+    return x_user_id or None
+
+
+def _get_user_id_required(x_user_id: Optional[str] = Header(None)) -> str:
+    if not x_user_id:
+        raise HTTPException(status_code=400, detail="X-User-Id header is required")
+    return x_user_id
+
+
+class TopicPrefUpdate(BaseModel):
+    state: Optional[Literal["subscribed", "blocked"]] = None
 
 
 # ── content object builder ──────────────────────────────────────────────
@@ -353,6 +378,19 @@ templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
 db = HorizonDB()
 
 
+def _attach_favorited(items: list[dict], user_id: Optional[str]) -> None:
+    """Mutate items in place, adding is_favorited=True/False when user_id is known.
+
+    No-op (items keep no ``is_favorited`` key at all) when the caller sent no
+    X-User-Id — this field is purely additive for callers that opt in.
+    """
+    if not user_id or not items:
+        return
+    favorited = db.get_favorited_ids(user_id, [item["id"] for item in items])
+    for item in items:
+        item["is_favorited"] = item["id"] in favorited
+
+
 # ---------------------------------------------------------------------------
 # Items
 # ---------------------------------------------------------------------------
@@ -369,9 +407,17 @@ def list_items(
     order: str = Query("desc", description="Sort direction (asc/desc)"),
     page: int = Query(1, ge=1, description="Page number"),
     per_page: int = Query(20, ge=1, le=100, description="Items per page"),
+    user_id: Optional[str] = Depends(_get_user_id_optional),
 ) -> dict:
-    """Paginated list of scored content items with optional filters."""
-    return db.get_items(
+    """Paginated list of scored content items with optional filters.
+
+    When the caller sends ``X-User-Id``, items belonging to any topic that
+    user has blocked are excluded, and each returned item gets an
+    ``is_favorited`` flag. Both are no-ops without the header — existing
+    callers see identical behavior.
+    """
+    blocked_topic_ids = db.get_blocked_topic_ids(user_id) if user_id else None
+    result = db.get_items(
         run_date=run_date,
         category=category,
         tag=tag,
@@ -382,7 +428,10 @@ def list_items(
         order=order,
         page=page,
         per_page=per_page,
+        blocked_topic_ids=blocked_topic_ids,
     )
+    _attach_favorited(result["items"], user_id)
+    return result
 
 
 @app.get("/api/items/{item_id}")
@@ -396,12 +445,14 @@ def get_item(
             "with HORIZON_API_ENV=development."
         ),
     ),
+    user_id: Optional[str] = Depends(_get_user_id_optional),
 ) -> dict:
     """Get a single item by ID."""
     item = db.get_item(item_id)
     if item is None:
         raise HTTPException(status_code=404, detail="Item not found")
     item = _attach_content(item)
+    _attach_favorited([item], user_id)
     if include_debug and _debug_env_enabled():
         item["debug"] = _build_debug_block(item)
     return item
@@ -462,14 +513,84 @@ def topic_news(
     per_page: int = Query(20, ge=1, le=100, description="Items per page"),
     sort: str = Query("ai_score", description="Sort field"),
     order: str = Query("desc", description="Sort direction (asc/desc)"),
+    user_id: Optional[str] = Depends(_get_user_id_optional),
 ) -> dict:
-    """Get paginated news items for a specific topic by slug."""
+    """Get paginated news items for a specific topic by slug.
+
+    If the caller (via X-User-Id) has blocked this exact topic, the topic
+    metadata is still returned (so the page doesn't 404) with an empty item
+    list.
+    """
+    blocked_topic_ids = db.get_blocked_topic_ids(user_id) if user_id else None
     result = db.get_topic_news(
-        slug=slug, page=page, per_page=per_page, sort=sort, order=order
+        slug=slug, page=page, per_page=per_page, sort=sort, order=order,
+        blocked_topic_ids=blocked_topic_ids,
     )
     if result["topic"] is None:
         raise HTTPException(status_code=404, detail="Topic not found")
+    _attach_favorited(result["items"], user_id)
     return result
+
+
+# ---------------------------------------------------------------------------
+# Favorites
+# ---------------------------------------------------------------------------
+#
+# All routes below require X-User-Id (see _get_user_id_required) — there's
+# no per-user data to read or write without knowing whose it is.
+
+@app.put("/api/favorites/{item_id}")
+def add_favorite(item_id: str, user_id: str = Depends(_get_user_id_required)) -> dict:
+    """Mark an item as favorited for the current user."""
+    if db.get_item(item_id) is None:
+        raise HTTPException(status_code=404, detail="Item not found")
+    db.set_favorite(user_id, item_id, True)
+    return {"item_id": item_id, "is_favorited": True}
+
+
+@app.delete("/api/favorites/{item_id}")
+def remove_favorite(item_id: str, user_id: str = Depends(_get_user_id_required)) -> dict:
+    """Remove an item from the current user's favorites."""
+    db.set_favorite(user_id, item_id, False)
+    return {"item_id": item_id, "is_favorited": False}
+
+
+@app.get("/api/favorites")
+def list_favorites(
+    page: int = Query(1, ge=1, description="Page number"),
+    per_page: int = Query(20, ge=1, le=100, description="Items per page"),
+    user_id: str = Depends(_get_user_id_required),
+) -> dict:
+    """Paginated list of the current user's favorited items."""
+    return db.get_favorites(user_id, page=page, per_page=per_page)
+
+
+# ---------------------------------------------------------------------------
+# Topic preferences (subscribe / block)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/topic-prefs")
+def get_topic_prefs(user_id: str = Depends(_get_user_id_required)) -> dict:
+    """Return the current user's topic subscribe/block preferences."""
+    prefs = db.get_topic_prefs(user_id)
+    return {
+        "subscribed": sorted(slug for slug, state in prefs.items() if state == "subscribed"),
+        "blocked": sorted(slug for slug, state in prefs.items() if state == "blocked"),
+    }
+
+
+@app.put("/api/topic-prefs/{slug}")
+def set_topic_pref(
+    slug: str,
+    body: TopicPrefUpdate,
+    user_id: str = Depends(_get_user_id_required),
+) -> dict:
+    """Set (subscribed/blocked) or clear (state: null) the current user's preference for one topic."""
+    topic = db.get_topic_by_slug(slug)
+    if topic is None:
+        raise HTTPException(status_code=404, detail="Topic not found")
+    db.set_topic_pref(user_id, topic["id"], body.state)
+    return {"slug": slug, "state": body.state}
 
 
 # ---------------------------------------------------------------------------

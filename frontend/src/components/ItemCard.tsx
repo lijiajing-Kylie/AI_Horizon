@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react'
 import type { NewsItem, SourceProvenance, ContentBlock } from '../api/types'
 import ScoreBadge from './ScoreBadge'
+import FavoriteButton from './FavoriteButton'
 import { sourceLabel, roleLabelZh } from '../utils/source'
 import { Link } from 'react-router-dom'
 import { backToState, type BackTarget } from '../utils/backTo'
@@ -106,6 +107,7 @@ export default function ItemCard({ item, showTopics = true, backTo }: ItemCardPr
             </div>
           )}
         </div>
+        <FavoriteButton itemId={item.id} initialFavorited={item.is_favorited ?? false} />
       </div>
 
       {/* Meta row */}

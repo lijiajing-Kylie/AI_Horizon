@@ -7,7 +7,7 @@ import sqlite3
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import Any, Iterable, List, Optional
 
 from ..models import ContentItem
 
@@ -111,6 +111,32 @@ CREATE TABLE IF NOT EXISTS news_topics (
 
 CREATE INDEX IF NOT EXISTS idx_news_topics_news_id ON news_topics(news_id);
 CREATE INDEX IF NOT EXISTS idx_news_topics_topic_id ON news_topics(topic_id);
+
+CREATE TABLE IF NOT EXISTS user_item_state (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id         TEXT NOT NULL,
+    item_id         TEXT NOT NULL,
+    state           TEXT NOT NULL,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE,
+    UNIQUE(user_id, item_id, state)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_item_state_user ON user_item_state(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_item_state_item ON user_item_state(item_id);
+
+CREATE TABLE IF NOT EXISTS user_topic_prefs (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id         TEXT NOT NULL,
+    topic_id        INTEGER NOT NULL,
+    state           TEXT NOT NULL,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (topic_id) REFERENCES topics(id) ON DELETE CASCADE,
+    UNIQUE(user_id, topic_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_topic_prefs_user ON user_topic_prefs(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_topic_prefs_topic ON user_topic_prefs(topic_id);
 """
 
 
@@ -443,6 +469,7 @@ class HorizonDB:
         page: int = 1,
         per_page: int = 20,
         selected_only: bool = True,
+        blocked_topic_ids: Optional[Iterable[int]] = None,
     ) -> dict[str, Any]:
         """Paginated item query with optional filters.
 
@@ -450,6 +477,10 @@ class HorizonDB:
             selected_only: When True (default), only return items that passed
                 all filtering stages. Set to False to include dropped items
                 for auditing.
+            blocked_topic_ids: When given, excludes items associated with any
+                of these topic ids. Callers resolve this from a user's
+                ``user_topic_prefs`` (see ``get_blocked_topic_ids``) — this
+                method itself has no notion of "user".
         """
         where = []
         params: list[Any] = []
@@ -457,6 +488,14 @@ class HorizonDB:
         if run_date:
             where.append("run_date = ?")
             params.append(run_date)
+
+        if blocked_topic_ids:
+            blocked_topic_ids = list(blocked_topic_ids)
+            placeholders = ",".join("?" for _ in blocked_topic_ids)
+            where.append(
+                f"id NOT IN (SELECT news_id FROM news_topics WHERE topic_id IN ({placeholders}))"
+            )
+            params.extend(blocked_topic_ids)
 
         if selected_only:
             where.append("selected = 1")
@@ -884,6 +923,7 @@ class HorizonDB:
         per_page: int = 20,
         sort: str = "ai_score",
         order: str = "desc",
+        blocked_topic_ids: Optional[Iterable[int]] = None,
     ) -> dict[str, Any]:
         """Get paginated news items for a specific topic by slug.
 
@@ -892,6 +932,11 @@ class HorizonDB:
         balanced-digest category quota) keep their ``news_topics`` rows for
         audit purposes but were never enriched/published, so they must not
         surface here.
+
+        Args:
+            blocked_topic_ids: When given and this topic's own id is in the
+                set, returns the topic (so the page doesn't 404) with an
+                empty item list — the caller blocked this exact topic.
         """
         topic = self.conn.execute(
             "SELECT id, name, slug, group_name, description FROM topics WHERE slug = ?",
@@ -900,6 +945,20 @@ class HorizonDB:
 
         if topic is None:
             return {"topic": None, "items": [], "total": 0, "page": 1, "per_page": per_page, "pages": 0}
+
+        topic_block = {
+            "id": topic["id"],
+            "name": topic["name"],
+            "slug": topic["slug"],
+            "group_name": topic["group_name"],
+            "description": topic["description"],
+        }
+
+        if blocked_topic_ids and topic["id"] in blocked_topic_ids:
+            return {
+                "topic": topic_block,
+                "items": [], "total": 0, "page": 1, "per_page": per_page, "pages": 0,
+            }
 
         allowed_sort = {"ai_score", "published_at", "created_at", "run_date"}
         sort_col = sort if sort in allowed_sort else "ai_score"
@@ -930,16 +989,111 @@ class HorizonDB:
             item["topics"] = topics_map.get(item["id"], [])
 
         return {
-            "topic": {
-                "id": topic["id"],
-                "name": topic["name"],
-                "slug": topic["slug"],
-                "group_name": topic["group_name"],
-                "description": topic["description"],
-            },
+            "topic": topic_block,
             "items": items,
             "total": total,
             "page": page,
             "per_page": per_page,
             "pages": max(1, (total + per_page - 1) // per_page),
         }
+
+    # -- favorites & topic preferences ------------------------------------------
+    #
+    # `user_id` is an opaque caller-supplied string (an anonymous per-browser
+    # id today; a real account id if Horizon ever grows auth) — these methods
+    # don't validate or interpret it, they just scope rows by it.
+
+    def set_favorite(self, user_id: str, item_id: str, favorited: bool) -> None:
+        """Add or remove a favorite for a user."""
+        if favorited:
+            self.conn.execute(
+                """INSERT OR IGNORE INTO user_item_state (user_id, item_id, state)
+                   VALUES (?, ?, 'favorited')""",
+                (user_id, item_id),
+            )
+        else:
+            self.conn.execute(
+                """DELETE FROM user_item_state
+                   WHERE user_id = ? AND item_id = ? AND state = 'favorited'""",
+                (user_id, item_id),
+            )
+        self.conn.commit()
+
+    def get_favorited_ids(self, user_id: str, item_ids: list[str]) -> set[str]:
+        """Batch-check which of item_ids are favorited by user_id (avoids N+1)."""
+        if not item_ids:
+            return set()
+        placeholders = ",".join("?" for _ in item_ids)
+        rows = self.conn.execute(
+            f"""SELECT item_id FROM user_item_state
+                WHERE user_id = ? AND state = 'favorited' AND item_id IN ({placeholders})""",
+            (user_id, *item_ids),
+        ).fetchall()
+        return {r["item_id"] for r in rows}
+
+    def get_favorites(self, user_id: str, *, page: int = 1, per_page: int = 20) -> dict[str, Any]:
+        """Paginated list of a user's favorited items, most recently favorited first."""
+        offset = (page - 1) * per_page
+
+        count_row = self.conn.execute(
+            "SELECT COUNT(*) AS cnt FROM user_item_state WHERE user_id = ? AND state = 'favorited'",
+            (user_id,),
+        ).fetchone()
+        total = count_row["cnt"] if count_row else 0
+
+        rows = self.conn.execute(
+            """SELECT items.* FROM user_item_state
+               JOIN items ON items.id = user_item_state.item_id
+               WHERE user_item_state.user_id = ? AND user_item_state.state = 'favorited'
+               ORDER BY user_item_state.created_at DESC
+               LIMIT ? OFFSET ?""",
+            (user_id, per_page, offset),
+        ).fetchall()
+
+        items = [_row_to_item(r) for r in rows]
+        topics_map = self._batch_get_news_topics([item["id"] for item in items])
+        for item in items:
+            item["topics"] = topics_map.get(item["id"], [])
+            item["is_favorited"] = True
+
+        return {
+            "items": items,
+            "total": total,
+            "page": page,
+            "per_page": per_page,
+            "pages": max(1, (total + per_page - 1) // per_page),
+        }
+
+    def set_topic_pref(self, user_id: str, topic_id: int, state: Optional[str]) -> None:
+        """Set ('subscribed'/'blocked') or clear (state=None) a user's preference for one topic."""
+        if state is None:
+            self.conn.execute(
+                "DELETE FROM user_topic_prefs WHERE user_id = ? AND topic_id = ?",
+                (user_id, topic_id),
+            )
+        else:
+            self.conn.execute(
+                """INSERT INTO user_topic_prefs (user_id, topic_id, state)
+                   VALUES (?, ?, ?)
+                   ON CONFLICT(user_id, topic_id) DO UPDATE SET state = excluded.state""",
+                (user_id, topic_id, state),
+            )
+        self.conn.commit()
+
+    def get_topic_prefs(self, user_id: str) -> dict[str, str]:
+        """Return {topic_slug: state} for every topic this user has a preference for."""
+        rows = self.conn.execute(
+            """SELECT t.slug, p.state FROM user_topic_prefs p
+               JOIN topics t ON t.id = p.topic_id
+               WHERE p.user_id = ?""",
+            (user_id,),
+        ).fetchall()
+        return {r["slug"]: r["state"] for r in rows}
+
+    def get_blocked_topic_ids(self, user_id: str) -> set[int]:
+        """Internal helper: topic ids this user has blocked."""
+        rows = self.conn.execute(
+            "SELECT topic_id FROM user_topic_prefs WHERE user_id = ? AND state = 'blocked'",
+            (user_id,),
+        ).fetchall()
+        return {r["topic_id"] for r in rows}
