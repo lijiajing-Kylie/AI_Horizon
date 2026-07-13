@@ -223,11 +223,10 @@ class HorizonOrchestrator:
             # 6. Search related stories + enrich with background knowledge (2nd AI pass)
             await self._enrich_important_items(important_items)
 
-            # 6.5 Update persisted items with enrichment results
-            saved = self.db.save_items(important_items, today, len(all_items), selected=True, replace=False)
-            self.console.print(f"💾 Updated {saved} items with enrichment data in SQLite\n")
-
-            # 6.6 Persist topic classifications to news_topics
+            # 6.5 Persist topic classifications to news_topics — this must run
+            # before the save below so the raw classification payload is popped
+            # off item.metadata and never gets baked into metadata_json (it's
+            # already stored properly in news_topics).
             topic_count = 0
             for item in important_items:
                 topics_data = item.metadata.pop("_topics_classification", [])
@@ -235,6 +234,10 @@ class HorizonOrchestrator:
                     topic_count += self.db.save_news_topics(item.id, topics_data)
             if topic_count > 0:
                 self.console.print(f"🏷️ Saved {topic_count} topic associations\n")
+
+            # 6.6 Update persisted items with enrichment results
+            saved = self.db.save_items(important_items, today, len(all_items), selected=True, replace=False)
+            self.console.print(f"💾 Updated {saved} items with enrichment data in SQLite\n")
 
             # 7. Generate and save daily summaries for each configured language
             for lang in self.config.ai.languages:

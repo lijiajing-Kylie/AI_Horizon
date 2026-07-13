@@ -37,7 +37,8 @@ CREATE TABLE IF NOT EXISTS items (
     run_date        TEXT NOT NULL,
     created_at      TEXT NOT NULL DEFAULT (datetime('now')),
     selected        INTEGER NOT NULL DEFAULT 0,
-    drop_reason     TEXT
+    drop_reason     TEXT,
+    category        TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_items_selected ON items(selected);
@@ -122,6 +123,7 @@ _ITEMS_COLUMN_MIGRATIONS: list[tuple[str, str]] = [
     ("display_html", "TEXT"),
     ("display_html_zh", "TEXT"),
     ("raw_content", "TEXT"),
+    ("category", "TEXT"),
 ]
 
 
@@ -130,6 +132,17 @@ def _migrate_items_table(conn: sqlite3.Connection) -> None:
     for column, ddl in _ITEMS_COLUMN_MIGRATIONS:
         if column not in existing:
             conn.execute(f"ALTER TABLE items ADD COLUMN {column} {ddl}")
+            if column == "category":
+                # One-time backfill from the legacy metadata_json location —
+                # only runs the moment this column is first added.
+                conn.execute(
+                    "UPDATE items SET category = json_extract(metadata_json, '$.category') "
+                    "WHERE category IS NULL"
+                )
+    # Not part of _SCHEMA: on a pre-existing DB, executescript() runs before
+    # this migration, so an index referencing a not-yet-added column would
+    # fail. Safe to run unconditionally here since the column now always exists.
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_items_category ON items(category)")
     conn.commit()
 
 
@@ -254,7 +267,10 @@ class HorizonDB:
 
         rows: list[tuple] = []
         for item in items:
-            drop_reason = None if selected else item.metadata.get("_drop_reason")
+            # Real drop reasons are written later by mark_selected(); nothing
+            # ever sets "_drop_reason" on item.metadata, so this is always None.
+            drop_reason = None
+            category = item.metadata.get("category")
             # Extraction-provenance fields have no dedicated columns — fold
             # them into metadata_json alongside the item's own metadata dict
             # (same precedent as source_provenance/original_language).
@@ -295,6 +311,7 @@ class HorizonDB:
                 _now_iso(),
                 1 if selected else 0,
                 drop_reason,
+                category,
             ))
 
         # Extraction-stage columns are set once (step 2.5, before analysis)
@@ -321,7 +338,7 @@ class HorizonDB:
                 "images_json", "author", "published_at", "fetched_at",
                 "ai_relevant", "ai_score", "ai_reason", "ai_summary",
                 "ai_tags_json", "metadata_json", "run_date", "created_at",
-                "selected", "drop_reason",
+                "selected", "drop_reason", "category",
             )
         )
 
@@ -331,15 +348,15 @@ class HorizonDB:
                 display_html, display_html_zh, cover_image, images_json, author,
                 published_at, fetched_at, ai_relevant, ai_score,
                 ai_reason, ai_summary, ai_tags_json, metadata_json,
-                run_date, created_at, selected, drop_reason
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                run_date, created_at, selected, drop_reason, category
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 {update_clause}""",
             rows,
         )
 
         # Upsert daily run record
-        languages = list({item.metadata.get("language", "unknown") for item in items}) if items else []
+        languages = list({item.metadata.get("original_language", "unknown") for item in items}) if items else []
         self.conn.execute(
             """INSERT INTO daily_runs (date, total_fetched, total_selected, languages)
                VALUES (?, ?, ?, ?)
@@ -445,7 +462,7 @@ class HorizonDB:
             where.append("selected = 1")
 
         if category:
-            where.append("json_extract(metadata_json, '$.category') = ?")
+            where.append("category = ?")
             params.append(category)
 
         if source_type:
@@ -583,8 +600,7 @@ class HorizonDB:
             where += " AND selected = 1"
 
         rows = self.conn.execute(
-            f"""SELECT json_extract(metadata_json, '$.category') AS category,
-                       COUNT(*) AS count
+            f"""SELECT category, COUNT(*) AS count
                 FROM items
                 WHERE {where}
                 GROUP BY category

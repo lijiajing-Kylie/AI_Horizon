@@ -126,7 +126,7 @@ The **React frontend** (`frontend/`, Vite + React 19 + TypeScript + Tailwind v4 
 | `src/content_extractor.py` | Full article text extraction (trafilatura) for enrichment |
 | `src/models.py` | All Pydantic config/data models |
 | `src/orchestrator.py` | Pipeline coordination |
-| `src/search.py` | HN Algolia + Reddit related-story search |
+| `src/dedup.py` | Cross-source URL dedup, AI semantic topic dedup, and source-provenance aggregation |
 | `frontend/` | React + Vite + Tailwind SPA consuming the `/api/*` endpoints |
 | `debug-frontend/` | Static HTML dashboard served at `/debug` by `horizon-api` |
 | `data/` | Runtime data: config.json, summaries/, subscribers.json, horizon.db |

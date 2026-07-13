@@ -410,7 +410,7 @@ class HorizonPipelineService:
 
         citation_count = 0
         for item in items:
-            citation_count += len(item.metadata.get("sources", []))
+            citation_count += len(item.metadata.get("enrichment_sources", []))
 
         meta = self.run_store.update_meta(
             run_id,
