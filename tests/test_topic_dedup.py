@@ -106,7 +106,7 @@ def test_cross_source_cross_language_same_event_is_merged(monkeypatch) -> None:
             return _mock_dedup_response(primary, duplicate)
 
     monkeypatch.setattr(
-        "src.orchestrator.create_ai_client", lambda config: FakeAIClient()
+        "src.dedup.create_ai_client", lambda config: FakeAIClient()
     )
 
     orchestrator = make_orchestrator()
@@ -142,7 +142,7 @@ def test_merged_event_exposes_multi_source_attribution(monkeypatch) -> None:
             return _mock_dedup_response(primary, duplicate)
 
     monkeypatch.setattr(
-        "src.orchestrator.create_ai_client", lambda config: FakeAIClient()
+        "src.dedup.create_ai_client", lambda config: FakeAIClient()
     )
 
     orchestrator = make_orchestrator()

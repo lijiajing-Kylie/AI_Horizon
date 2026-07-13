@@ -213,6 +213,30 @@ class ContentItem(BaseModel):
     ai_tags: List[str] = Field(default_factory=list)
 
 
+def sub_source_label(item: ContentItem) -> str:
+    """Return a human-readable sub-source label for an item."""
+    meta = item.metadata
+    if meta.get("subreddit"):
+        return f"r/{meta['subreddit']}"
+    if meta.get("feed_name"):
+        return meta["feed_name"]
+    if meta.get("channel"):
+        return f"@{meta['channel']}"
+    if meta.get("period") and meta.get("repo"):
+        return f"ossinsight:{meta.get('primary_language', 'all')}"
+    if meta.get("repo"):
+        return meta["repo"]
+    if meta.get("watchlist"):
+        return meta["watchlist"]
+    if meta.get("source_name"):
+        return meta["source_name"]
+    if meta.get("gn_query"):
+        return f"google_news:{meta['gn_query']}"
+    if meta.get("domain"):
+        return meta["domain"]
+    return item.author or "unknown"
+
+
 class AIProvider(str, Enum):
     """Supported AI providers."""
 
