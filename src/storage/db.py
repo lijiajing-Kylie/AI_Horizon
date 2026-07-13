@@ -680,20 +680,42 @@ class HorizonDB:
             "source_types": row["source_types"],
         }
 
-    def search(self, query: str, *, limit: int = 20, selected_only: bool = True) -> list[dict[str, Any]]:
+    def search(
+        self,
+        query: str,
+        *,
+        limit: int = 20,
+        selected_only: bool = True,
+        blocked_topic_ids: Optional[Iterable[int]] = None,
+    ) -> list[dict[str, Any]]:
         """Full-text search across title, summary, reason, and tags.
 
         Args:
             selected_only: When True (default), only search across selected items.
+            blocked_topic_ids: See get_items().
         """
-        selected_clause = "AND items.selected = 1" if selected_only else ""
+        where = ["items_fts MATCH ?"]
+        params: list[Any] = [query]
+
+        if selected_only:
+            where.append("items.selected = 1")
+
+        if blocked_topic_ids:
+            blocked_topic_ids = list(blocked_topic_ids)
+            placeholders = ",".join("?" for _ in blocked_topic_ids)
+            where.append(
+                f"items.id NOT IN (SELECT news_id FROM news_topics WHERE topic_id IN ({placeholders}))"
+            )
+            params.extend(blocked_topic_ids)
+
+        params.append(limit)
         rows = self.conn.execute(
             f"""SELECT items.* FROM items
                JOIN items_fts ON items.rowid = items_fts.rowid
-               WHERE items_fts MATCH ? {selected_clause}
+               WHERE {" AND ".join(where)}
                ORDER BY rank
                LIMIT ?""",
-            (query, limit),
+            params,
         ).fetchall()
         items = [_row_to_item(r) for r in rows]
         # Batch-fill topics

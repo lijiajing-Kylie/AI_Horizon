@@ -391,6 +391,18 @@ def _attach_favorited(items: list[dict], user_id: Optional[str]) -> None:
         item["is_favorited"] = item["id"] in favorited
 
 
+def _filter_blocked_topics(topics_result: dict, blocked_topic_ids: Optional[set[int]]) -> dict:
+    """Drop blocked topics (and any group left with none) from a get_topics(grouped=True) result."""
+    if not blocked_topic_ids:
+        return topics_result
+    filtered_groups = []
+    for group in topics_result["groups"]:
+        topics = [t for t in group["topics"] if t["id"] not in blocked_topic_ids]
+        if topics:
+            filtered_groups.append({**group, "topics": topics})
+    return {"groups": filtered_groups}
+
+
 # ---------------------------------------------------------------------------
 # Items
 # ---------------------------------------------------------------------------
@@ -489,12 +501,16 @@ def category_counts(
 
 
 @app.get("/api/topics")
-def list_topics() -> dict:
+def list_topics(user_id: Optional[str] = Depends(_get_user_id_optional)) -> dict:
     """Get all active topics grouped by group_name.
 
-    Each topic includes a ``count`` of associated news items.
+    Each topic includes a ``count`` of associated news items. When the
+    caller sends ``X-User-Id``, topics they've blocked are left out of the
+    listing entirely (not just filtered out of item lists) — groups that
+    end up with zero remaining topics are dropped too.
     """
-    return db.get_topics(grouped=True)
+    blocked_topic_ids = db.get_blocked_topic_ids(user_id) if user_id else None
+    return _filter_blocked_topics(db.get_topics(grouped=True), blocked_topic_ids)
 
 
 @app.get("/api/topics/{slug}")
@@ -627,18 +643,27 @@ def run_dates(limit: int = Query(30, ge=1, le=365)) -> list[str]:
 
 
 @app.get("/api/daily/{date}")
-def daily_detail(date: str) -> dict:
-    """Get all items and stats for a specific date."""
+def daily_detail(date: str, user_id: Optional[str] = Depends(_get_user_id_optional)) -> dict:
+    """Get all items and stats for a specific date.
+
+    Backs both the home page ("today") and the per-date daily report page —
+    when the caller sends X-User-Id, items under a topic they've blocked are
+    excluded and the topic sidebar leaves that topic out too. ``stats``/
+    ``tags`` stay unfiltered (global for the date), matching how the
+    existing category/tag filters on this endpoint already behave.
+    """
     # `date` is a path param typed `str`, so FastAPI never hands us a
     # datetime.date here — but normalize defensively in case this is ever
     # called with one (e.g. from other Python code), since sqlite3 can't
     # bind date/datetime objects directly.
     run_date = date.isoformat() if hasattr(date, "isoformat") else str(date)
 
-    result = db.get_items(run_date=run_date, per_page=200)
+    blocked_topic_ids = db.get_blocked_topic_ids(user_id) if user_id else None
+    result = db.get_items(run_date=run_date, per_page=200, blocked_topic_ids=blocked_topic_ids)
     stats = db.get_stats(run_date=run_date)
     tags = db.get_tags(run_date=run_date)
-    topics = db.get_topics(grouped=True)
+    topics = _filter_blocked_topics(db.get_topics(grouped=True), blocked_topic_ids)
+    _attach_favorited(result["items"], user_id)
     return {
         "date": run_date,
         "stats": stats,
@@ -669,9 +694,13 @@ def get_stats(
 def search_items(
     q: str = Query(..., min_length=1, description="Search query"),
     limit: int = Query(20, ge=1, le=100),
+    user_id: Optional[str] = Depends(_get_user_id_optional),
 ) -> list[dict]:
     """Full-text search across items."""
-    return db.search(q, limit=limit)
+    blocked_topic_ids = db.get_blocked_topic_ids(user_id) if user_id else None
+    items = db.search(q, limit=limit, blocked_topic_ids=blocked_topic_ids)
+    _attach_favorited(items, user_id)
+    return items
 
 
 # ---------------------------------------------------------------------------
