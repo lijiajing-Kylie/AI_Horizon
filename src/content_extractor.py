@@ -9,11 +9,16 @@ images, etc.).
 
 from __future__ import annotations
 
+import asyncio
 import html as html_module
+import json
 import logging
 import re
 import unicodedata
+from collections import defaultdict
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import urljoin, urlparse
 from xml.etree import ElementTree
@@ -22,7 +27,10 @@ import httpx
 import nh3
 import trafilatura
 from bs4 import BeautifulSoup
+from rich.console import Console
 from trafilatura.metadata import extract_metadata
+
+from .models import ContentItem, sub_source_label
 
 logger = logging.getLogger(__name__)
 
@@ -800,3 +808,161 @@ def clean_article_content(raw: Optional[str], *, title: Optional[str] = None) ->
         return pre_cta_text
 
     return cleaned
+
+
+async def extract_full_content_batch(items: List[ContentItem], console: Console) -> List[ContentItem]:
+    """Extract full article text for each item's URL using trafilatura.
+
+    For each item, fetches the original URL and runs readability-based
+    extraction. ``item.rss_summary`` always captures the scraper's
+    original snippet, success or failure. On success, ``item.raw_content``
+    holds the extractor's plain-text output and ``item.content`` (the
+    legacy alias) is updated to match it. On failure/skip, ``content``
+    is left unchanged (it already equals the scraper snippet).
+    ``content_source``/``extraction_status``/``extraction_error`` record
+    which case happened, so downstream AI prompts don't mistake "only a
+    summary" for "thin content".
+
+    Args:
+        items: Content items from all scrapers.
+        console: Rich console for progress/status output.
+
+    Returns:
+        The same list (mutated in-place).
+    """
+    if not items:
+        return items
+
+    # source_label -> {"total": n, "extracted": n, "skipped": n}
+    source_stats: Dict[str, Dict[str, int]] = defaultdict(
+        lambda: {"total": 0, "extracted": 0, "skipped": 0}
+    )
+    skipped_records: List[dict] = []
+
+    async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+        semaphore = asyncio.Semaphore(8)  # limit concurrent fetches
+
+        async def _extract_one(item: ContentItem) -> None:
+            source_label = f"{item.source_type.value}:{sub_source_label(item)}"
+            original_content = item.content or ""
+            item.rss_summary = original_content
+
+            async with semaphore:
+                extract_debug: dict = {}
+                result = await extract_full_content(
+                    str(item.url), client, debug=extract_debug
+                )
+
+            stats = source_stats[source_label]
+            stats["total"] += 1
+
+            item.http_status = extract_debug.get("http_status")
+            item.extracted_at = datetime.now(timezone.utc)
+            item.extractor_version = EXTRACTOR_VERSION
+
+            if result:
+                item.raw_content = result.text
+                item.content = result.text  # legacy alias, unchanged behavior
+                item.cover_image = result.cover_image
+                item.images = result.images
+                item.raw_html = result.raw_html
+                item.display_html = result.display_html
+                item.final_url = result.final_url
+                item.text_length = len(result.text)
+                item.content_source = "full_text"
+                item.extraction_status = "success"
+                item.extraction_error = None
+                stats["extracted"] += 1
+            else:
+                skip_reason = extract_debug.get("skip_reason")
+                item.extraction_error = skip_reason
+                item.extraction_status = (
+                    "skipped"
+                    if skip_reason and skip_reason.startswith(("skip_domain:", "skip_extension:"))
+                    else "failed"
+                )
+                item.content_source = "rss_summary" if original_content.strip() else "none"
+                stats["skipped"] += 1
+                skipped_records.append(
+                    {
+                        "title": item.title,
+                        "url": str(item.url),
+                        "source": source_label,
+                        "skip_reason": skip_reason,
+                        "http_status": extract_debug.get("http_status"),
+                        "rss_had_content": bool(original_content.strip()),
+                        "rss_content_length": len(original_content.strip()),
+                    }
+                )
+
+        await asyncio.gather(*[_extract_one(item) for item in items])
+
+    extracted = sum(1 for item in items if item.extraction_status == "success")
+    skipped = len(items) - extracted
+    console.print(
+        f"📄 成功提取 {extracted} 篇完整正文 / {skipped} 篇跳过\n"
+    )
+
+    logger.debug("Full-content extraction stats by source:")
+    for source_label, stats in sorted(source_stats.items()):
+        total = stats["total"]
+        skip_ratio = stats["skipped"] / total if total else 0.0
+        logger.debug(
+            "  source=%s total=%d extracted=%d skipped=%d skip_ratio=%.1f%%",
+            source_label, total, stats["extracted"], stats["skipped"], skip_ratio * 100,
+        )
+
+    for record in skipped_records:
+        logger.debug(
+            "skipped item title=%r url=%s source=%s skip_reason=%s http_status=%s "
+            "rss_had_content=%s rss_content_length=%d",
+            record["title"], record["url"], record["source"], record["skip_reason"],
+            record["http_status"], record["rss_had_content"], record["rss_content_length"],
+        )
+
+    if skipped_records:
+        write_extraction_debug_file(source_stats, skipped_records, console)
+
+    return items
+
+
+def write_extraction_debug_file(
+    source_stats: Dict[str, Dict[str, int]], skipped_records: List[dict], console: Console
+) -> Path:
+    """Write a JSON debug export of full-content extraction results.
+
+    Args:
+        source_stats: Per-source total/extracted/skipped counts.
+        skipped_records: Per-item details for every skipped item.
+        console: Rich console for progress/status output.
+
+    Returns:
+        Path to the written debug file.
+    """
+    debug_dir = Path("data/debug")
+    debug_dir.mkdir(parents=True, exist_ok=True)
+
+    timestamp = datetime.now(timezone.utc)
+    by_source = {
+        source_label: {
+            **stats,
+            "skip_ratio": round(stats["skipped"] / stats["total"], 4) if stats["total"] else 0.0,
+        }
+        for source_label, stats in sorted(source_stats.items())
+    }
+
+    payload = {
+        "generated_at": timestamp.isoformat(),
+        "total_items": sum(s["total"] for s in source_stats.values()),
+        "total_extracted": sum(s["extracted"] for s in source_stats.values()),
+        "total_skipped": sum(s["skipped"] for s in source_stats.values()),
+        "by_source": by_source,
+        "skipped_items": skipped_records,
+    }
+
+    debug_path = debug_dir / f"extraction_debug_{timestamp.strftime('%Y%m%d_%H%M%S')}.json"
+    debug_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    console.print(f"🐛 正文提取 debug 导出: {debug_path}\n")
+    return debug_path

@@ -117,6 +117,40 @@ class StorageManager:
 
         return filepath
 
+    def publish_to_github_pages(self, date: str, markdown: str, language: str = "en") -> Path:
+        """Copy a daily summary into ``docs/_posts/`` as a Jekyll post.
+
+        Adds Jekyll front matter and strips the leading H1 header (Jekyll
+        renders its own title from front matter, so a duplicate H1 would
+        show up twice on the page).
+        """
+        posts_dir = Path("docs/_posts")
+        posts_dir.mkdir(parents=True, exist_ok=True)
+
+        post_filename = f"{date}-summary-{language}.md"
+        dest_path = posts_dir / post_filename
+
+        front_matter = (
+            "---\n"
+            "layout: default\n"
+            f"title: \"Horizon Summary: {date} ({language.upper()})\"\n"
+            f"date: {date}\n"
+            f"lang: {language}\n"
+            "---\n\n"
+        )
+
+        summary_content = markdown
+        first_line = summary_content.strip().split("\n")[0]
+        if first_line.startswith("# "):
+            parts = summary_content.split("\n", 1)
+            if len(parts) > 1:
+                summary_content = parts[1].strip()
+
+        with open(dest_path, "w", encoding="utf-8") as f:
+            f.write(front_matter + summary_content)
+
+        return dest_path
+
     def load_subscribers(self) -> list:
         """Loads the list of email subscribers."""
         subscribers_path = self.data_dir / "subscribers.json"
