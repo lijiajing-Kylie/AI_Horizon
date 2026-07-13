@@ -501,16 +501,25 @@ def category_counts(
 
 
 @app.get("/api/topics")
-def list_topics(user_id: Optional[str] = Depends(_get_user_id_optional)) -> dict:
+def list_topics(
+    include_blocked: bool = Query(
+        False, description="Include topics the caller has blocked (used by the preferences page, which needs to show every topic to manage them)"
+    ),
+    user_id: Optional[str] = Depends(_get_user_id_optional),
+) -> dict:
     """Get all active topics grouped by group_name.
 
     Each topic includes a ``count`` of associated news items. When the
-    caller sends ``X-User-Id``, topics they've blocked are left out of the
-    listing entirely (not just filtered out of item lists) — groups that
-    end up with zero remaining topics are dropped too.
+    caller sends ``X-User-Id`` and ``include_blocked`` is left at its
+    default (False), topics they've blocked are left out of the listing
+    entirely (not just filtered out of item lists) — groups that end up
+    with zero remaining topics are dropped too.
     """
+    result = db.get_topics(grouped=True)
+    if include_blocked:
+        return result
     blocked_topic_ids = db.get_blocked_topic_ids(user_id) if user_id else None
-    return _filter_blocked_topics(db.get_topics(grouped=True), blocked_topic_ids)
+    return _filter_blocked_topics(result, blocked_topic_ids)
 
 
 @app.get("/api/topics/{slug}")

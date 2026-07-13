@@ -81,8 +81,8 @@ export function getCategories(runDate?: string) {
 }
 
 // Topics
-export function getTopics() {
-  return get<TopicsResponse>('/api/topics')
+export function getTopics(params?: { include_blocked?: boolean }) {
+  return get<TopicsResponse>('/api/topics', params as Record<string, string | number | undefined>)
 }
 
 export function getTopicNews(slug: string, params?: {

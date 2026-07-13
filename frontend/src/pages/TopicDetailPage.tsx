@@ -1,14 +1,14 @@
 import { useState, useCallback } from 'react'
 import { useParams } from 'react-router-dom'
 import { useApi } from '../hooks/useApi'
-import { getTopicNews, getTopicPrefs } from '../api/client'
+import { useTopicPrefsState } from '../hooks/useTopicPrefs'
+import { getTopicNews } from '../api/client'
 import ItemCard from '../components/ItemCard'
 import Pagination from '../components/Pagination'
 import BackLink from '../components/BackLink'
 import LoadingSkeleton from '../components/LoadingSkeleton'
 import EmptyState from '../components/EmptyState'
 import TopicPrefButtons from '../components/TopicPrefButtons'
-import type { TopicPrefState } from '../api/types'
 
 export default function TopicDetailPage() {
   const { slug } = useParams<{ slug: string }>()
@@ -23,7 +23,7 @@ export default function TopicDetailPage() {
     () => getTopicNews(slug!, { page, per_page: 20, sort, order }),
     [slug, page, sort, order]
   )
-  const { data: prefs } = useApi(() => getTopicPrefs(), [])
+  const { prefs, setPref } = useTopicPrefsState()
 
   const handleSortChange = useCallback((newSort: string, newOrder: string) => {
     setSort(newSort)
@@ -37,13 +37,7 @@ export default function TopicDetailPage() {
 
   const { topic, items, total, pages } = data
   const backTo = { path: `/topics/${slug}`, label: `← 返回主题：${topic.name}` }
-  const prefState: TopicPrefState | null = prefs
-    ? prefs.blocked.includes(slug!)
-      ? 'blocked'
-      : prefs.subscribed.includes(slug!)
-        ? 'subscribed'
-        : null
-    : null
+  const prefState = prefs?.[slug!] ?? null
 
   return (
     <div>
@@ -57,7 +51,9 @@ export default function TopicDetailPage() {
             <span className="text-xs text-gray-400">{topic.group_name}</span>
             <h1 className="text-2xl font-bold text-gray-900 mt-1">{topic.name}</h1>
           </div>
-          {prefs && <TopicPrefButtons slug={slug!} initialState={prefState} />}
+          {prefs && (
+            <TopicPrefButtons state={prefState} onToggle={next => setPref(slug!, next)} />
+          )}
         </div>
         <p className="text-sm text-gray-500 mt-2">{topic.description}</p>
         <p className="text-sm text-blue-600 font-medium mt-2">{total} 条相关新闻</p>
