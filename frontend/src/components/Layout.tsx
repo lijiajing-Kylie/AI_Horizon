@@ -28,6 +28,7 @@ export default function Layout() {
             {navLink('/', '首页')}
             {navLink('/daily', '日报')}
             {navLink('/topics', '主题')}
+            {navLink('/search', '搜索')}
             {navLink('/favorites', '收藏')}
             {navLink('/preferences', '偏好设置')}
           </nav>

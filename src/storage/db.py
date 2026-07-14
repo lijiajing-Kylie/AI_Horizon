@@ -52,7 +52,7 @@ CREATE INDEX IF NOT EXISTS idx_items_published_at ON items(published_at);
 
 CREATE VIRTUAL TABLE IF NOT EXISTS items_fts USING fts5(
     title, ai_summary, ai_reason, ai_tags_json,
-    content='items', content_rowid='rowid'
+    content='items', content_rowid='rowid', tokenize='trigram'
 );
 
 CREATE TRIGGER IF NOT EXISTS items_ai AFTER INSERT ON items BEGIN
@@ -172,6 +172,34 @@ def _migrate_items_table(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def _migrate_fts_tokenizer(conn: sqlite3.Connection) -> None:
+    """Rebuild items_fts with the trigram tokenizer if it's still on the
+    default (unicode61). unicode61 doesn't segment CJK text into words —
+    a run of Chinese characters between punctuation becomes a single token,
+    so a query only matched documents where it happened to land on an exact
+    token boundary. trigram indexes character n-grams instead, which makes
+    substring search work correctly for Chinese (and any other script).
+    """
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='items_fts'"
+    ).fetchone()
+    if row is None or (row["sql"] and "trigram" in row["sql"]):
+        return
+    conn.execute("DROP TABLE items_fts")
+    conn.execute(
+        "CREATE VIRTUAL TABLE items_fts USING fts5("
+        "title, ai_summary, ai_reason, ai_tags_json, "
+        "content='items', content_rowid='rowid', tokenize='trigram')"
+    )
+    conn.execute("INSERT INTO items_fts(items_fts) VALUES ('rebuild')")
+    conn.commit()
+
+
+def _escape_like(value: str) -> str:
+    """Escape LIKE metacharacters so search input is matched literally."""
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -251,6 +279,7 @@ class HorizonDB:
             conn.executescript(_SCHEMA)
             conn.commit()
             _migrate_items_table(conn)
+            _migrate_fts_tokenizer(conn)
             self._local.conn = conn
         return conn
 
@@ -688,14 +717,24 @@ class HorizonDB:
         selected_only: bool = True,
         blocked_topic_ids: Optional[Iterable[int]] = None,
     ) -> list[dict[str, Any]]:
-        """Full-text search across title, summary, reason, and tags.
+        """Substring search across title, summary, reason, and tags.
+
+        Uses LIKE against the trigram-tokenized FTS columns (index-accelerated)
+        rather than MATCH, since MATCH requires the pattern to be at least
+        ngram-length (3) and trigram isn't designed to be queried with MATCH.
 
         Args:
             selected_only: When True (default), only search across selected items.
             blocked_topic_ids: See get_items().
         """
-        where = ["items_fts MATCH ?"]
-        params: list[Any] = [query]
+        like = f"%{_escape_like(query)}%"
+        where = [
+            "(items_fts.title LIKE ? ESCAPE '\\' "
+            "OR items_fts.ai_summary LIKE ? ESCAPE '\\' "
+            "OR items_fts.ai_reason LIKE ? ESCAPE '\\' "
+            "OR items_fts.ai_tags_json LIKE ? ESCAPE '\\')"
+        ]
+        params: list[Any] = [like, like, like, like]
 
         if selected_only:
             where.append("items.selected = 1")
@@ -713,7 +752,7 @@ class HorizonDB:
             f"""SELECT items.* FROM items
                JOIN items_fts ON items.rowid = items_fts.rowid
                WHERE {" AND ".join(where)}
-               ORDER BY rank
+               ORDER BY items.ai_score DESC
                LIMIT ?""",
             params,
         ).fetchall()
