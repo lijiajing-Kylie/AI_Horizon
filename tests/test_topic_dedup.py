@@ -19,7 +19,7 @@ from src.orchestrator import HorizonOrchestrator
 
 def make_orchestrator() -> HorizonOrchestrator:
     orchestrator = HorizonOrchestrator.__new__(HorizonOrchestrator)
-    orchestrator.config = SimpleNamespace(ai=SimpleNamespace())
+    orchestrator.config = SimpleNamespace(ai=SimpleNamespace(max_tokens=4096))
     orchestrator.console = Console(record=True)
     return orchestrator
 
@@ -102,7 +102,7 @@ def test_cross_source_cross_language_same_event_is_merged(monkeypatch) -> None:
     duplicate = make_aihot_item()
 
     class FakeAIClient:
-        async def complete(self, system: str, user: str) -> str:
+        async def complete(self, system: str, user: str, temperature=None, max_tokens=None) -> str:
             return _mock_dedup_response(primary, duplicate)
 
     monkeypatch.setattr(
@@ -138,7 +138,7 @@ def test_merged_event_exposes_multi_source_attribution(monkeypatch) -> None:
     duplicate = make_aihot_item()
 
     class FakeAIClient:
-        async def complete(self, system: str, user: str) -> str:
+        async def complete(self, system: str, user: str, temperature=None, max_tokens=None) -> str:
             return _mock_dedup_response(primary, duplicate)
 
     monkeypatch.setattr(

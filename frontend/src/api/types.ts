@@ -49,6 +49,21 @@ export interface EnrichmentSource {
   title: string
 }
 
+export interface ScoreBreakdown {
+  total: number
+  source_authority: number
+  novelty: number
+  technical_substance: number
+  real_world_impact: number
+  community_validation: number
+  content_completeness: number
+  marketing_penalty: number
+  duplicate_penalty: number
+  thin_content_penalty: number
+  weak_ai_relevance_penalty: number
+  multi_source_bonus?: number
+}
+
 export interface Topic {
   id: number
   name: string

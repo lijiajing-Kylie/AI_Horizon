@@ -5,7 +5,8 @@ refer to the same underlying story, whether discovered via an exact
 normalized-URL match (:func:`merge_cross_source_duplicates`) or via AI
 semantic matching (:func:`merge_topic_duplicates`). :func:`build_source_attribution`
 aggregates the provenance data both of those write into a unified,
-display-ready structure.
+display-ready structure, which :func:`apply_multi_source_bonus` then reads
+to give independently-corroborated stories a small score bump.
 """
 
 from __future__ import annotations
@@ -28,6 +29,9 @@ from .models import (
 )
 
 _MAX_MERGED_IMAGES = 20
+
+MULTI_SOURCE_BONUS_THRESHOLD = 3
+MULTI_SOURCE_BONUS = 1.0
 
 
 def merge_item_images(primary: ContentItem, other: ContentItem) -> None:
@@ -171,6 +175,28 @@ def build_source_attribution(items: List[ContentItem]) -> None:
             "labels": [d["label"] for d in detail],
             "detail": detail,
         }
+
+
+def apply_multi_source_bonus(items: List[ContentItem]) -> None:
+    """Bump the score of items independently corroborated by several sources.
+
+    Must run after :func:`build_source_attribution` (needs the final
+    ``source_provenance.source_count``, which folds in both URL dedup and AI
+    topic dedup) and after any re-analysis pass (e.g. Twitter reply
+    expansion) that would otherwise overwrite ``score_breakdown``.
+    """
+    for item in items:
+        if item.ai_score is None:
+            continue
+        source_count = item.metadata.get("source_provenance", {}).get("source_count", 1)
+        bonus = MULTI_SOURCE_BONUS if source_count >= MULTI_SOURCE_BONUS_THRESHOLD else 0.0
+
+        breakdown = item.metadata.get("score_breakdown")
+        if breakdown is not None:
+            breakdown["multi_source_bonus"] = bonus
+            breakdown["total"] = min(10.0, breakdown.get("total", item.ai_score) + bonus)
+
+        item.ai_score = min(10.0, item.ai_score + bonus)
 
 
 def merge_cross_source_duplicates(items: List[ContentItem]) -> List[ContentItem]:
@@ -318,16 +344,28 @@ async def merge_topic_duplicates(
         )
     items_text = "\n\n".join(lines)
 
+    # Unlike the analyzer's per-item calls, this single call must return a JSON
+    # blob covering every duplicate group across *all* items, so its output
+    # scales with batch size. The configured ai.max_tokens is sized for small
+    # single-item responses and silently truncates the response (breaking the
+    # JSON parse) once there are more than a handful of duplicate groups.
+    dedup_max_tokens = max(ai_config.max_tokens, 1500 + 350 * len(items))
+
     try:
         ai_client = create_ai_client(ai_config)
         response = await ai_client.complete(
             system=TOPIC_DEDUP_SYSTEM,
             user=TOPIC_DEDUP_USER.format(items=items_text),
+            max_tokens=dedup_max_tokens,
         )
         result = parse_json_response(response)
         if result is None:
             if console:
-                console.print("[yellow]  dedup: could not parse AI response, skipping[/yellow]")
+                preview = response[:300].replace("\n", " ")
+                console.print(
+                    "[yellow]  dedup: could not parse AI response, skipping "
+                    f"(len={len(response)}, preview={preview!r})[/yellow]"
+                )
             return items
 
         duplicate_groups = result.get("duplicates", [])

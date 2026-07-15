@@ -121,6 +121,28 @@ class ContentAnalyzer:
         item.ai_reason = result.get("reason", "")
         item.ai_summary = result.get("summary", item.title)
         item.ai_tags = result.get("tags", [])
+        item.metadata["score_breakdown"] = self._build_score_breakdown(result, item.ai_score)
+
+    _SCORE_DIMENSIONS = (
+        "source_authority",
+        "novelty",
+        "technical_substance",
+        "real_world_impact",
+        "community_validation",
+        "content_completeness",
+        "marketing_penalty",
+        "duplicate_penalty",
+        "thin_content_penalty",
+        "weak_ai_relevance_penalty",
+    )
+
+    @classmethod
+    def _build_score_breakdown(cls, result: dict, total: float) -> dict:
+        """Persist the per-dimension ratings the AI returned, for review UIs."""
+        return {
+            "total": total,
+            **{dim: float(result.get(dim, 0)) for dim in cls._SCORE_DIMENSIONS},
+        }
 
     @staticmethod
     def _compute_score(result: dict, relevant: bool) -> float:

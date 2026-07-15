@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom'
 import { useApi } from '../hooks/useApi'
 import { getItem } from '../api/client'
 import ScoreBadge from '../components/ScoreBadge'
+import ScoreBreakdown from '../components/ScoreBreakdown'
 import FavoriteButton from '../components/FavoriteButton'
 import LoadingSkeleton from '../components/LoadingSkeleton'
 import EmptyState from '../components/EmptyState'
@@ -11,7 +12,7 @@ import { sourceLabel, roleLabelZh } from '../utils/source'
 import { backToState } from '../utils/backTo'
 import ArticleHtml from '../components/ArticleHtml'
 import ScrapeDiagnosticsPanel from '../components/ScrapeDiagnosticsPanel'
-import type { ArticleImage, ContentBlock, SourceProvenance, EnrichmentSource } from '../api/types'
+import type { ArticleImage, ContentBlock, SourceProvenance, EnrichmentSource, ScoreBreakdown as ScoreBreakdownData } from '../api/types'
 
 // ── helpers ───────────────────────────────────────────────────────────────
 
@@ -114,6 +115,7 @@ export default function ItemDetailPage() {
   const content = resolveItemContent(contentBlock, displayLang, item)
   const source = sourceLabel(item)
   const provenance = item.metadata?.source_provenance as SourceProvenance | undefined
+  const scoreBreakdown = item.metadata?.score_breakdown as ScoreBreakdownData | undefined
   const enrichmentSources = (contentBlock?.enrichment_sources || []) as EnrichmentSource[]
   const discussionUrl = contentBlock?.discussion_url as string | undefined
   const primaryUrl = provenance?.primary_source_url || item.url
@@ -227,6 +229,9 @@ export default function ItemDetailPage() {
           </div>
         </section>
       )}
+
+      {/* 1.5 评分明细 */}
+      {scoreBreakdown && <ScoreBreakdown breakdown={scoreBreakdown} />}
 
       {/* 2. 完整摘要 */}
       {content.summary && (

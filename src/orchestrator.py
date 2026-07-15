@@ -35,6 +35,7 @@ from .content_extractor import extract_full_content_batch
 from .seed_topics import build_seed_topics
 from .filtering import BalancedDigestResult, apply_balanced_digest
 from .dedup import (
+    apply_multi_source_bonus,
     build_source_attribution,
     merge_cross_source_duplicates,
     merge_topic_duplicates,
@@ -179,6 +180,11 @@ class HorizonOrchestrator:
 
             # 5.6 Optional second-stage Twitter reply expansion + targeted re-analysis
             await self._expand_twitter_discussion(important_items)
+
+            # 5.65 Bonus for stories independently corroborated by 3+ sources
+            # (must run after source attribution + any re-analysis above, since
+            # re-analysis overwrites score_breakdown)
+            self._apply_multi_source_bonus(important_items)
 
             # 5.7 Topic classification: assign multi-dimensional topic tags
             await self._classify_topics(important_items)
@@ -421,6 +427,10 @@ class HorizonOrchestrator:
     @staticmethod
     def _build_source_attribution(items: List[ContentItem]) -> None:
         build_source_attribution(items)
+
+    @staticmethod
+    def _apply_multi_source_bonus(items: List[ContentItem]) -> None:
+        apply_multi_source_bonus(items)
 
     def merge_cross_source_duplicates(self, items: List[ContentItem]) -> List[ContentItem]:
         """Stable stage entry point for integrations such as MCP."""
