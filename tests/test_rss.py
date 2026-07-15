@@ -35,3 +35,57 @@ def test_rss_ids_are_deterministic() -> None:
 
     assert first == second
     assert first == "rss:example.com_feed.xml:5e2d5d1e58e94d76"
+
+
+def test_rss_prefers_content_encoded_over_short_description() -> None:
+    feed = """<?xml version="1.0" encoding="UTF-8" ?>
+    <rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/">
+    <channel><title>Test</title>
+      <item>
+        <guid>entry-1</guid>
+        <title>Item 1</title>
+        <link>https://example.com/item-1</link>
+        <pubDate>Fri, 24 Apr 2026 12:00:00 GMT</pubDate>
+        <description>short teaser</description>
+        <content:encoded><![CDATA[<p>the full article body, much longer than the teaser</p>]]></content:encoded>
+      </item>
+    </channel></rss>
+    """
+    response = MagicMock()
+    response.text = feed
+    response.raise_for_status.return_value = None
+    client = AsyncMock()
+    client.get.return_value = response
+    source = RSSSourceConfig(name="Test", url="https://example.com/feed.xml")
+    scraper = RSSScraper([source], client)
+    since = datetime(2026, 4, 24, 0, 0, tzinfo=timezone.utc)
+
+    item = asyncio.run(scraper.fetch(since))[0]
+
+    assert item.content == "<p>the full article body, much longer than the teaser</p>"
+
+
+def test_rss_falls_back_to_description_when_no_content_encoded() -> None:
+    feed = """<?xml version="1.0" encoding="UTF-8" ?>
+    <rss version="2.0"><channel><title>Test</title>
+      <item>
+        <guid>entry-1</guid>
+        <title>Item 1</title>
+        <link>https://example.com/item-1</link>
+        <pubDate>Fri, 24 Apr 2026 12:00:00 GMT</pubDate>
+        <description>Hello</description>
+      </item>
+    </channel></rss>
+    """
+    response = MagicMock()
+    response.text = feed
+    response.raise_for_status.return_value = None
+    client = AsyncMock()
+    client.get.return_value = response
+    source = RSSSourceConfig(name="Test", url="https://example.com/feed.xml")
+    scraper = RSSScraper([source], client)
+    since = datetime(2026, 4, 24, 0, 0, tzinfo=timezone.utc)
+
+    item = asyncio.run(scraper.fetch(since))[0]
+
+    assert item.content == "Hello"

@@ -153,13 +153,16 @@ class RSSScraper(BaseScraper):
         Returns:
             str: Extracted text content
         """
-        # Try different content fields
+        # Prefer content:encoded (full article body) over the short
+        # summary/description teaser some feeds ship alongside it.
+        if "content" in entry and entry.content:
+            # content is usually a list
+            value = entry.content[0].get("value", "")
+            if value:
+                return value
         if "summary" in entry:
             return entry.summary
         if "description" in entry:
             return entry.description
-        if "content" in entry and entry.content:
-            # content is usually a list
-            return entry.content[0].get("value", "")
 
         return ""
