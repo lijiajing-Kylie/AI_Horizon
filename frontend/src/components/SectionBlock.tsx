@@ -10,15 +10,29 @@ interface SectionBlockProps {
   backTo?: BackTarget
 }
 
+// Collapsed section titles, tracked outside React state so a section stays
+// collapsed across navigating to a detail page and back (which remounts
+// this component and would otherwise reset a local useState to its default).
+const collapsedSections = new Set<string>()
+
 export default function SectionBlock({ title, items, backTo }: SectionBlockProps) {
-  const [expanded, setExpanded] = useState(true)
+  const [expanded, setExpanded] = useState(() => !collapsedSections.has(title))
 
   if (items.length === 0) return null
+
+  const toggle = () => {
+    setExpanded(prev => {
+      const next = !prev
+      if (next) collapsedSections.delete(title)
+      else collapsedSections.add(title)
+      return next
+    })
+  }
 
   return (
     <section className="mb-8">
       <h2
-        onClick={() => setExpanded(prev => !prev)}
+        onClick={toggle}
         className="flex items-center gap-1.5 text-lg font-semibold text-gray-800 mb-4 pb-2 border-b-2 border-blue-400 cursor-pointer select-none"
       >
         {expanded ? (
