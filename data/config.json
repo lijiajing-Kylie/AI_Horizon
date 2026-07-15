@@ -227,7 +227,7 @@
       },
       {
         "name": "机器之心",
-        "url": "https://decemberpei.cyou/rssbox/wechat-jiqizhixin.xml",
+        "url": "https://wechat2rss.xlab.app/feed/51e92aad2728acdd1fda7314be32b16639353001.xml",
         "enabled": true,
         "category": "wechat-account"
       },
@@ -311,7 +311,7 @@
       },
       {
         "name": "极客公园",
-        "url": "https://decemberpei.cyou/rssbox/wechat-jikegongyuan.xml",
+        "url": "https://wechat2rss.xlab.app/feed/1a5aec98e71c707c8ca092bc2c255b9d4bac477d.xml",
         "enabled": true,
         "category": "wechat-account"
       },
@@ -340,14 +340,50 @@
         "category": "wechat-account"
       },
       {
+        "name": "腾讯玄武实验室",
+        "url": "https://wechat2rss.xlab.app/feed/923c0e2f33b6d39c8a826a90f185725f0edb10e8.xml",
+        "enabled": true,
+        "category": "wechat-account"
+      },
+      {
+        "name": "腾讯安全智能",
+        "url": "https://wechat2rss.xlab.app/feed/88c9f7cfba0f4f60415eedf32cc5958b131c7065.xml",
+        "enabled": true,
+        "category": "wechat-account"
+      },
+      {
+        "name": "vivo千镜安全实验室",
+        "url": "https://wechat2rss.xlab.app/feed/6f07fe5af57e7a13c75b12bd0718840bdf4dc3f2.xml",
+        "enabled": true,
+        "category": "wechat-account"
+      },
+      {
         "name": "阿里云开发者",
-        "url": "https://decemberpei.cyou/rssbox/wechat-aliyunkaifazhe.xml",
+        "url": "https://wechat2rss.xlab.app/feed/c74ed6db00cfbf16f2a048a165b4453f982681f0.xml",
+        "enabled": true,
+        "category": "wechat-account"
+      },
+      {
+        "name": "阿里技术",
+        "url": "https://wechat2rss.xlab.app/feed/6e1f9b775f7a5841ac1a94310f0478b45a02ec01.xml",
         "enabled": true,
         "category": "wechat-account"
       },
       {
         "name": "腾讯技术工程",
-        "url": "https://decemberpei.cyou/rssbox/wechat-tengxunjishugongcheng.xml",
+        "url": "https://wechat2rss.xlab.app/feed/9685937b45fe9c7a526dbc32e4f24ba879a65b9a.xml",
+        "enabled": true,
+        "category": "wechat-account"
+      },
+      {
+        "name": "字节跳动安全中心",
+        "url": "https://wechat2rss.xlab.app/feed/f4087ff02b808a1a995e2ba930219ada5b82425d.xml",
+        "enabled": true,
+        "category": "wechat-account"
+      },
+      {
+        "name": "小米技术",
+        "url": "https://wechat2rss.xlab.app/feed/20bc9c3251b3c4f73d3b53aa1f1ab853d05d4cbc.xml",
         "enabled": true,
         "category": "wechat-account"
       },
@@ -372,6 +408,12 @@
       {
         "name": "经纬创投",
         "url": "https://decemberpei.cyou/rssbox/wechat-jingweichuangtou.xml",
+        "enabled": true,
+        "category": "wechat-account"
+      },
+      {
+        "name": "我爱计算机视觉",
+        "url": "https://wechat2rss.xlab.app/feed/b81ffcfff1107b5265cd7e39de610dc7ca72caf4.xml",
         "enabled": true,
         "category": "wechat-account"
       },
