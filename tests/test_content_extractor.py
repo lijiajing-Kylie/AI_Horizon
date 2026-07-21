@@ -2,6 +2,8 @@ import asyncio
 
 import httpx
 
+from datetime import datetime, timezone
+
 from src.content_extractor import (
     EXTRACTOR_VERSION,
     clean_article_content,
@@ -10,6 +12,7 @@ from src.content_extractor import (
     _strip_boilerplate_containers,
     _strip_cta_sentences,
 )
+from src.models import ContentItem
 
 
 # ── clean_article_content ────────────────────────────────────────────────
@@ -505,3 +508,89 @@ def test_extract_full_content_structured_html_overclean_falls_back_to_none():
     # would gut the block — callers fall back to the plain-text field.
     assert result.display_html is None
     assert real in result.text
+
+
+# ── Smart skip: high-quality RSS content ─────────────────────────────────
+
+
+def _make_item(*, rss_quality: str = "low", content: str = "") -> ContentItem:
+    """Create a minimal ContentItem for extraction tests."""
+    return ContentItem(
+        id="test:rss:123",
+        source_type="rss",
+        title="Test Item",
+        url="https://example.com/article",
+        content=content,
+        rss_content_quality=rss_quality,
+        rss_summary=content,
+        published_at=datetime(2026, 7, 1, tzinfo=timezone.utc),
+        metadata={"extraction_mode": "http"},
+    )
+
+
+def test_extract_full_content_skips_when_rss_high_quality() -> None:
+    """When rss_content_quality='high', extraction returns None without HTTP."""
+    html = _article_html()
+    client = _client_for_html(html)
+    item = _make_item(rss_quality="high", content="X" * 1500)
+
+    async def run():
+        return await extract_full_content(
+            "https://example.com/article", client, item=item
+        )
+
+    result = asyncio.run(run())
+    asyncio.run(client.aclose())
+
+    assert result is None
+
+
+def test_extract_full_content_still_runs_when_rss_low_quality() -> None:
+    """When rss_content_quality='low', extraction proceeds normally."""
+    html = _article_html()
+    client = _client_for_html(html)
+    item = _make_item(rss_quality="low", content="short")
+
+    async def run():
+        return await extract_full_content(
+            "https://example.com/article", client, item=item
+        )
+
+    result = asyncio.run(run())
+    asyncio.run(client.aclose())
+
+    assert result is not None
+    assert len(result.text) >= 200
+
+
+def test_extract_full_content_skips_when_rss_quality_none() -> None:
+    """When rss_content_quality='none', the item has no usable RSS — extract anyway."""
+    html = _article_html()
+    client = _client_for_html(html)
+    item = _make_item(rss_quality="none", content="")
+
+    async def run():
+        return await extract_full_content(
+            "https://example.com/article", client, item=item
+        )
+
+    result = asyncio.run(run())
+    asyncio.run(client.aclose())
+
+    assert result is not None
+    assert len(result.text) >= 200
+
+
+def test_extract_full_content_no_item_still_works() -> None:
+    """Calling without item (backward compat) works as before."""
+    html = _article_html()
+    client = _client_for_html(html)
+
+    async def run():
+        return await extract_full_content("https://example.com/article", client)
+
+    result = asyncio.run(run())
+    asyncio.run(client.aclose())
+
+    assert result is not None
+    assert len(result.text) >= 200

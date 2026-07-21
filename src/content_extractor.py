@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import html as html_module
+import os
 import json
 import logging
 import re
@@ -568,6 +569,7 @@ async def extract_full_content(
     *,
     timeout: float = 15.0,
     debug: Optional[dict] = None,
+    item: Optional[ContentItem] = None,
 ) -> Optional[ExtractedArticle]:
     """Extract the main article text and images from a URL.
 
@@ -585,6 +587,9 @@ async def extract_full_content(
             ``skip_reason`` (why extraction returned ``None``, or ``None``
             on success) and ``http_status`` (the response status code, if a
             request was made) for troubleshooting.
+        item: Optional ContentItem. When provided and its RSS content is
+            already high-quality, extraction is skipped to save an HTTP
+            round-trip.
 
     Returns:
         An ``ExtractedArticle`` with text/cover_image/images, or ``None``.
@@ -593,6 +598,13 @@ async def extract_full_content(
         debug = {}
     debug["skip_reason"] = None
     debug["http_status"] = None
+
+    # If the RSS feed already provided high-quality full-text content,
+    # skip the URL fetch + extraction entirely.
+    if item is not None and item.rss_content_quality == "high":
+        debug["skip_reason"] = "rss_content_high_quality"
+        logger.debug("skip url=%s reason=rss_content_high_quality (rss_len=%d)", url, len(item.rss_summary or ""))
+        return None
 
     skip_reason = _should_skip(url)
     if skip_reason:
@@ -842,16 +854,85 @@ async def extract_full_content_batch(items: List[ContentItem], console: Console)
     async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
         semaphore = asyncio.Semaphore(8)  # limit concurrent fetches
 
+        # ── Lazy import to avoid circular dependency ──────────────────────
+        _playwright_available = False
+        _browser_pool = None
+        _browser_semaphore = None
+        _browser_items = [it for it in items if it.metadata.get("extraction_mode") == "browser"]
+        if _browser_items:
+            try:
+                from .content_extractor_playwright import (  # noqa: F811
+                    PLAYWRIGHT_AVAILABLE,
+                    SharedBrowserPool,
+                    extract_full_content_browser,
+                )
+                _playwright_available = PLAYWRIGHT_AVAILABLE
+                if _playwright_available:
+                    _browser_pool = SharedBrowserPool(
+                        channel=os.getenv("PLAYWRIGHT_CHANNEL") or None,
+                    )
+                    _browser_semaphore = asyncio.Semaphore(3)  # lower concurrency for browser pages
+                else:
+                    logger.warning(
+                        "Playwright not installed; %d item(s) with extraction_mode=browser "
+                        "will fall back to HTTP extraction",
+                        len(_browser_items),
+                    )
+            except ImportError:
+                logger.warning(
+                    "Playwright not installed; %d item(s) with extraction_mode=browser "
+                    "will fall back to HTTP extraction",
+                    len(_browser_items),
+                )
+
         async def _extract_one(item: ContentItem) -> None:
             source_label = f"{item.source_type.value}:{sub_source_label(item)}"
             original_content = item.content or ""
             item.rss_summary = original_content
 
-            async with semaphore:
-                extract_debug: dict = {}
-                result = await extract_full_content(
-                    str(item.url), client, debug=extract_debug
+            extraction_mode = item.metadata.get("extraction_mode", "http")
+
+            # ── extraction_mode: "skip" — use RSS content as-is ────────
+            if extraction_mode == "skip":
+                item.extraction_status = "skipped"
+                item.extraction_error = "skip_mode:extraction_mode_skip"
+                item.content_source = "rss_summary" if original_content.strip() else "none"
+                item.extracted_at = datetime.now(timezone.utc)
+                item.extractor_version = EXTRACTOR_VERSION
+                stats = source_stats[source_label]
+                stats["total"] += 1
+                stats["skipped"] += 1
+                skipped_records.append(
+                    {
+                        "title": item.title,
+                        "url": str(item.url),
+                        "source": source_label,
+                        "skip_reason": "skip_mode:extraction_mode_skip",
+                        "http_status": None,
+                        "rss_had_content": bool(original_content.strip()),
+                        "rss_content_length": len(original_content.strip()),
+                    }
                 )
+                return
+
+            # ── extraction_mode: "browser" — Playwright-rendered HTML ──
+            if extraction_mode == "browser" and _playwright_available:
+                async with _browser_semaphore:
+                    extract_debug: dict = {}
+                    result = await extract_full_content_browser(
+                        str(item.url), _browser_pool, debug=extract_debug
+                    )
+            else:
+                if extraction_mode == "browser":
+                    logger.debug(
+                        "Falling back to HTTP extraction for %s (Playwright unavailable)",
+                        str(item.url),
+                    )
+                async with semaphore:
+                    extract_debug: dict = {}
+                    result = await extract_full_content(
+                        str(item.url), client, debug=extract_debug, item=item
+                    )
 
             stats = source_stats[source_label]
             stats["total"] += 1
@@ -895,7 +976,13 @@ async def extract_full_content_batch(items: List[ContentItem], console: Console)
                     }
                 )
 
-        await asyncio.gather(*[_extract_one(item) for item in items])
+        if _browser_pool is not None:
+            await _browser_pool.__aenter__()
+        try:
+            await asyncio.gather(*[_extract_one(item) for item in items])
+        finally:
+            if _browser_pool is not None:
+                await _browser_pool.__aexit__(None, None, None)
 
     extracted = sum(1 for item in items if item.extraction_status == "success")
     skipped = len(items) - extracted

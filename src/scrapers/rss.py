@@ -16,6 +16,20 @@ from ..models import ContentItem, SourceType, RSSSourceConfig
 
 logger = logging.getLogger(__name__)
 
+# RSS content length threshold: when the feed provides >= this many characters,
+# skip URL-based extraction — the RSS content is considered "full article" quality.
+_RSS_HIGH_QUALITY_MIN_LENGTH = 1000
+
+
+def _assess_rss_quality(content: str) -> str:
+    """Assess whether RSS-provided content is high enough quality to skip URL extraction."""
+    stripped = content.strip()
+    if not stripped:
+        return "none"
+    if len(stripped) >= _RSS_HIGH_QUALITY_MIN_LENGTH:
+        return "high"
+    return "low"
+
 
 class RSSScraper(BaseScraper):
     """Scraper for RSS/Atom feeds."""
@@ -103,9 +117,11 @@ class RSSScraper(BaseScraper):
                     content=content,
                     author=entry.get("author", source.name),
                     published_at=published_at,
+                    rss_content_quality=_assess_rss_quality(content),
                     metadata={
                         "feed_name": source.name,
                         "category": source.category,
+                        "extraction_mode": source.extraction_mode,
                         "tags": [tag.term for tag in entry.get("tags", [])],
                     },
                 )
