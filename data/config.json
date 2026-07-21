@@ -649,5 +649,21 @@
     ],
     "enabled": false,
     "max_items": null
+  },
+  "papers": {
+    "enabled": true,
+    "openalex": {
+      "enabled": true
+    },
+    "huggingface": {
+      "enabled": true,
+      "top_n": 30,
+      "topics": []
+    }
+  },
+  "reports": {
+    "enabled": true,
+    "sources": ["fxbaogao"],
+    "ai_filter_enabled": true
   }
 }

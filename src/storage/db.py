@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Any, Iterable, List, Optional
 
 from ..models import ContentItem
+from ..papers.models import Paper
+from ..reports.models import Report
 
 
 _SCHEMA = """
@@ -125,6 +127,28 @@ CREATE TABLE IF NOT EXISTS user_item_state (
 CREATE INDEX IF NOT EXISTS idx_user_item_state_user ON user_item_state(user_id);
 CREATE INDEX IF NOT EXISTS idx_user_item_state_item ON user_item_state(item_id);
 
+CREATE TABLE IF NOT EXISTS user_paper_favorites (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id         TEXT NOT NULL,
+    paper_id        TEXT NOT NULL,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(user_id, paper_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_paper_fav_user ON user_paper_favorites(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_paper_fav_paper ON user_paper_favorites(paper_id);
+
+CREATE TABLE IF NOT EXISTS user_report_favorites (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id         TEXT NOT NULL,
+    report_id       TEXT NOT NULL,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(user_id, report_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_report_fav_user ON user_report_favorites(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_report_fav_report ON user_report_favorites(report_id);
+
 CREATE TABLE IF NOT EXISTS user_topic_prefs (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id         TEXT NOT NULL,
@@ -137,6 +161,60 @@ CREATE TABLE IF NOT EXISTS user_topic_prefs (
 
 CREATE INDEX IF NOT EXISTS idx_user_topic_prefs_user ON user_topic_prefs(user_id);
 CREATE INDEX IF NOT EXISTS idx_user_topic_prefs_topic ON user_topic_prefs(topic_id);
+
+CREATE TABLE IF NOT EXISTS papers (
+    id                  TEXT PRIMARY KEY,
+    source              TEXT NOT NULL,
+    native_id           TEXT NOT NULL,
+    title               TEXT NOT NULL,
+    authors_json        TEXT NOT NULL DEFAULT '[]',
+    abstract            TEXT NOT NULL DEFAULT '',
+    url                 TEXT NOT NULL,
+    pdf_url             TEXT,
+    published_at        TEXT NOT NULL,
+    updated_at          TEXT NOT NULL,
+    publication_year    INTEGER,
+    categories_json     TEXT NOT NULL DEFAULT '[]',
+    category            TEXT,
+    comment             TEXT,
+    journal_ref         TEXT,
+    doi                 TEXT,
+    open_access         INTEGER,
+    citation_count      INTEGER,
+    citation_percentile REAL,
+    upvote_count        INTEGER,
+    raw_metadata_json   TEXT,
+    fetched_at          TEXT NOT NULL,
+    created_at          TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_row_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_papers_source ON papers(source);
+CREATE INDEX IF NOT EXISTS idx_papers_published_at ON papers(published_at);
+
+CREATE TABLE IF NOT EXISTS reports (
+    id                  TEXT PRIMARY KEY,
+    source              TEXT NOT NULL,
+    native_id           TEXT NOT NULL,
+    title               TEXT NOT NULL,
+    institution         TEXT NOT NULL DEFAULT '',
+    author              TEXT,
+    url                 TEXT NOT NULL,
+    pdf_urls_json       TEXT NOT NULL DEFAULT '[]',
+    summary             TEXT,
+    content_text        TEXT NOT NULL,
+    categories_json     TEXT NOT NULL DEFAULT '[]',
+    published_at        TEXT NOT NULL,
+    updated_at          TEXT NOT NULL,
+    view_count          INTEGER,
+    download_count      INTEGER,
+    fetched_at          TEXT NOT NULL,
+    created_at          TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_row_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_reports_source ON reports(source);
+CREATE INDEX IF NOT EXISTS idx_reports_published_at ON reports(published_at);
 """
 
 
@@ -151,6 +229,38 @@ _ITEMS_COLUMN_MIGRATIONS: list[tuple[str, str]] = [
     ("raw_content", "TEXT"),
     ("category", "TEXT"),
 ]
+
+
+# Columns added to the papers table after its initial schema — same pattern
+# as _ITEMS_COLUMN_MIGRATIONS. Applied via ALTER TABLE for existing DB files.
+_PAPERS_COLUMN_MIGRATIONS: list[tuple[str, str]] = [
+    ("publication_year", "INTEGER"),
+    ("category", "TEXT"),
+    ("arxiv_id", "TEXT"),
+    ("semantic_scholar_id", "TEXT"),
+    ("canonical_doi", "TEXT"),
+    ("reprint_doi", "TEXT"),
+    ("source_version_type", "TEXT"),
+    ("openalex_id_override", "TEXT"),
+    ("open_access", "INTEGER"),
+    ("title_zh", "TEXT"),
+    ("abstract_zh", "TEXT"),
+    ("original_language", "TEXT"),
+]
+
+
+def _migrate_papers_table(conn: sqlite3.Connection) -> None:
+    """Add any columns that were added to papers after the initial schema,
+    then create indexes that depend on those columns (which can't live in
+    _SCHEMA because on a pre-existing DB the column doesn't exist yet when
+    executescript() runs)."""
+    existing = {row["name"] for row in conn.execute("PRAGMA table_info(papers)")}
+    for column, ddl in _PAPERS_COLUMN_MIGRATIONS:
+        if column not in existing:
+            conn.execute(f"ALTER TABLE papers ADD COLUMN {column} {ddl}")
+    # Safe to run here — the column now always exists.
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_papers_category ON papers(category)")
+    conn.commit()
 
 
 def _migrate_items_table(conn: sqlite3.Connection) -> None:
@@ -254,6 +364,59 @@ def _row_to_item(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
+def _row_to_paper(row: sqlite3.Row) -> dict[str, Any]:
+    """Convert a papers-table row to a JSON-serializable dict matching the Paper shape."""
+    return {
+        "id": row["id"],
+        "source": row["source"],
+        "native_id": row["native_id"],
+        "title": row["title"],
+        "authors": json.loads(row["authors_json"]),
+        "abstract": row["abstract"],
+        "url": row["url"],
+        "pdf_url": row["pdf_url"],
+        "published_at": row["published_at"],
+        "updated_at": row["updated_at"],
+        "publication_year": row["publication_year"],
+        "categories": json.loads(row["categories_json"]),
+        "category": row["category"],
+        "comment": row["comment"],
+        "journal_ref": row["journal_ref"],
+        "doi": row["doi"],
+        "open_access": bool(row["open_access"]) if row["open_access"] is not None else None,
+        "citation_count": row["citation_count"],
+        "citation_percentile": row["citation_percentile"],
+        "upvote_count": row["upvote_count"],
+        "raw_metadata": json.loads(row["raw_metadata_json"]) if row["raw_metadata_json"] else None,
+        "title_zh": row["title_zh"],
+        "abstract_zh": row["abstract_zh"],
+        "original_language": row["original_language"],
+        "fetched_at": row["fetched_at"],
+    }
+
+
+def _row_to_report(row: sqlite3.Row) -> dict[str, Any]:
+    """Convert a reports-table row to a JSON-serializable dict matching the Report shape."""
+    return {
+        "id": row["id"],
+        "source": row["source"],
+        "native_id": row["native_id"],
+        "title": row["title"],
+        "institution": row["institution"],
+        "author": row["author"],
+        "url": row["url"],
+        "pdf_urls": json.loads(row["pdf_urls_json"]),
+        "summary": row["summary"],
+        "content_text": row["content_text"],
+        "categories": json.loads(row["categories_json"]),
+        "published_at": row["published_at"],
+        "updated_at": row["updated_at"],
+        "view_count": row["view_count"],
+        "download_count": row["download_count"],
+        "fetched_at": row["fetched_at"],
+    }
+
+
 class HorizonDB:
     """SQLite persistence for Horizon pipeline outputs."""
 
@@ -279,6 +442,7 @@ class HorizonDB:
             conn.executescript(_SCHEMA)
             conn.commit()
             _migrate_items_table(conn)
+            _migrate_papers_table(conn)
             _migrate_fts_tokenizer(conn)
             self._local.conn = conn
         return conn
@@ -603,6 +767,307 @@ class HorizonDB:
         item = _row_to_item(row)
         item["topics"] = self.get_news_topics(item_id)
         return item
+
+    # -- papers -----------------------------------------------------------
+
+    def save_papers(self, papers: List[Paper]) -> int:
+        """UPSERT papers keyed on the source-namespaced id.
+
+        Unlike ``save_items()``, this is not a ``run_date``-scoped snapshot —
+        the papers table accumulates across fetches (each source's fetch is
+        idempotent and safe to re-run on any cadence), so writes are a plain
+        upsert keyed on id rather than a delete+insert.
+        """
+        for p in papers:
+            self.conn.execute(
+                """
+                INSERT INTO papers (
+                    id, source, native_id, title, authors_json, abstract, url, pdf_url,
+                    published_at, updated_at, publication_year, categories_json, category,
+                    comment, journal_ref, doi, canonical_doi, reprint_doi,
+                    source_version_type, openalex_id_override,
+                    arxiv_id, semantic_scholar_id,
+                    open_access, citation_count, citation_percentile,
+                    upvote_count, raw_metadata_json,
+                    title_zh, abstract_zh, original_language,
+                    fetched_at, updated_row_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                ON CONFLICT(id) DO UPDATE SET
+                    title=excluded.title,
+                    authors_json=excluded.authors_json,
+                    abstract=excluded.abstract,
+                    url=excluded.url,
+                    pdf_url=excluded.pdf_url,
+                    updated_at=excluded.updated_at,
+                    publication_year=excluded.publication_year,
+                    categories_json=excluded.categories_json,
+                    category=excluded.category,
+                    comment=excluded.comment,
+                    journal_ref=excluded.journal_ref,
+                    doi=excluded.doi,
+                    canonical_doi=excluded.canonical_doi,
+                    reprint_doi=excluded.reprint_doi,
+                    source_version_type=excluded.source_version_type,
+                    openalex_id_override=excluded.openalex_id_override,
+                    arxiv_id=excluded.arxiv_id,
+                    semantic_scholar_id=excluded.semantic_scholar_id,
+                    open_access=excluded.open_access,
+                    citation_count=excluded.citation_count,
+                    citation_percentile=excluded.citation_percentile,
+                    upvote_count=excluded.upvote_count,
+                    raw_metadata_json=excluded.raw_metadata_json,
+                    title_zh=excluded.title_zh,
+                    abstract_zh=excluded.abstract_zh,
+                    original_language=excluded.original_language,
+                    fetched_at=excluded.fetched_at,
+                    updated_row_at=datetime('now')
+                """,
+                (
+                    p.id,
+                    p.source,
+                    p.native_id,
+                    p.title,
+                    json.dumps(p.authors, ensure_ascii=False),
+                    p.abstract,
+                    p.url,
+                    p.pdf_url,
+                    _dt_iso(p.published_at),
+                    _dt_iso(p.updated_at),
+                    p.publication_year,
+                    json.dumps(p.categories, ensure_ascii=False),
+                    p.category,
+                    p.comment,
+                    p.journal_ref,
+                    p.doi,
+                    p.canonical_doi,
+                    p.reprint_doi,
+                    p.source_version_type,
+                    p.openalex_id_override,
+                    p.arxiv_id,
+                    p.semantic_scholar_id,
+                    p.open_access,
+                    p.citation_count,
+                    p.citation_percentile,
+                    p.upvote_count,
+                    json.dumps(p.raw_metadata, ensure_ascii=False) if p.raw_metadata is not None else None,
+                    p.title_zh,
+                    p.abstract_zh,
+                    p.original_language,
+                    _dt_iso(p.fetched_at),
+                ),
+            )
+        self.conn.commit()
+        return len(papers)
+
+    def get_papers(
+        self,
+        *,
+        source: Optional[str] = None,
+        category: Optional[str] = None,
+        search: Optional[str] = None,
+        publication_year: Optional[int] = None,
+        sort: str = "published_at",
+        order: str = "desc",
+        page: int = 1,
+        per_page: int = 20,
+    ) -> dict[str, Any]:
+        """Paginated papers query with optional filters."""
+        where = []
+        params: list[Any] = []
+
+        if source:
+            where.append("source = ?")
+            params.append(source)
+
+        if category:
+            cats = [c.strip() for c in category.split(",") if c.strip()]
+            if len(cats) == 1:
+                where.append("category = ?")
+                params.append(cats[0])
+            else:
+                placeholders = ", ".join("?" for _ in cats)
+                where.append(f"category IN ({placeholders})")
+                params.extend(cats)
+
+        if publication_year is not None:
+            where.append("publication_year = ?")
+            params.append(publication_year)
+
+        if search:
+            escaped = _escape_like(search)
+            where.append("(title LIKE ? ESCAPE '\\' OR abstract LIKE ? ESCAPE '\\')")
+            like_pattern = f"%{escaped}%"
+            params.extend([like_pattern, like_pattern])
+
+        where_clause = " AND ".join(where) if where else "1=1"
+        base_from = f"FROM papers WHERE {where_clause}"
+
+        count_row = self.conn.execute(
+            f"SELECT COUNT(*) as cnt {base_from}", params
+        ).fetchone()
+        total = count_row["cnt"] if count_row else 0
+
+        allowed_sort = {"published_at", "updated_at", "fetched_at", "citation_count", "upvote_count"}
+        sort_col = sort if sort in allowed_sort else "published_at"
+        order_dir = "DESC" if order.lower() == "desc" else "ASC"
+        offset = (page - 1) * per_page
+
+        page_params = params + [per_page, offset]
+        rows = self.conn.execute(
+            f"SELECT * {base_from} ORDER BY {sort_col} {order_dir} LIMIT ? OFFSET ?",
+            page_params,
+        ).fetchall()
+
+        return {
+            "items": [_row_to_paper(r) for r in rows],
+            "total": total,
+            "page": page,
+            "per_page": per_page,
+            "pages": max(1, (total + per_page - 1) // per_page),
+        }
+
+    def get_paper(self, paper_id: str) -> Optional[dict[str, Any]]:
+        """Get a single paper by its source-namespaced id."""
+        row = self.conn.execute("SELECT * FROM papers WHERE id = ?", (paper_id,)).fetchone()
+        return _row_to_paper(row) if row is not None else None
+
+    # -- reports ------------------------------------------------------------
+
+    def save_reports(self, reports: List[Report]) -> int:
+        """UPSERT reports keyed on the source-namespaced id.
+
+        Like `save_papers()`, this accumulates across fetches rather than
+        being a `run_date`-scoped snapshot — a report can be re-fetched (e.g.
+        its view/download counts change) and should just update in place.
+        """
+        for r in reports:
+            self.conn.execute(
+                """
+                INSERT INTO reports (
+                    id, source, native_id, title, institution, author, url,
+                    pdf_urls_json, summary, content_text, categories_json,
+                    published_at, updated_at, view_count, download_count,
+                    fetched_at, updated_row_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                ON CONFLICT(id) DO UPDATE SET
+                    title=excluded.title,
+                    institution=excluded.institution,
+                    author=excluded.author,
+                    url=excluded.url,
+                    pdf_urls_json=excluded.pdf_urls_json,
+                    summary=excluded.summary,
+                    content_text=excluded.content_text,
+                    categories_json=excluded.categories_json,
+                    updated_at=excluded.updated_at,
+                    view_count=excluded.view_count,
+                    download_count=excluded.download_count,
+                    fetched_at=excluded.fetched_at,
+                    updated_row_at=datetime('now')
+                """,
+                (
+                    r.id,
+                    r.source,
+                    r.native_id,
+                    r.title,
+                    r.institution,
+                    r.author,
+                    r.url,
+                    json.dumps(r.pdf_urls, ensure_ascii=False),
+                    r.summary,
+                    r.content_text,
+                    json.dumps(r.categories, ensure_ascii=False),
+                    _dt_iso(r.published_at),
+                    _dt_iso(r.updated_at),
+                    r.view_count,
+                    r.download_count,
+                    _dt_iso(r.fetched_at),
+                ),
+            )
+        self.conn.commit()
+        return len(reports)
+
+    def get_reports(
+        self,
+        *,
+        source: Optional[str] = None,
+        institution: Optional[str] = None,
+        category: Optional[str] = None,
+        search: Optional[str] = None,
+        sort: str = "published_at",
+        order: str = "desc",
+        page: int = 1,
+        per_page: int = 20,
+    ) -> dict[str, Any]:
+        """Paginated reports query with optional filters."""
+        where = []
+        params: list[Any] = []
+
+        if source:
+            where.append("source = ?")
+            params.append(source)
+
+        if institution:
+            where.append("institution = ?")
+            params.append(institution)
+
+        if category:
+            where.append(
+                "EXISTS (SELECT 1 FROM json_each(categories_json) WHERE value = ?)"
+            )
+            params.append(category)
+
+        if search:
+            escaped = _escape_like(search)
+            where.append("(title LIKE ? ESCAPE '\\' OR content_text LIKE ? ESCAPE '\\')")
+            like_pattern = f"%{escaped}%"
+            params.extend([like_pattern, like_pattern])
+
+        where_clause = " AND ".join(where) if where else "1=1"
+        base_from = f"FROM reports WHERE {where_clause}"
+
+        count_row = self.conn.execute(
+            f"SELECT COUNT(*) as cnt {base_from}", params
+        ).fetchone()
+        total = count_row["cnt"] if count_row else 0
+
+        allowed_sort = {"published_at", "updated_at", "fetched_at"}
+        sort_col = sort if sort in allowed_sort else "published_at"
+        order_dir = "DESC" if order.lower() == "desc" else "ASC"
+        offset = (page - 1) * per_page
+
+        page_params = params + [per_page, offset]
+        rows = self.conn.execute(
+            f"SELECT * {base_from} ORDER BY {sort_col} {order_dir} LIMIT ? OFFSET ?",
+            page_params,
+        ).fetchall()
+
+        return {
+            "items": [_row_to_report(r) for r in rows],
+            "total": total,
+            "page": page,
+            "per_page": per_page,
+            "pages": max(1, (total + per_page - 1) // per_page),
+        }
+
+    def get_report(self, report_id: str) -> Optional[dict[str, Any]]:
+        """Get a single report by its source-namespaced id."""
+        row = self.conn.execute("SELECT * FROM reports WHERE id = ?", (report_id,)).fetchone()
+        return _row_to_report(row) if row is not None else None
+
+    def get_report_institutions(self, source: Optional[str] = None) -> List[dict[str, Any]]:
+        """Return distinct (institution, source) pairs with report counts."""
+        where = "1=1"
+        params: list[Any] = []
+        if source:
+            where = "source = ?"
+            params.append(source)
+        rows = self.conn.execute(
+            f"SELECT institution, source, COUNT(*) as cnt FROM reports WHERE {where} GROUP BY institution, source ORDER BY cnt DESC",
+            params,
+        ).fetchall()
+        return [{"institution": r["institution"], "source": r["source"], "count": r["cnt"]} for r in rows]
 
     def get_tags(self, run_date: Optional[str] = None, min_count: int = 1, *, selected_only: bool = True) -> list[dict[str, Any]]:
         """Get all tags with occurrence counts.
@@ -1119,6 +1584,134 @@ class HorizonDB:
 
         return {
             "items": items,
+            "total": total,
+            "page": page,
+            "per_page": per_page,
+            "pages": max(1, (total + per_page - 1) // per_page),
+        }
+
+    # -- paper & report favorites -----------------------------------------------
+
+    def set_paper_favorite(self, user_id: str, paper_id: str, favorited: bool) -> None:
+        """Add or remove a paper favorite for a user."""
+        if favorited:
+            self.conn.execute(
+                """INSERT OR IGNORE INTO user_paper_favorites (user_id, paper_id)
+                   VALUES (?, ?)""",
+                (user_id, paper_id),
+            )
+        else:
+            self.conn.execute(
+                "DELETE FROM user_paper_favorites WHERE user_id = ? AND paper_id = ?",
+                (user_id, paper_id),
+            )
+        self.conn.commit()
+
+    def set_report_favorite(self, user_id: str, report_id: str, favorited: bool) -> None:
+        """Add or remove a report favorite for a user."""
+        if favorited:
+            self.conn.execute(
+                """INSERT OR IGNORE INTO user_report_favorites (user_id, report_id)
+                   VALUES (?, ?)""",
+                (user_id, report_id),
+            )
+        else:
+            self.conn.execute(
+                "DELETE FROM user_report_favorites WHERE user_id = ? AND report_id = ?",
+                (user_id, report_id),
+            )
+        self.conn.commit()
+
+    def get_favorited_paper_ids(self, user_id: str, paper_ids: list[str]) -> set[str]:
+        """Batch-check which of paper_ids are favorited by user_id (avoids N+1)."""
+        if not paper_ids:
+            return set()
+        placeholders = ",".join("?" for _ in paper_ids)
+        rows = self.conn.execute(
+            f"""SELECT paper_id FROM user_paper_favorites
+                WHERE user_id = ? AND paper_id IN ({placeholders})""",
+            (user_id, *paper_ids),
+        ).fetchall()
+        return {r["paper_id"] for r in rows}
+
+    def get_favorited_report_ids(self, user_id: str, report_ids: list[str]) -> set[str]:
+        """Batch-check which of report_ids are favorited by user_id (avoids N+1)."""
+        if not report_ids:
+            return set()
+        placeholders = ",".join("?" for _ in report_ids)
+        rows = self.conn.execute(
+            f"""SELECT report_id FROM user_report_favorites
+                WHERE user_id = ? AND report_id IN ({placeholders})""",
+            (user_id, *report_ids),
+        ).fetchall()
+        return {r["report_id"] for r in rows}
+
+    def get_favorited_papers(self, user_id: str, *, page: int = 1, per_page: int = 20, source: str | None = None) -> dict[str, Any]:
+        """Paginated list of a user's favorited papers, most recently favorited first."""
+        offset = (page - 1) * per_page
+
+        count_params: list[str | int] = [user_id]
+        query_params: list[str | int] = [user_id]
+        source_clause = ""
+        if source:
+            source_clause = " AND papers.source = ?"
+            count_params.append(source)
+            query_params.append(source)
+
+        count_row = self.conn.execute(
+            f"""SELECT COUNT(*) AS cnt FROM user_paper_favorites
+               JOIN papers ON papers.id = user_paper_favorites.paper_id
+               WHERE user_paper_favorites.user_id = ?{source_clause}""",
+            count_params,
+        ).fetchone()
+        total = count_row["cnt"] if count_row else 0
+
+        rows = self.conn.execute(
+            f"""SELECT papers.* FROM user_paper_favorites
+               JOIN papers ON papers.id = user_paper_favorites.paper_id
+               WHERE user_paper_favorites.user_id = ?{source_clause}
+               ORDER BY user_paper_favorites.created_at DESC
+               LIMIT ? OFFSET ?""",
+            (*query_params, per_page, offset),
+        ).fetchall()
+
+        papers = [_row_to_paper(r) for r in rows]
+        for p in papers:
+            p["is_favorited"] = True
+
+        return {
+            "items": papers,
+            "total": total,
+            "page": page,
+            "per_page": per_page,
+            "pages": max(1, (total + per_page - 1) // per_page),
+        }
+
+    def get_favorited_reports(self, user_id: str, *, page: int = 1, per_page: int = 20) -> dict[str, Any]:
+        """Paginated list of a user's favorited reports, most recently favorited first."""
+        offset = (page - 1) * per_page
+
+        count_row = self.conn.execute(
+            "SELECT COUNT(*) AS cnt FROM user_report_favorites WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+        total = count_row["cnt"] if count_row else 0
+
+        rows = self.conn.execute(
+            """SELECT reports.* FROM user_report_favorites
+               JOIN reports ON reports.id = user_report_favorites.report_id
+               WHERE user_report_favorites.user_id = ?
+               ORDER BY user_report_favorites.created_at DESC
+               LIMIT ? OFFSET ?""",
+            (user_id, per_page, offset),
+        ).fetchall()
+
+        reports = [_row_to_report(r) for r in rows]
+        for r in reports:
+            r["is_favorited"] = True
+
+        return {
+            "items": reports,
             "total": total,
             "page": page,
             "per_page": per_page,

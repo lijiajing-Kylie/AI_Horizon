@@ -46,6 +46,9 @@ data/mcp-secrets.json
 data/mcp-runs/
 data/x_cookies_*.json
 data/debug/
+data/reports_pdfs/
+frontend/data/
+data/aliyun_profile/
 
 docs/_posts/*.md
 docs/app/

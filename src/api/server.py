@@ -391,6 +391,24 @@ def _attach_favorited(items: list[dict], user_id: Optional[str]) -> None:
         item["is_favorited"] = item["id"] in favorited
 
 
+def _attach_paper_favorited(papers: list[dict], user_id: Optional[str]) -> None:
+    """Mutate papers in place, adding is_favorited=True/False when user_id is known."""
+    if not user_id or not papers:
+        return
+    favorited = db.get_favorited_paper_ids(user_id, [p["id"] for p in papers])
+    for p in papers:
+        p["is_favorited"] = p["id"] in favorited
+
+
+def _attach_report_favorited(reports: list[dict], user_id: Optional[str]) -> None:
+    """Mutate reports in place, adding is_favorited=True/False when user_id is known."""
+    if not user_id or not reports:
+        return
+    favorited = db.get_favorited_report_ids(user_id, [r["id"] for r in reports])
+    for r in reports:
+        r["is_favorited"] = r["id"] in favorited
+
+
 def _filter_blocked_topics(topics_result: dict, blocked_topic_ids: Optional[set[int]]) -> dict:
     """Drop blocked topics (and any group left with none) from a get_topics(grouped=True) result."""
     if not blocked_topic_ids:
@@ -590,6 +608,63 @@ def list_favorites(
     return db.get_favorites(user_id, page=page, per_page=per_page)
 
 
+# -- paper favorites --
+
+@app.put("/api/favorites/papers/{paper_id}")
+def add_paper_favorite(paper_id: str, user_id: str = Depends(_get_user_id_required)) -> dict:
+    """Mark a paper as favorited for the current user."""
+    if db.get_paper(paper_id) is None:
+        raise HTTPException(status_code=404, detail="Paper not found")
+    db.set_paper_favorite(user_id, paper_id, True)
+    return {"id": paper_id, "is_favorited": True}
+
+
+@app.delete("/api/favorites/papers/{paper_id}")
+def remove_paper_favorite(paper_id: str, user_id: str = Depends(_get_user_id_required)) -> dict:
+    """Remove a paper from the current user's favorites."""
+    db.set_paper_favorite(user_id, paper_id, False)
+    return {"id": paper_id, "is_favorited": False}
+
+
+@app.get("/api/favorites/papers")
+def list_paper_favorites(
+    page: int = Query(1, ge=1, description="Page number"),
+    per_page: int = Query(20, ge=1, le=100, description="Items per page"),
+    source: str | None = Query(None, description="Filter by paper source (openalex, huggingface)"),
+    user_id: str = Depends(_get_user_id_required),
+) -> dict:
+    """Paginated list of the current user's favorited papers."""
+    return db.get_favorited_papers(user_id, page=page, per_page=per_page, source=source)
+
+
+# -- report favorites --
+
+@app.put("/api/favorites/reports/{report_id}")
+def add_report_favorite(report_id: str, user_id: str = Depends(_get_user_id_required)) -> dict:
+    """Mark a report as favorited for the current user."""
+    if db.get_report(report_id) is None:
+        raise HTTPException(status_code=404, detail="Report not found")
+    db.set_report_favorite(user_id, report_id, True)
+    return {"id": report_id, "is_favorited": True}
+
+
+@app.delete("/api/favorites/reports/{report_id}")
+def remove_report_favorite(report_id: str, user_id: str = Depends(_get_user_id_required)) -> dict:
+    """Remove a report from the current user's favorites."""
+    db.set_report_favorite(user_id, report_id, False)
+    return {"id": report_id, "is_favorited": False}
+
+
+@app.get("/api/favorites/reports")
+def list_report_favorites(
+    page: int = Query(1, ge=1, description="Page number"),
+    per_page: int = Query(20, ge=1, le=100, description="Items per page"),
+    user_id: str = Depends(_get_user_id_required),
+) -> dict:
+    """Paginated list of the current user's favorited reports."""
+    return db.get_favorited_reports(user_id, page=page, per_page=per_page)
+
+
 # ---------------------------------------------------------------------------
 # Topic preferences (subscribe / block)
 # ---------------------------------------------------------------------------
@@ -681,6 +756,110 @@ def daily_detail(date: str, user_id: Optional[str] = Depends(_get_user_id_option
         "items": [_attach_content(it) for it in result["items"]],
         "total": result["total"],
     }
+
+
+# ---------------------------------------------------------------------------
+# Papers
+# ---------------------------------------------------------------------------
+# Standalone arXiv papers library — no personalization/auth, mirrors the
+# plain-list style of /api/daily above.
+
+@app.get("/api/papers")
+def list_papers(
+    source: Optional[str] = Query(None, description="Filter by source (openalex/huggingface)"),
+    category: Optional[str] = Query(None, description="Filter by category"),
+    search: Optional[str] = Query(None, description="Search title/abstract"),
+    year: Optional[int] = Query(None, description="Filter by publication year"),
+    sort: str = Query("published_at"),
+    order: str = Query("desc"),
+    page: int = Query(1, ge=1),
+    per_page: int = Query(20, ge=1, le=100),
+    user_id: Optional[str] = Depends(_get_user_id_optional),
+) -> dict:
+    """List papers, paginated, newest-first by default."""
+    result = db.get_papers(
+        source=source,
+        category=category,
+        search=search,
+        publication_year=year,
+        sort=sort,
+        order=order,
+        page=page,
+        per_page=per_page,
+    )
+    _attach_paper_favorited(result["items"], user_id)
+    return result
+
+
+@app.get("/api/papers/{paper_id}")
+def get_paper(
+    paper_id: str,
+    user_id: Optional[str] = Depends(_get_user_id_optional),
+) -> dict:
+    """Get a single paper by its source-namespaced id."""
+    paper = db.get_paper(paper_id)
+    if paper is None:
+        raise HTTPException(status_code=404, detail="Paper not found")
+    if user_id:
+        ids = db.get_favorited_paper_ids(user_id, [paper_id])
+        paper["is_favorited"] = paper_id in ids
+    return paper
+
+
+# ---------------------------------------------------------------------------
+# Reports
+# ---------------------------------------------------------------------------
+# Standalone research-reports library — no personalization/auth, mirrors the
+# plain-list style of /api/papers above.
+
+@app.get("/api/reports")
+def list_reports(
+    source: Optional[str] = Query(None, description="Filter by source, e.g. 'aliresearch'"),
+    institution: Optional[str] = Query(None, description="Filter by institution, e.g. '华为'"),
+    category: Optional[str] = Query(None, description="Filter by category tag"),
+    search: Optional[str] = Query(None, description="Search title/content"),
+    sort: str = Query("published_at"),
+    order: str = Query("desc"),
+    page: int = Query(1, ge=1),
+    per_page: int = Query(20, ge=1, le=100),
+    user_id: Optional[str] = Depends(_get_user_id_optional),
+) -> dict:
+    """List reports, paginated, newest-first by default."""
+    result = db.get_reports(
+        source=source,
+        institution=institution,
+        category=category,
+        search=search,
+        sort=sort,
+        order=order,
+        page=page,
+        per_page=per_page,
+    )
+    _attach_report_favorited(result["items"], user_id)
+    return result
+
+
+@app.get("/api/reports/institutions")
+def list_report_institutions(
+    source: Optional[str] = Query(None, description="Filter by source"),
+) -> list[dict]:
+    """Return distinct institutions with report counts."""
+    return db.get_report_institutions(source=source)
+
+
+@app.get("/api/reports/{report_id}")
+def get_report(
+    report_id: str,
+    user_id: Optional[str] = Depends(_get_user_id_optional),
+) -> dict:
+    """Get a single report by its source-namespaced id."""
+    report = db.get_report(report_id)
+    if report is None:
+        raise HTTPException(status_code=404, detail="Report not found")
+    if user_id:
+        ids = db.get_favorited_report_ids(user_id, [report_id])
+        report["is_favorited"] = report_id in ids
+    return report
 
 
 # ---------------------------------------------------------------------------

@@ -183,6 +183,7 @@ class ContentItem(BaseModel):
     content: Optional[str] = None  # legacy alias: raw_content if extraction succeeded, else the original scraper snippet
     raw_content: Optional[str] = None  # trafilatura plain-text extraction output, verbatim; None if extraction never succeeded
     rss_summary: Optional[str] = None  # scraper-provided snippet/summary, captured before extraction runs, always set
+    rss_content_quality: Optional[str] = None  # "high" | "low" | "none" — quality assessment of RSS-provided content
     raw_html: Optional[str] = None  # structured main-content HTML, unsanitized
     display_html: Optional[str] = None  # raw_html after nh3 whitelist sanitize
     display_html_zh: Optional[str] = None  # display_html with text blocks translated to Chinese
@@ -338,6 +339,7 @@ class RSSSourceConfig(BaseModel):
     url: HttpUrl
     enabled: bool = True
     category: Optional[str] = None
+    extraction_mode: str = "http"  # "http" | "browser" | "skip"
 
 
 class RedditSubredditConfig(BaseModel):
@@ -502,6 +504,75 @@ class GoogleNewsConfig(BaseModel):
     category: Optional[str] = None
 
 
+class OpenAlexSourceConfig(BaseModel):
+    """OpenAlex `/works` source configuration for the classic papers library.
+
+    v1 is a fixed, human-curated seed list (`src.papers.seed_data.SEED_PAPERS`)
+    — not configurable and not auto-discovered. This config only toggles the
+    source on/off; each seed is looked up against OpenAlex by title (falling
+    back to Semantic Scholar/arXiv/Crossref for missing fields — see
+    `src.papers.enrichment`), never auto-expanded or re-ranked by citations.
+    """
+
+    enabled: bool = True
+
+
+class HuggingFaceSourceConfig(BaseModel):
+    """Hugging Face daily-papers source configuration.
+
+    Pulls every paper submitted to Hugging Face's daily-papers page during
+    the most recently completed calendar month (via
+    `huggingface_hub.HfApi.list_daily_papers`), enriches them with arXiv
+    metadata (journal_ref, categories), optionally filters by topic keywords,
+    and keeps the top N by upvotes. Re-running within the same month just
+    re-upserts the same set.
+    """
+
+    enabled: bool = True
+    top_n: int = 15
+    topics: List[str] = []  # optional topic keywords; case-insensitive substring match against title/abstract/categories/journal_ref
+
+
+class PapersConfig(BaseModel):
+    """Papers library configuration.
+
+    Standalone pipeline, independent of the news pipeline, bundling two
+    unrelated sources that just happen to share this config/table:
+
+    - `openalex`: the classic-papers library — a fixed v1 seed list looked
+      up against OpenAlex (see `OpenAlexSourceConfig`), not a live feed.
+    - `huggingface`: an independent "trending papers" source (top-upvoted
+      Hugging Face daily papers for the last full month) — unrelated to the
+      classic list, with its own fetch cadence and, in the frontend, no UI
+      of its own yet.
+
+    No AI scoring or enrichment is applied to either. Fetch cadence (e.g.
+    running Hugging Face monthly vs. OpenAlex rarely) is an external
+    scheduling concern (cron/CLI `--source` flag), not encoded here — see
+    `src.papers.cli`.
+    """
+
+    enabled: bool = False
+    openalex: OpenAlexSourceConfig = Field(default_factory=OpenAlexSourceConfig)
+    huggingface: HuggingFaceSourceConfig = Field(default_factory=HuggingFaceSourceConfig)
+
+
+class ReportsConfig(BaseModel):
+    """Research-reports library configuration.
+
+    Standalone pipeline, independent of both the news pipeline and the papers
+    library: each entry in `sources` names one institution-specific fetcher
+    (see `src.reports.sources`), fetched directly against that institution's
+    own site/API with no AI scoring or enrichment. Per-source tunables (e.g.
+    page size) live in that source's own module, not here, since they vary
+    per site.
+    """
+
+    enabled: bool = False
+    sources: List[str] = Field(default_factory=lambda: ["aliresearch", "aliyunreports"])
+    ai_filter_enabled: bool = False  # 入库前调用 LLM 过滤非科技/非 AI 相关报告
+
+
 class SourcesConfig(BaseModel):
     """All sources configuration."""
 
@@ -630,3 +701,5 @@ class Config(BaseModel):
     filtering: FilteringConfig
     email: Optional[EmailConfig] = None
     webhook: Optional[WebhookConfig] = None
+    papers: Optional[PapersConfig] = None
+    reports: Optional[ReportsConfig] = None

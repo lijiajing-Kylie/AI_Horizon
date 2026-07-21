@@ -25,6 +25,7 @@ dependencies = [
     "jinja2>=3.1.6",
     "trafilatura>=2.1.0",
     "nh3>=0.3.6",
+    "huggingface-hub>=0.27.0",
 ]
 
 [project.optional-dependencies]
@@ -47,6 +48,8 @@ horizon-api = "src.api.server:main"
 horizon-mcp = "src.mcp.server:main"
 horizon-wizard = "src.setup.wizard:main"
 horizon-webhook = "src.services.webhook_cli:main"
+horizon-papers = "src.papers.cli:main"
+horizon-reports = "src.reports.cli:main"
 
 [build-system]
 requires = ["hatchling"]
