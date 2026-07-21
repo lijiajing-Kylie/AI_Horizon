@@ -282,3 +282,64 @@ export interface Run {
   languages: string[]
   created_at: string
 }
+
+// ---- Papers ----
+// Standalone papers library (OpenAlex + Hugging Face sources) — no AI
+// score/enrichment fields, unlike NewsItem.
+
+export interface ReportPdf {
+  name: string
+  url: string
+}
+
+export interface Report {
+  id: string
+  source: string
+  native_id: string
+  title: string
+  institution: string
+  author: string | null
+  url: string
+  pdf_urls: ReportPdf[]
+  summary: string | null
+  content_text: string
+  categories: string[]
+  published_at: string
+  updated_at: string
+  view_count: number | null
+  download_count: number | null
+  fetched_at: string
+  /** Only present when the request carried X-User-Id (see utils/userId.ts). */
+  is_favorited?: boolean
+}
+
+export interface Paper {
+  id: string
+  source: string
+  native_id: string
+  title: string
+  authors: string[]
+  abstract: string
+  url: string
+  pdf_url: string | null
+  published_at: string
+  updated_at: string
+  publication_year: number | null
+  categories: string[]
+  category: string | null
+  comment: string | null
+  journal_ref: string | null
+  doi: string | null
+  open_access: boolean | null
+  citation_count: number | null
+  upvote_count: number | null
+  fetched_at: string
+  /** AI-translated Chinese title (null when not yet translated). */
+  title_zh: string | null
+  /** AI-translated Chinese abstract (null when not yet translated). */
+  abstract_zh: string | null
+  /** Detected source language: "zh", "en", or "unknown". */
+  original_language: string | null
+  /** Only present when the request carried X-User-Id (see utils/userId.ts). */
+  is_favorited?: boolean
+}

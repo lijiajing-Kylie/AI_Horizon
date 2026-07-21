@@ -49,7 +49,7 @@ import type {
   NewsItem, PaginatedResponse, TagCount, CategoryCount,
   TopicsResponse, TopicNewsResponse,
   DailyListResponse, DailyDetailResponse,
-  Stats, Run, TopicPrefs, TopicPrefState,
+  Stats, Run, TopicPrefs, TopicPrefState, Paper, Report,
 } from './types'
 
 // Items
@@ -126,6 +126,67 @@ export function deleteFavorite(itemId: string) {
 
 export function getFavorites(params?: { page?: number; per_page?: number }) {
   return get<PaginatedResponse<NewsItem>>('/api/favorites', params as Record<string, string | number | undefined>)
+}
+
+// Paper Favorites
+export function putPaperFavorite(paperId: string) {
+  return mutate<{ id: string; is_favorited: boolean }>('PUT', `/api/favorites/papers/${paperId}`)
+}
+
+export function deletePaperFavorite(paperId: string) {
+  return mutate<{ id: string; is_favorited: boolean }>('DELETE', `/api/favorites/papers/${paperId}`)
+}
+
+export function getPaperFavorites(params?: { page?: number; per_page?: number; source?: string }) {
+  return get<PaginatedResponse<Paper>>('/api/favorites/papers', params as Record<string, string | number | undefined>)
+}
+
+// Report Favorites
+export function putReportFavorite(reportId: string) {
+  return mutate<{ id: string; is_favorited: boolean }>('PUT', `/api/favorites/reports/${reportId}`)
+}
+
+export function deleteReportFavorite(reportId: string) {
+  return mutate<{ id: string; is_favorited: boolean }>('DELETE', `/api/favorites/reports/${reportId}`)
+}
+
+export function getReportFavorites(params?: { page?: number; per_page?: number }) {
+  return get<PaginatedResponse<Report>>('/api/favorites/reports', params as Record<string, string | number | undefined>)
+}
+
+// Papers
+export function getPapers(params?: {
+  category?: string; source?: string; search?: string;
+  year?: number; sort?: string; order?: string;
+  page?: number; per_page?: number;
+}) {
+  return get<PaginatedResponse<Paper>>('/api/papers', params as Record<string, string | number | undefined>)
+}
+
+export function getPaper(id: string) {
+  return get<Paper>(`/api/papers/${id}`)
+}
+
+// Reports
+export function getReports(params?: {
+  source?: string; institution?: string; category?: string; search?: string;
+  sort?: string; order?: string; page?: number; per_page?: number;
+}) {
+  return get<PaginatedResponse<Report>>('/api/reports', params as Record<string, string | number | undefined>)
+}
+
+export function getReport(id: string) {
+  return get<Report>(`/api/reports/${id}`)
+}
+
+export interface InstitutionInfo {
+  institution: string
+  source: string
+  count: number
+}
+
+export function getReportInstitutions(source?: string) {
+  return get<InstitutionInfo[]>('/api/reports/institutions', { source } as Record<string, string | undefined>)
 }
 
 // Topic preferences (subscribe / block)

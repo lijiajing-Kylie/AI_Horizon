@@ -9,6 +9,10 @@ import TopicDetailPage from './pages/TopicDetailPage'
 import SearchPage from './pages/SearchPage'
 import FavoritesPage from './pages/FavoritesPage'
 import PreferencesPage from './pages/PreferencesPage'
+import PapersListPage from './pages/PapersListPage'
+import PaperDetailPage from './pages/PaperDetailPage'
+import ReportsListPage from './pages/ReportsListPage'
+import ReportDetailPage from './pages/ReportDetailPage'
 
 export default function App() {
   return (
@@ -23,6 +27,10 @@ export default function App() {
           <Route path="/topics/:slug" element={<TopicDetailPage />} />
           <Route path="/search" element={<SearchPage />} />
           <Route path="/favorites" element={<FavoritesPage />} />
+          <Route path="/papers" element={<PapersListPage />} />
+          <Route path="/papers/:id" element={<PaperDetailPage />} />
+          <Route path="/reports" element={<ReportsListPage />} />
+          <Route path="/reports/:id" element={<ReportDetailPage />} />
           <Route path="/preferences" element={<PreferencesPage />} />
         </Route>
       </Routes>

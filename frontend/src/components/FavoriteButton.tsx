@@ -1,13 +1,15 @@
 import { useState, useCallback } from 'react'
-import { putFavorite, deleteFavorite } from '../api/client'
+import { putFavorite, deleteFavorite, putPaperFavorite, deletePaperFavorite, putReportFavorite, deleteReportFavorite } from '../api/client'
 
 interface FavoriteButtonProps {
   itemId: string
   initialFavorited: boolean
   size?: 'sm' | 'md'
+  /** Which API to call — defaults to 'news' so existing call sites don't change. */
+  type?: 'news' | 'paper' | 'report'
 }
 
-export default function FavoriteButton({ itemId, initialFavorited, size = 'sm' }: FavoriteButtonProps) {
+export default function FavoriteButton({ itemId, initialFavorited, size = 'sm', type = 'news' }: FavoriteButtonProps) {
   const [favorited, setFavorited] = useState(initialFavorited)
   const [pending, setPending] = useState(false)
 
@@ -19,13 +21,19 @@ export default function FavoriteButton({ itemId, initialFavorited, size = 'sm' }
     setFavorited(next) // optimistic
     setPending(true)
     try {
-      await (next ? putFavorite(itemId) : deleteFavorite(itemId))
+      if (type === 'paper') {
+        await (next ? putPaperFavorite(itemId) : deletePaperFavorite(itemId))
+      } else if (type === 'report') {
+        await (next ? putReportFavorite(itemId) : deleteReportFavorite(itemId))
+      } else {
+        await (next ? putFavorite(itemId) : deleteFavorite(itemId))
+      }
     } catch {
       setFavorited(!next) // revert on failure
     } finally {
       setPending(false)
     }
-  }, [favorited, itemId, pending])
+  }, [favorited, itemId, pending, type])
 
   const textSize = size === 'md' ? 'text-xl' : 'text-base'
 
