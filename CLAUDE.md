@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Horizon is an AI-powered news aggregation pipeline that fetches content from multiple sources (Hacker News, RSS, Reddit, Telegram, Twitter/X, GitHub, OpenBB, GDELT, Google News), deduplicates stories via URL and AI semantic matching, scores items for importance, enriches them with web-researched background context, and generates bilingual (EN/ZH) Markdown daily briefings. Outputs include GitHub Pages sites, email newsletters, webhook notifications (Feishu, Slack, Discord, etc.), and a FastAPI + React query API/UI over the same data.
+Horizon is an AI-powered news aggregation pipeline that fetches content from multiple sources (Hacker News, RSS, Reddit, Telegram, Twitter/X, GitHub, OpenBB, GDELT, Google News), deduplicates stories via URL and AI semantic matching, scores items for importance, enriches them with web-researched background context, and generates bilingual (EN/ZH) Markdown daily briefings. It also includes standalone pipelines for academic papers (OpenAlex, Hugging Face daily papers) and research reports (institutional sources like AliResearch). Outputs include GitHub Pages sites, email newsletters, webhook notifications (Feishu, Slack, Discord, etc.), and a FastAPI + React query API/UI over the same data.
 
 ## Build, Test, and Run
 
@@ -31,6 +31,14 @@ uv run horizon-mcp
 # Webhook CLI (send a one-off test notification)
 uv run horizon-webhook --date 2026-07-01 --language en
 
+# Papers library (standalone; fetch and persist academic papers, independent of the news pipeline)
+uv run horizon-papers                # all enabled sources
+uv run horizon-papers --source openalex    # single source (openalex, huggingface)
+uv run horizon-papers --dry-run      # fetch and print match report, no DB write
+
+# Reports library (standalone; fetch and persist research reports from institutions)
+uv run horizon-reports
+
 # Tests
 uv run pytest                    # all tests
 uv run pytest tests/test_rss.py  # single test file
@@ -53,6 +61,62 @@ npm run lint         # oxlint
 ```
 
 The frontend is a separate npm project (not part of the `uv` workspace); run `horizon-api` alongside `npm run dev` for a working local stack.
+
+### Frontend design system
+
+**Every new page, card, or component MUST follow these patterns.** The
+reference implementation is `ItemDetailPage.tsx` + `ItemCard.tsx`.
+
+**Color tokens** — never use hardcoded Tailwind colors (e.g. `bg-gray-100`,
+`text-green-600`). Use CSS custom properties defined in `index.css`:
+
+| Token | Value | Use |
+|---|---|---|
+| `--ink` | `#2f3c50` | Headings / body text |
+| `--muted` | `#7d8999` | Metadata / secondary text |
+| `--accent` | `#B197C4` | Links / highlights / active states |
+| `--line` | `rgba(208,214,221,.6)` | Borders / dividers |
+| `--bg` | `#f5f7f8` | Page background |
+| `--card` | `rgba(255,255,255,.74)` | Card background base |
+
+**Card pattern** — use the `.glass` class (defined in `index.css`), not plain
+`border` + `rounded`:
+
+```tsx
+// ✅ correct — glass + news-card for frosted glass with shadow and hover lift
+<article className="glass news-card rounded-2xl p-5">
+// ❌ wrong — plain border, no glass effect
+<article className="border border-[var(--line)] rounded-lg p-5">
+```
+
+**Page layout:**
+
+| Context | Class | Notes |
+|---|---|---|
+| Page width | `max-w-[1180px] mx-auto` | All detail pages |
+| Title card | `glass news-card rounded-[28px] p-7 mb-6` | Detail page header |
+| Content section | `glass rounded-[22px] p-6` | Summary, abstract, body blocks |
+| Section heading | `text-[11px] font-bold tracking-[.14em] text-[#8ea0b6] mb-3` | All-caps eyebrow |
+| Body text | `text-[17px] leading-[1.85] text-[var(--ink)]` | Summary/abstract paragraphs |
+| Metadata | `text-sm text-[var(--muted)]` | Detail page meta |
+| Card metadata | `text-xs text-[var(--muted)]` | List card meta |
+| Card title | `text-base font-medium text-[var(--ink)]` | `h3` inside cards |
+| Page title | `text-[28px] font-normal text-[var(--ink)]` | List page `h1` |
+| List subtitle | `text-sm text-[var(--muted)] mb-6` | "N 份报告" style |
+| Category tag | `text-xs px-2 py-0.5 rounded-full bg-black/[.03] text-[var(--muted)]` | — |
+| Topic tag | `text-xs px-2 py-0.5 rounded-full bg-[var(--accent)]/10 text-[var(--accent)]` | — |
+| Action link (card) | `text-[var(--accent)] hover:opacity-80 font-medium` | "查看详情 →" |
+| External link (card) | `text-[var(--muted)] hover:text-[var(--ink)]` | "🔗 source" |
+| Action button (detail) | `inline-flex items-center gap-1.5 rounded-lg border border-[var(--line)] px-3 py-1.5 text-sm font-medium text-[var(--ink)] hover:bg-white/60 transition-colors` | — |
+| Divider | `hr className="my-8 border-[var(--line)]"` | Between sections |
+
+**Checklist for new pages:**
+- [ ] Use `.glass` for cards (not plain borders)
+- [ ] Use CSS variable tokens (never `bg-gray-*`, `text-green-*`, etc.)
+- [ ] Match heading sizes to the hierarchy above
+- [ ] `max-w-[1180px] mx-auto` for detail pages
+- [ ] Action links container uses `flex-wrap` if multiple buttons
+- [ ] A11y: interactive elements are `<button>` or `<a>`, not `<div onClick>`
 
 ## Architecture
 
@@ -93,7 +157,7 @@ All clients implement `async complete(system, user, temperature?, max_tokens?) -
 
 ### Data models
 
-`src/models.py` — Pydantic v2 models for the entire config (`Config`, `AIConfig`, `SourcesConfig`, individual source configs, `FilteringConfig`, `EmailConfig`, `WebhookConfig`) and the unified `ContentItem`. Config uses `field_validator`s for allowed values. Provider defaults in `AI_PROVIDER_DEFAULTS`. The `SourceType` enum defines all supported source types.
+`src/models.py` — Pydantic v2 models for the entire config (`Config`, `AIConfig`, `SourcesConfig`, `PapersConfig`, `ReportsConfig`, individual source configs, `FilteringConfig`, `EmailConfig`, `WebhookConfig`) and the unified `ContentItem`. Config uses `field_validator`s for allowed values. Provider defaults in `AI_PROVIDER_DEFAULTS`. The `SourceType` enum defines all supported source types. Papers and reports have their own independent models in `src/papers/models.py` and `src/reports/models.py`.
 
 ### Configuration
 
@@ -102,6 +166,41 @@ All clients implement `async complete(system, user, temperature?, max_tokens?) -
 ### MCP server
 
 `src/mcp/server.py` exposes Horizon pipeline steps as MCP tools (fetch, score, filter, enrich, summarize, run-full-workflow) so AI assistants can drive the pipeline. `src/mcp/service.py` handles pipeline execution and config validation; `src/mcp/run_store.py` persists each pipeline run's intermediate artifacts (raw/scored/filtered items, summaries) to disk under a run ID so MCP tool calls can resume/inspect a run across multiple calls.
+
+### Papers library (standalone)
+
+`src/papers/` is a standalone academic-papers pipeline, independent of the news pipeline — papers never go through the AI analyzer/enricher. It has its own data model (`src/papers/models.py`, `Paper` and `ClassicFetchResult`), its own CLIs (`horizon-papers`), and its own source-fetcher pattern (distinct from `BaseScraper`).
+
+**Sources** (`src/papers/sources/`):
+- `openalex.py` — OpenAlex `/works` API. Two modes: **classic** (fetch by human-curated seed list in `src/papers/seed_data.py` via DOI/arXiv-id/title-year-author matching, producing `ClassicFetchResult` with per-category match-status reporting) and the generic fetch used by `PaperSourceFetcher`.
+- `huggingface.py` — Hugging Face daily papers via `huggingface_hub.HfApi.list_daily_papers()`, keeps top N by upvotes from the last full month.
+- `arxiv.py`, `crossref.py`, `semantic_scholar.py` — helper fetchers for looking up paper metadata by id.
+
+**Source pattern**: All paper-source fetchers extend `PaperSourceFetcher` (`src/papers/sources/base.py`) with `fetch(client: httpx.AsyncClient) -> List[Paper]`. The orchestration entry point is `fetch_all_papers()` in `src/papers/fetcher.py`, which calls each enabled source concurrently and deduplicates by the source-namespaced id.
+
+**Enrichment** (`src/papers/enrichment.py`): post-fetch enrichment step (e.g. merging metadata from multiple upstream APIs). Not part of the news pipeline's AI enrichment.
+
+**DB persistence**: `HorizonDB` has a `papers` table (source-namespaced id, title, authors, abstract, url, pdf_url, categories, citation counts, etc.) with `save_papers()` (UPSERT by id) and `get_papers()` (paginated, filterable by source/category/year/search).
+
+**API**: `GET /api/papers` (paginated, filterable by source, category, year, search query) and `GET /api/papers/{paper_id}` served by `src/api/server.py`.
+
+**Frontend**: routes at `/papers` (`PapersListPage`) and `/papers/:id` (`PaperDetailPage`), with `PaperCard` component.
+
+### Reports library (standalone)
+
+`src/reports/` is a standalone research-reports pipeline, independent of both the news pipeline and the papers library. It has its own data model (`src/reports/models.py`, `Report`), its own CLI (`horizon-reports`), and an extensible source registry.
+
+**Sources** (`src/reports/sources/`):
+- `aliresearch.py` — AliResearch (阿里研究院) report fetcher.
+- `base.py` — `ReportSourceFetcher` base class with `fetch_native_ids(client) -> List[str]` and `fetch_detail(client, native_id) -> Optional[Report]`. New sources register in `_SOURCE_REGISTRY` in `src/reports/fetcher.py`.
+
+**Source pattern**: Unlike papers (single `fetch()` call), report fetchers have a two-phase flow: list native ids → fetch detail for each. `fetch_all_reports()` in `src/reports/fetcher.py` iterates the source registry, calls each phase, and deduplicates by the source-namespaced id.
+
+**DB persistence**: `HorizonDB` has a `reports` table (source-namespaced id, title, institution, author, url, pdf_urls as JSON, summary, content_text, categories, view/download counts) with `save_reports()` (UPSERT by id) and `get_reports()` (paginated, filterable by source/institution/search).
+
+**API**: `GET /api/reports` (paginated, filterable by source, institution, search query) and `GET /api/reports/{report_id}`.
+
+**Frontend**: routes at `/reports` (`ReportsListPage`) and `/reports/:id` (`ReportDetailPage`), with `ReportCard` component.
 
 ### Query API and web frontend
 
@@ -137,6 +236,8 @@ Two DB tables scope state by that id: `user_item_state` (favorites; `state='favo
 | `src/api/` | FastAPI query API + server-rendered fallback UI over the SQLite DB |
 | `src/mcp/` | MCP server that exposes pipeline as tools, plus per-run artifact storage |
 | `src/setup/` | Interactive wizard — AI-generated source config from user interests |
+| `src/papers/` | Standalone academic-papers pipeline: models, fetcher, CLI, sources, enrichment, seed data |
+| `src/reports/` | Standalone research-reports pipeline: models, fetcher, CLI, extensible source registry |
 | `src/content_extractor.py` | Full article text extraction (trafilatura) for enrichment |
 | `src/models.py` | All Pydantic config/data models |
 | `src/orchestrator.py` | Pipeline coordination |
@@ -159,4 +260,4 @@ Two DB tables scope state by that id: `user_item_state` (favorites; `state='favo
 
 ### Tests
 
-Tests use pytest with fixtures from `conftest.py` (just adds project root to sys.path). Test files mirror source modules (`test_rss.py`, `test_analyzer.py`, `test_api.py`, `test_db.py`, etc.). MCP and provider-specific tests (Azure, Minimax, chained client) validate integration paths. The `frontend/` app has no test suite yet — validate changes with `npm run build` and `npm run lint`.
+Tests use pytest with fixtures from `conftest.py` (just adds project root to sys.path). Test files mirror source modules (`test_rss.py`, `test_analyzer.py`, `test_api.py`, `test_db.py`, `test_papers_fetcher.py`, `test_papers_db.py`, `test_reports_fetcher.py`, `test_reports_db.py`, etc.). MCP and provider-specific tests (Azure, Minimax, chained client) validate integration paths. Papers tests also cover per-source fetchers (Hugging Face, OpenAlex, Semantic Scholar) and enrichment. The `frontend/` app has no test suite yet — validate changes with `npm run build` and `npm run lint`.
