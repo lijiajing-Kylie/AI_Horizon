@@ -54,9 +54,11 @@ export default function ItemCard({ item, showTopics = true, backTo }: ItemCardPr
   }
 
   const content = resolveContent(contentBlock, displayLang, fallback)
-  const source = sourceLabel(item)
   const attribution = item.metadata?.source_attribution
   const provenance = item.metadata?.source_provenance as SourceProvenance | undefined
+  // Prefer the role-priority-resolved primary source over the merged item's
+  // own feed/subreddit label — see ItemDetailPage.tsx for why these can differ.
+  const source = provenance?.primary_source_name || sourceLabel(item)
   const topics = item.topics || []
 
   // Primary URL: prefer provenance primary_source_url, otherwise item.url
@@ -76,127 +78,98 @@ export default function ItemCard({ item, showTopics = true, backTo }: ItemCardPr
       : '显示译文'
 
   return (
-    <article className="border border-gray-200 rounded-lg p-5 hover:border-blue-200 transition-colors">
+    <article className="glass news-card rounded-2xl p-5">
       {/* Title row */}
       <div className="flex items-start gap-2 mb-2">
         <ScoreBadge score={item.ai_score} />
         <div className="flex-1 min-w-0">
-          <h3 className="text-base font-medium text-gray-900 leading-snug">
+          <h3 className="text-base font-medium text-[var(--ink)] leading-snug flex flex-wrap items-center gap-2">
             <Link
               to={`/items/${item.id}`}
               state={backToState(backTo)}
-              className="hover:text-blue-600 transition-colors"
+              className="hover:text-[var(--accent)] transition-colors"
             >
               {content.title}
             </Link>
+            {/* Translation badge + toggle */}
+            {showTranslationUI && (
+              <>
+                {showingTranslation && (
+                  <span className="inline-flex items-center text-xs px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200">
+                    已翻译
+                  </span>
+                )}
+                <button
+                  onClick={toggleLang}
+                  className="text-xs font-normal text-[var(--accent)] hover:opacity-80 cursor-pointer"
+                >
+                  {toggleLabel}
+                </button>
+              </>
+            )}
           </h3>
-          {/* Translation badge + toggle */}
-          {showTranslationUI && (
-            <div className="flex items-center gap-2 mt-1">
-              {showingTranslation && (
-                <span className="inline-flex items-center text-xs px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200">
-                  已翻译
-                </span>
-              )}
-              <button
-                onClick={toggleLang}
-                className="text-xs text-blue-500 hover:text-blue-700 cursor-pointer"
-              >
-                {toggleLabel}
-              </button>
-            </div>
-          )}
         </div>
         <FavoriteButton itemId={item.id} initialFavorited={item.is_favorited ?? false} />
       </div>
 
       {/* Meta row */}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-400 mb-3">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--muted)] mb-3">
         <span>{source}</span>
         {item.published_at && <span>· {item.published_at.slice(0, 10)}</span>}
         {attribution && attribution.count > 1 && (
-          <span className="text-blue-500" title={attribution.labels.join(', ')}>
-            · 📰 {attribution.count} 家报道
+          <span title={attribution.labels.join(', ')}>
+            · {attribution.count} 家报道
           </span>
         )}
       </div>
 
       {/* Source provenance (primary + other sources) */}
       {provenance && provenance.source_count > 1 && (
-        <div className="mt-2 mb-3 pt-2 border-t border-gray-100">
-          <div className="text-xs text-gray-500 mb-1">
-            <span className="font-medium text-gray-600">主要来源: </span>
-            <a
-              href={provenance.primary_source_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-blue-600 hover:text-blue-700"
-            >
-              {provenance.primary_source_name}
-            </a>
-            <span className="ml-1 text-gray-400">
-              ({roleLabelZh(provenance.primary_source_type)})
-            </span>
+        <div className="mt-2 mb-3 pt-2 border-t border-[var(--line)]">
+          <div className="text-xs text-[var(--muted)] mb-1 flex flex-wrap items-start gap-x-4">
+            {provenance.sources.filter(s => !s.is_primary).length > 0 && (
+              <details className="inline-block">
+                <summary className="cursor-pointer hover:text-[var(--ink)]">
+                  其他来源 ({provenance.sources.filter(s => !s.is_primary).length})
+                </summary>
+                <div className="mt-1 ml-2 space-y-0.5">
+                  {provenance.sources.filter(s => !s.is_primary).map((s, i) => (
+                    <div key={i} className="text-xs text-[var(--muted)]">
+                      <a
+                        href={s.source_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[var(--accent)] hover:opacity-80"
+                      >
+                        {s.source_name}
+                      </a>
+                      <span className="ml-1 text-[var(--muted)]">
+                        — {s.title?.length > 40 ? s.title.slice(0, 37) + '...' : s.title}
+                      </span>
+                      <span className="ml-1 text-[var(--muted)]">({roleLabelZh(s.role)})</span>
+                    </div>
+                  ))}
+                </div>
+              </details>
+            )}
           </div>
-          <div className="text-xs text-gray-400">
-            共 {provenance.source_count} 个来源报道
-          </div>
-          {provenance.sources.filter(s => !s.is_primary).length > 0 && (
-            <details className="mt-1">
-              <summary className="text-xs text-gray-400 cursor-pointer hover:text-gray-600">
-                其他来源 ({provenance.sources.filter(s => !s.is_primary).length})
-              </summary>
-              <div className="mt-1 ml-2 space-y-0.5">
-                {provenance.sources.filter(s => !s.is_primary).map((s, i) => (
-                  <div key={i} className="text-xs text-gray-500">
-                    <a
-                      href={s.source_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-blue-500 hover:text-blue-700"
-                    >
-                      {s.source_name}
-                    </a>
-                    <span className="ml-1 text-gray-400">
-                      — {s.title?.length > 40 ? s.title.slice(0, 37) + '...' : s.title}
-                    </span>
-                    <span className="ml-1 text-gray-300">({roleLabelZh(s.role)})</span>
-                  </div>
-                ))}
-              </div>
-            </details>
-          )}
-        </div>
-      )}
-
-      {/* Reason */}
-      {content.reason && (
-        <div className="border-l-2 border-blue-400 pl-3 my-2 text-sm text-gray-500 italic line-clamp-2">
-          {content.reason}
         </div>
       )}
 
       {/* Summary */}
       {content.summary && (
-        <p className="text-sm text-gray-600 mt-2 line-clamp-3">{content.summary}</p>
+        <p className="text-sm text-[var(--muted)] mt-2 line-clamp-3">{content.summary}</p>
       )}
 
       {/* Actions */}
       <div className="flex items-center gap-3 mt-3 text-xs">
-        <Link
-          to={`/items/${item.id}`}
-          state={backToState(backTo)}
-          className="text-blue-600 hover:text-blue-700 font-medium"
-        >
-          查看详情 →
-        </Link>
         <a
           href={primaryUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-gray-400 hover:text-gray-600"
+          className="text-[var(--accent)] hover:opacity-80 font-medium"
         >
-          🔗 原文
+          在{source}打开原文
         </a>
       </div>
 
@@ -208,7 +181,7 @@ export default function ItemCard({ item, showTopics = true, backTo }: ItemCardPr
               key={t.slug}
               to={`/topics/${t.slug}`}
               state={backToState(backTo)}
-              className="inline-block text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors"
+              className="inline-block text-xs px-2 py-0.5 rounded-full bg-black/[.04] text-[var(--muted)] backdrop-blur-sm hover:bg-[var(--accent)]/15 hover:text-[var(--accent)] transition-colors"
             >
               {t.name}
             </Link>

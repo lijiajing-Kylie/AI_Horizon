@@ -100,6 +100,11 @@ export function getDailyDetail(date: string) {
   return get<DailyDetailResponse>(`/api/daily/${date}`)
 }
 
+/** Dates (YYYY-MM-DD) that have pipeline data, newest first. */
+export function getRunDates(limit?: number) {
+  return get<string[]>('/api/runs/dates', { limit })
+}
+
 // Stats
 export function getStats(runDate?: string) {
   return get<Stats>('/api/stats', { run_date: runDate })

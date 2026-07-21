@@ -12,12 +12,12 @@ export default function TopicCard({ topic, backTo }: TopicCardProps) {
     <Link
       to={`/topics/${topic.slug}`}
       state={backToState(backTo)}
-      className="block border border-gray-200 rounded-lg p-4 hover:shadow-md hover:border-blue-300 transition-all"
+      className="group glass rounded-2xl p-4 block hover:shadow-lg transition-all"
     >
-      <h3 className="font-medium text-gray-900 mb-1">{topic.name}</h3>
-      <p className="text-sm text-gray-500 mb-2 line-clamp-2">{topic.description}</p>
+      <h3 className="text-[17px] font-medium text-[var(--ink)] mb-1 leading-snug group-hover:text-[var(--accent)] transition-colors">{topic.name}</h3>
+      <p className="text-sm text-[var(--muted)] mb-2 line-clamp-2">{topic.description}</p>
       {topic.count !== undefined && (
-        <span className="text-xs font-medium text-blue-600">{topic.count} 条新闻</span>
+        <span className="text-xs font-medium text-[var(--accent)]">{topic.count} 条新闻</span>
       )}
     </Link>
   )

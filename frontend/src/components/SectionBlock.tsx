@@ -33,16 +33,16 @@ export default function SectionBlock({ title, items, backTo }: SectionBlockProps
     <section className="mb-8">
       <h2
         onClick={toggle}
-        className="flex items-center gap-1.5 text-lg font-semibold text-gray-800 mb-4 pb-2 border-b-2 border-blue-400 cursor-pointer select-none"
+        className="flex items-center gap-1.5 text-sm font-semibold mb-4 pb-2 border-b-2 border-[var(--accent)] text-[var(--accent)] cursor-pointer select-none"
       >
         {expanded ? (
-          <ChevronDown className="w-4 h-4 text-gray-400 shrink-0" />
+          <ChevronDown className="w-4 h-4 shrink-0" />
         ) : (
-          <ChevronRight className="w-4 h-4 text-gray-400 shrink-0" />
+          <ChevronRight className="w-4 h-4 shrink-0" />
         )}
         {expanded ? (
           <>
-            {title} <span className="text-sm font-normal text-gray-400 ml-2">{items.length} 条</span>
+            {title} <span className="text-sm font-normal text-[var(--muted)] ml-2">{items.length} 条</span>
           </>
         ) : (
           <span>{title}（{items.length}）</span>

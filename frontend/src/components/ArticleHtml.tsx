@@ -24,7 +24,7 @@ export default function ArticleHtml({ html, className }: { html: string; classNa
   return (
     <div
       ref={ref}
-      className={className ?? 'article-html text-sm text-gray-800 leading-[1.7]'}
+      className={className ?? 'article-html text-sm text-[var(--ink)] leading-[1.7]'}
       dangerouslySetInnerHTML={{ __html: html }}
     />
   )

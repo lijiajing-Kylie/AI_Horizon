@@ -9,6 +9,7 @@ import BackLink from '../components/BackLink'
 import LoadingSkeleton from '../components/LoadingSkeleton'
 import EmptyState from '../components/EmptyState'
 import TopicPrefButtons from '../components/TopicPrefButtons'
+import { ArrowDown } from 'lucide-react'
 
 export default function TopicDetailPage() {
   const { slug } = useParams<{ slug: string }>()
@@ -32,51 +33,53 @@ export default function TopicDetailPage() {
   }, [])
 
   if (loading && !data) return <LoadingSkeleton />
-  if (error) return <EmptyState icon="⚠️" title="加载失败" description={error} />
-  if (!data || !data.topic) return <EmptyState icon="📭" title="主题不存在" />
+  if (error) return <EmptyState title="加载失败" description={error} />
+  if (!data || !data.topic) return <EmptyState title="主题不存在" />
 
   const { topic, items, total, pages } = data
-  const backTo = { path: `/topics/${slug}`, label: `← 返回主题：${topic.name}` }
+  const backTo = { path: `/topics/${slug}`, label: `返回主题：${topic.name}` }
   const prefState = prefs?.[slug!] ?? null
 
   return (
     <div>
       {/* Breadcrumb */}
-      <BackLink fallback={{ path: '/topics', label: '← 返回主题总览' }} />
+      <BackLink fallback={{ path: '/topics', label: '返回主题总览' }} />
 
       {/* Topic header */}
-      <div className="mb-6 p-5 bg-white border border-gray-200 rounded-lg">
+      <header className="glass news-card rounded-[28px] p-7 mb-6">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <span className="text-xs text-gray-400">{topic.group_name}</span>
-            <h1 className="text-2xl font-bold text-gray-900 mt-1">{topic.name}</h1>
+            <p className="text-[11px] font-bold tracking-[.18em] text-[#8ea0b6] mb-1.5">{topic.group_name}</p>
+            <h1 className="text-xl font-semibold text-[var(--ink)] leading-snug">{topic.name}</h1>
           </div>
           {prefs && (
             <TopicPrefButtons state={prefState} onToggle={next => setPref(slug!, next)} />
           )}
         </div>
-        <p className="text-sm text-gray-500 mt-2">{topic.description}</p>
-        <p className="text-sm text-blue-600 font-medium mt-2">{total} 条相关新闻</p>
-      </div>
+        <p className="text-sm text-[var(--muted)] mt-2">{topic.description}</p>
+        <p className="text-sm text-[var(--accent)] font-medium mt-2">{total} 条相关新闻</p>
+      </header>
 
       {prefState === 'blocked' ? (
-        <EmptyState icon="🚫" title="你已屏蔽此主题" description="取消屏蔽后可继续查看相关新闻" />
+        <EmptyState title="你已屏蔽此主题" description="取消屏蔽后可继续查看相关新闻" />
       ) : (
         <>
           {/* Sort bar */}
           <div className="flex items-center gap-2 mb-4 text-sm">
-            <span className="text-gray-500">排序：</span>
+            <span className="text-[var(--muted)]">排序：</span>
             <button
               onClick={() => handleSortChange('ai_score', 'desc')}
-              className={`px-2.5 py-1 rounded text-xs ${sort === 'ai_score' && order === 'desc' ? 'bg-blue-600 text-white' : 'border border-gray-300 text-gray-600 hover:bg-gray-50'}`}
+              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs transition-colors ${sort === 'ai_score' && order === 'desc' ? 'bg-[var(--accent)] text-white' : 'border border-[var(--line)] text-[var(--muted)] hover:bg-white/70'}`}
             >
-              评分 ↓
+              评分
+              <ArrowDown size={13} strokeWidth={1.5} />
             </button>
             <button
               onClick={() => handleSortChange('published_at', 'desc')}
-              className={`px-2.5 py-1 rounded text-xs ${sort === 'published_at' && order === 'desc' ? 'bg-blue-600 text-white' : 'border border-gray-300 text-gray-600 hover:bg-gray-50'}`}
+              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs transition-colors ${sort === 'published_at' && order === 'desc' ? 'bg-[var(--accent)] text-white' : 'border border-[var(--line)] text-[var(--muted)] hover:bg-white/70'}`}
             >
-              时间 ↓
+              时间
+              <ArrowDown size={13} strokeWidth={1.5} />
             </button>
           </div>
 
@@ -91,7 +94,7 @@ export default function TopicDetailPage() {
               <Pagination page={page} pages={pages} onPageChange={setPage} />
             </>
           ) : (
-            <EmptyState icon="📭" title="该主题下暂无新闻" />
+            <EmptyState title="该主题下暂无新闻" />
           )}
         </>
       )}

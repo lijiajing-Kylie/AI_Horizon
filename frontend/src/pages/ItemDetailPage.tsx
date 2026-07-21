@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react'
 import { useParams, Link } from 'react-router-dom'
+import { ExternalLink } from 'lucide-react'
 import { useApi } from '../hooks/useApi'
 import { getItem } from '../api/client'
 import ScoreBadge from '../components/ScoreBadge'
@@ -14,7 +15,7 @@ import ArticleHtml from '../components/ArticleHtml'
 import ScrapeDiagnosticsPanel from '../components/ScrapeDiagnosticsPanel'
 import type { ArticleImage, ContentBlock, SourceProvenance, EnrichmentSource, ScoreBreakdown as ScoreBreakdownData } from '../api/types'
 
-// ── helpers ───────────────────────────────────────────────────────────────
+// ── helpers (unchanged — pure presentation rewrite below, logic untouched) ──
 
 // A broken image (dead link, blocked hotlink, etc.) just disappears rather
 // than showing the browser's broken-image icon.
@@ -27,11 +28,11 @@ function ImageThumb({ image }: { image: ArticleImage }) {
         src={image.url}
         alt={image.alt || image.caption || ''}
         loading="lazy"
-        className="w-full h-28 object-cover rounded-md border border-gray-200"
+        className="w-full h-28 object-cover rounded-lg"
         onError={() => setFailed(true)}
       />
       {image.caption && (
-        <figcaption className="mt-1 text-xs text-gray-400 truncate" title={image.caption}>
+        <figcaption className="mt-1 text-xs text-[var(--muted)] truncate" title={image.caption}>
           {image.caption}
         </figcaption>
       )}
@@ -93,6 +94,12 @@ function resolveArticleHtml(
   return { html: '', translationFailed: false }
 }
 
+// A section heading inside a glass card — small tracked-out eyebrow label,
+// matching the home/daily pages' typographic system.
+function CardHeading({ children }: { children: React.ReactNode }) {
+  return <h2 className="text-[11px] font-bold tracking-[.14em] text-[#8ea0b6] mb-3">{children}</h2>
+}
+
 // ── component ─────────────────────────────────────────────────────────────
 
 export default function ItemDetailPage() {
@@ -109,12 +116,18 @@ export default function ItemDetailPage() {
   }, [defaultLang, originalLang])
 
   if (loading && !item) return <LoadingSkeleton />
-  if (error) return <EmptyState icon="⚠️" title="加载失败" description={error} />
-  if (!item) return <EmptyState icon="📭" title="内容不存在" />
+  if (error) return <EmptyState title="加载失败" description={error} />
+  if (!item) return <EmptyState title="内容不存在" />
 
   const content = resolveItemContent(contentBlock, displayLang, item)
-  const source = sourceLabel(item)
   const provenance = item.metadata?.source_provenance as SourceProvenance | undefined
+  // Prefer the role-priority-resolved primary source over the merged item's
+  // own feed/subreddit label — when duplicates from several sources get
+  // merged, the surviving DB row isn't necessarily the most authoritative
+  // one (e.g. an aggregator RSS entry can win the content-richness merge
+  // while an official page wins provenance's authority ranking), so this
+  // avoids showing a source next to the date that "查看原文" doesn't link to.
+  const source = provenance?.primary_source_name || sourceLabel(item)
   const scoreBreakdown = item.metadata?.score_breakdown as ScoreBreakdownData | undefined
   const enrichmentSources = (contentBlock?.enrichment_sources || []) as EnrichmentSource[]
   const discussionUrl = contentBlock?.discussion_url as string | undefined
@@ -129,26 +142,28 @@ export default function ItemDetailPage() {
   const topics = item.topics || []
   // Topic tags always send you back to *this* item detail page — never
   // chained to wherever this page itself was reached from.
-  const topicBackTo = { path: `/items/${id}`, label: '← 返回新闻详情' }
+  const topicBackTo = { path: `/items/${id}`, label: '返回新闻详情' }
   const { html: articleHtml, translationFailed } = resolveArticleHtml(item, displayLang)
   const articleBody = resolveArticleBody(item)
   // Extracted article text (trafilatura) separates paragraphs with a single
   // newline rather than a blank line, so split on any run of newlines.
   const paragraphs = articleBody.split(/\n+/).map(p => p.trim()).filter(Boolean)
 
+  const otherSources = provenance?.sources.filter(s => !s.is_primary) || []
+
   return (
-    <div className="max-w-3xl mx-auto">
+    <div className="max-w-[1180px] mx-auto">
       {/* Back link */}
       <BackLink
-        fallback={{ path: '/', label: '← 返回首页' }}
-        className="text-sm text-blue-600 hover:text-blue-700 mb-4 inline-block"
+        fallback={{ path: '/', label: '返回首页' }}
+        className="inline-flex items-center gap-1 text-sm text-[var(--accent)] hover:opacity-80 mb-4"
       />
 
-      {/* Header */}
-      <header className="mb-6">
+      {/* ===== Article info card ===== */}
+      <header className="glass news-card rounded-[28px] p-7 mb-6">
         <div className="flex items-start gap-3 mb-3">
           <ScoreBadge score={item.ai_score} />
-          <h1 className="flex-1 text-xl font-bold text-gray-900 leading-snug">
+          <h1 className="flex-1 text-xl font-semibold text-[var(--ink)] leading-snug">
             {content.title}
           </h1>
           <FavoriteButton itemId={item.id} initialFavorited={item.is_favorited ?? false} size="md" />
@@ -164,7 +179,7 @@ export default function ItemDetailPage() {
             )}
             <button
               onClick={toggleLang}
-              className="text-xs text-blue-500 hover:text-blue-700 cursor-pointer"
+              className="text-xs text-[var(--accent)] hover:opacity-80 cursor-pointer"
             >
               {toggleLabel}
             </button>
@@ -172,20 +187,18 @@ export default function ItemDetailPage() {
         )}
 
         {/* Meta row */}
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-400 mb-3">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-[var(--muted)] mb-3">
           <span>{source}</span>
           {item.published_at && <span>· {item.published_at.slice(0, 10)}</span>}
+          <a
+            href={primaryUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 font-medium text-[var(--ink)] hover:text-[var(--accent)] transition-colors"
+          >
+            查看原文 <ExternalLink className="w-3.5 h-3.5" strokeWidth={2} />
+          </a>
         </div>
-
-        {/* 查看原文 button — kept separate from the article body */}
-        <a
-          href={primaryUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 hover:border-gray-400 transition-colors mb-3"
-        >
-          查看原文 ↗
-        </a>
 
         {/* Tags */}
         {item.ai_tags && item.ai_tags.length > 0 && (
@@ -193,7 +206,7 @@ export default function ItemDetailPage() {
             {item.ai_tags.map((tag: string, i: number) => (
               <span
                 key={i}
-                className="inline-block text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600"
+                className="inline-block text-xs px-2 py-0.5 rounded-full bg-black/[.03] text-[var(--muted)]"
               >
                 {tag}
               </span>
@@ -203,13 +216,13 @@ export default function ItemDetailPage() {
 
         {/* Topics */}
         {topics.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 mb-4">
+          <div className="flex flex-wrap gap-1.5">
             {topics.map(t => (
               <Link
                 key={t.slug}
                 to={`/topics/${t.slug}`}
                 state={backToState(topicBackTo)}
-                className="inline-block text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors"
+                className="inline-block text-xs px-2 py-0.5 rounded-full bg-[var(--accent)]/10 text-[var(--accent)] hover:bg-[var(--accent)]/20 transition-colors"
               >
                 {t.name}
               </Link>
@@ -218,186 +231,147 @@ export default function ItemDetailPage() {
         )}
       </header>
 
-      {/* 1. 推荐理由 */}
-      {content.reason && (
-        <section className="mb-6">
-          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-2">
-            推荐理由
-          </h2>
-          <div className="border-l-2 border-blue-400 pl-4 text-gray-600 italic bg-blue-50/50 py-3 rounded-r-lg">
-            {content.reason}
-          </div>
-        </section>
-      )}
-
-      {/* 1.5 评分明细 */}
-      {scoreBreakdown && <ScoreBreakdown breakdown={scoreBreakdown} />}
-
-      {/* 2. 完整摘要 */}
-      {content.summary && (
-        <section className="mb-6">
-          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-2">
-            完整摘要
-          </h2>
-          <div className="text-gray-800 leading-relaxed whitespace-pre-line">
-            {content.summary}
-          </div>
-        </section>
-      )}
-
-      {/* 3. 正文 */}
-      {articleHtml ? (
-        <section className="mb-6">
-          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-2">
-            正文
-          </h2>
-          {translationFailed && (
-            <p className="text-xs text-amber-600 mb-2">正文翻译失败，以下为原文</p>
+      {/* ===== Two-column body ===== */}
+      <div className="grid grid-cols-1 lg:grid-cols-[7fr_3fr] gap-6 items-start">
+        {/* ---- Left: long-form reading ---- */}
+        <div className="min-w-0 space-y-6">
+          {/* 完整摘要 */}
+          {content.summary && (
+            <section className="glass rounded-[22px] p-6">
+              <CardHeading>完整摘要</CardHeading>
+              <div className="text-[17px] leading-[1.85] text-[var(--ink)] whitespace-pre-line">
+                {content.summary}
+              </div>
+            </section>
           )}
-          <div className="bg-white border border-gray-200 rounded-lg p-5">
-            <div className="mx-auto max-w-[760px]">
-              <ArticleHtml html={articleHtml} />
-            </div>
-          </div>
-        </section>
-      ) : paragraphs.length > 0 ? (
-        <section className="mb-6">
-          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-2">
-            正文
-          </h2>
-          <div className="bg-white border border-gray-200 rounded-lg p-5">
-            <div className="mx-auto max-w-[760px]">
+
+          {/* 正文 */}
+          {articleHtml ? (
+            <section className="glass rounded-[22px] p-6">
+              <CardHeading>正文</CardHeading>
+              {translationFailed && (
+                <p className="text-xs text-amber-600 mb-3">正文翻译失败，以下为原文</p>
+              )}
+              <ArticleHtml html={articleHtml} className="article-html text-[17px] leading-[1.85] text-[var(--ink)]" />
+            </section>
+          ) : paragraphs.length > 0 ? (
+            <section className="glass rounded-[22px] p-6">
+              <CardHeading>正文</CardHeading>
               {paragraphs.map((p, i) => (
-                <p key={i} className="text-sm text-gray-800 leading-[1.7] mb-4 last:mb-0">
+                <p key={i} className="text-[17px] leading-[1.85] text-[var(--ink)] mb-5 last:mb-0">
                   {p}
                 </p>
               ))}
 
               {/* Inline article images — shown after the text so they don't break up paragraph flow */}
               {item.images.length > 0 && (
-                <div className="mt-4 pt-4 border-t border-gray-100 grid grid-cols-2 sm:grid-cols-3 gap-3">
+                <div className="mt-5 pt-5 border-t border-[var(--line)] grid grid-cols-2 sm:grid-cols-3 gap-3">
                   {item.images.map((img, i) => (
                     <ImageThumb key={i} image={img} />
                   ))}
                 </div>
               )}
-            </div>
-          </div>
-        </section>
-      ) : (
-        <section className="mb-6">
-          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-2">
-            正文
-          </h2>
-          <div className="bg-white border border-gray-200 rounded-lg p-5 text-sm text-gray-500">
-            <p>
-              因原网站限制、抓取失败或正文不可解析，当前无法显示正文。请点击
-              <a
-                href={primaryUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-blue-600 hover:text-blue-700"
-              >
-                查看原文
-              </a>
-              。
-            </p>
-          </div>
-        </section>
-      )}
-
-      {/* 4. 社区讨论 */}
-      {content.communityDiscussion && (
-        <section className="mb-6">
-          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-2">
-            社区讨论
-          </h2>
-          <div className="text-gray-700 leading-relaxed whitespace-pre-line bg-gray-50 p-4 rounded-lg">
-            {content.communityDiscussion}
-          </div>
-          {discussionUrl && (
-            <a
-              href={discussionUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-block mt-2 text-sm text-blue-500 hover:text-blue-700"
-            >
-              💬 查看原讨论 →
-            </a>
-          )}
-        </section>
-      )}
-
-      {/* 5. 来源 */}
-      {provenance && provenance.source_count > 1 && (
-        <section className="mb-6">
-          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-2">
-            来源
-          </h2>
-          <div className="bg-gray-50 rounded-lg p-4">
-            <div className="text-sm mb-3">
-              <span className="font-medium text-gray-700">主要来源: </span>
-              <a
-                href={provenance.primary_source_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-blue-600 hover:text-blue-700"
-              >
-                {provenance.primary_source_name}
-              </a>
-              <span className="ml-1 text-gray-400">
-                ({roleLabelZh(provenance.primary_source_type)})
-              </span>
-            </div>
-            <div className="text-xs text-gray-400 mb-2">
-              共 {provenance.source_count} 个来源报道
-            </div>
-            <div className="space-y-1.5">
-              {provenance.sources.filter(s => !s.is_primary).map((s, i) => (
-                <div key={i} className="text-sm text-gray-600">
-                  <a
-                    href={s.source_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-blue-500 hover:text-blue-700"
-                  >
-                    {s.source_name}
-                  </a>
-                  <span className="ml-2 text-gray-400 text-xs">{roleLabelZh(s.role)}</span>
-                  {s.title && (
-                    <span className="ml-2 text-gray-500 text-xs">
-                      — {s.title.length > 80 ? s.title.slice(0, 77) + '...' : s.title}
-                    </span>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-      )}
-
-      {/* Enrichment Sources */}
-      {enrichmentSources.length > 0 && (
-        <section className="mb-6">
-          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-2">
-            参考来源
-          </h2>
-          <div className="space-y-1">
-            {enrichmentSources.map((src, i) => (
-              <div key={i} className="text-sm">
+            </section>
+          ) : (
+            <section className="glass rounded-[22px] p-6">
+              <CardHeading>正文</CardHeading>
+              <p className="text-sm text-[var(--muted)]">
+                因原网站限制、抓取失败或正文不可解析，当前无法显示正文。请点击
                 <a
-                  href={src.url}
+                  href={primaryUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-blue-500 hover:text-blue-700"
+                  className="text-[var(--accent)] hover:opacity-80"
                 >
-                  📄 {src.title || src.url}
+                  查看原文
                 </a>
+                。
+              </p>
+            </section>
+          )}
+
+          {/* 社区讨论 */}
+          {content.communityDiscussion && (
+            <section className="glass rounded-[22px] p-6">
+              <CardHeading>社区讨论</CardHeading>
+              <div className="text-[15px] leading-[1.85] text-[var(--ink)] whitespace-pre-line">
+                {content.communityDiscussion}
               </div>
-            ))}
-          </div>
-        </section>
-      )}
+              {discussionUrl && (
+                <a
+                  href={discussionUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-block mt-3 text-sm text-[var(--accent)] hover:opacity-80"
+                >
+                  查看原讨论
+                </a>
+              )}
+            </section>
+          )}
+        </div>
+
+        {/* ---- Right: reasoning / scoring / sources, sticky ---- */}
+        <aside className="lg:sticky lg:top-[86px] lg:self-start space-y-6">
+          {/* 推荐理由 */}
+          {content.reason && (
+            <section className="glass rounded-[22px] p-5">
+              <CardHeading>推荐理由</CardHeading>
+              <p className="text-sm leading-relaxed text-[var(--ink)]">{content.reason}</p>
+            </section>
+          )}
+
+          {/* 评分明细 */}
+          {scoreBreakdown && <ScoreBreakdown breakdown={scoreBreakdown} />}
+
+          {/* 来源信息：相关来源 + 参考来源 */}
+          {((provenance && provenance.source_count > 1) || enrichmentSources.length > 0) && (
+            <section className="glass rounded-[22px] p-5">
+              <CardHeading>来源信息</CardHeading>
+
+              {provenance && provenance.source_count > 1 && (
+                <div className="mb-4">
+                  <div className="flex flex-wrap gap-2">
+                    {otherSources.map((s, i) => (
+                      <a
+                        key={i}
+                        href={s.source_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title={s.title || undefined}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[var(--line)] text-sm hover:border-[var(--accent)] transition-colors"
+                      >
+                        <span className="text-[var(--ink)]">{s.source_name}</span>
+                        <span className="text-xs text-[var(--muted)]">{roleLabelZh(s.role)}</span>
+                      </a>
+                    ))}
+                  </div>
+                  <p className="text-xs text-[var(--muted)] mt-2">共 {provenance.source_count} 个来源报道</p>
+                </div>
+              )}
+
+              {enrichmentSources.length > 0 && (
+                <div className={provenance && provenance.source_count > 1 ? 'pt-4 border-t border-[var(--line)]' : ''}>
+                  <p className="text-xs text-[var(--muted)] mb-2">参考来源</p>
+                  <div className="space-y-1.5">
+                    {enrichmentSources.map((src, i) => (
+                      <a
+                        key={i}
+                        href={src.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block text-sm text-[var(--accent)] hover:opacity-80 truncate"
+                      >
+                        {src.title || src.url}
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </section>
+          )}
+        </aside>
+      </div>
 
       {/* Scrape diagnostics — dev-only, never rendered in a production build */}
       {import.meta.env.DEV && item.debug && (
@@ -405,12 +379,12 @@ export default function ItemDetailPage() {
       )}
 
       {/* Divider */}
-      <hr className="my-8 border-gray-200" />
+      <hr className="my-8 border-[var(--line)]" />
 
       {/* Back link (bottom) */}
       <BackLink
-        fallback={{ path: '/', label: '← 返回首页' }}
-        className="text-sm text-blue-600 hover:text-blue-700"
+        fallback={{ path: '/', label: '返回首页' }}
+        className="inline-flex items-center gap-1 text-sm text-[var(--accent)] hover:opacity-80"
       />
     </div>
   )

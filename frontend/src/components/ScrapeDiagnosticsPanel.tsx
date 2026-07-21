@@ -252,7 +252,7 @@ export default function ScrapeDiagnosticsPanel({ debug }: { debug: ScrapeDiagnos
         className="flex items-center gap-1.5 text-sm font-semibold text-amber-800 bg-amber-50 px-3 py-2 cursor-pointer select-none"
       >
         {expanded ? <ChevronDown className="w-4 h-4 shrink-0" /> : <ChevronRight className="w-4 h-4 shrink-0" />}
-        🔧 抓取诊断（仅开发环境）
+        抓取诊断（仅开发环境）
       </h2>
 
       {expanded && (

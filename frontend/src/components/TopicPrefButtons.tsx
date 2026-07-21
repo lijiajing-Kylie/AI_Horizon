@@ -13,7 +13,7 @@ interface TopicPrefButtonsProps {
  * subscribed/blocked summary plus the full topic list), every instance
  * stays in sync. */
 export default function TopicPrefButtons({ state, onToggle }: TopicPrefButtonsProps) {
-  const baseBtn = 'px-2.5 py-1 rounded text-xs border transition-colors cursor-pointer'
+  const baseBtn = 'px-2.5 py-1 rounded-full text-xs border transition-colors cursor-pointer'
 
   return (
     <div className="flex items-center gap-2">
@@ -22,8 +22,8 @@ export default function TopicPrefButtons({ state, onToggle }: TopicPrefButtonsPr
         onClick={() => onToggle(state === 'subscribed' ? null : 'subscribed')}
         className={`${baseBtn} ${
           state === 'subscribed'
-            ? 'bg-blue-600 text-white border-blue-600'
-            : 'border-gray-300 text-gray-600 hover:bg-gray-50'
+            ? 'bg-[var(--accent)] text-white border-[var(--accent)]'
+            : 'border-[var(--line)] text-[var(--muted)] hover:bg-white/70'
         }`}
       >
         {state === 'subscribed' ? '✓ 已订阅' : '+ 订阅'}
@@ -33,11 +33,11 @@ export default function TopicPrefButtons({ state, onToggle }: TopicPrefButtonsPr
         onClick={() => onToggle(state === 'blocked' ? null : 'blocked')}
         className={`${baseBtn} ${
           state === 'blocked'
-            ? 'bg-gray-700 text-white border-gray-700'
-            : 'border-gray-300 text-gray-600 hover:bg-gray-50'
+            ? 'bg-[var(--ink)] text-white border-[var(--ink)]'
+            : 'border-[var(--line)] text-[var(--muted)] hover:bg-white/70'
         }`}
       >
-        {state === 'blocked' ? '✓ 已屏蔽' : '🚫 屏蔽'}
+        {state === 'blocked' ? '✓ 已屏蔽' : '屏蔽'}
       </button>
     </div>
   )

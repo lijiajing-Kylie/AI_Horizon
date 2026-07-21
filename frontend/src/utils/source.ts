@@ -21,6 +21,15 @@ export function sourceLabel(item: NewsItem): string {
   return SOURCE_LABELS[item.source_type] || item.source_type
 }
 
+const PAPER_SOURCE_LABELS: Record<string, string> = {
+  openalex: 'OpenAlex',
+  huggingface: 'Hugging Face',
+}
+
+export function paperSourceLabel(source: string): string {
+  return PAPER_SOURCE_LABELS[source] || source
+}
+
 export const ROLE_LABELS_ZH: Record<string, string> = {
   official_company_blog: '官方博客',
   official_product_page: '官方产品页',
