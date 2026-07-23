@@ -3,7 +3,7 @@
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional, List, Dict, Any, Union
-from pydantic import BaseModel, HttpUrl, Field, field_validator
+from pydantic import BaseModel, HttpUrl, Field, computed_field, field_validator
 
 
 class SourceType(str, Enum):
@@ -19,6 +19,8 @@ class SourceType(str, Enum):
     OSSINSIGHT = "ossinsight"
     GDELT = "gdelt"
     GOOGLE_NEWS = "google_news"
+    HUAWEI_NEWS = "huawei_news"
+    BYTEDANCE_NEWS = "bytedance_news"
 
 
 class SourceRole(str, Enum):
@@ -93,6 +95,8 @@ _ROLE_DOMAIN_MAP: list[tuple[str, SourceRole]] = [
     ("cohere.com", SourceRole.OFFICIAL_COMPANY_BLOG),
     ("stability.ai", SourceRole.OFFICIAL_COMPANY_BLOG),
     ("deepseek.com", SourceRole.OFFICIAL_COMPANY_BLOG),
+    ("tech.meituan.com", SourceRole.OFFICIAL_COMPANY_BLOG),
+    ("seed.bytedance.com", SourceRole.OFFICIAL_COMPANY_BLOG),
     ("qwenlm.github.io", SourceRole.OFFICIAL_COMPANY_BLOG),
     ("huggingface.co/blog", SourceRole.OFFICIAL_COMPANY_BLOG),
     # Expert blogs
@@ -504,6 +508,34 @@ class GoogleNewsConfig(BaseModel):
     category: Optional[str] = None
 
 
+class HuaweiNewsConfig(BaseModel):
+    """Huawei News Center source configuration.
+
+    Uses Playwright to render the JS-heavy SPA page and extract
+    articles from the DOM. No API key or RSS feed is available.
+    """
+
+    enabled: bool = False
+    url: str = "https://www.huawei.com/cn/news"
+    fetch_limit: int = 50
+    category: Optional[str] = None
+
+
+class ByteDanceNewsConfig(BaseModel):
+    """ByteDance Seed tech blog source configuration.
+
+    Seed (https://seed.bytedance.com/zh/blog) is a Modern.js SSR SPA with no
+    RSS feed. Content is extracted from ``window._ROUTER_DATA`` JSON embedded
+    in the HTML — plain HTTP, no Playwright needed.
+    """
+
+    enabled: bool = False
+    url: str = "https://seed.bytedance.com/zh/blog"
+    fetch_limit: int = 50
+    fetch_details: bool = False  # Whether to fetch full article HTML
+    category: Optional[str] = None
+
+
 class OpenAlexSourceConfig(BaseModel):
     """OpenAlex `/works` source configuration for the classic papers library.
 
@@ -557,20 +589,60 @@ class PapersConfig(BaseModel):
     huggingface: HuggingFaceSourceConfig = Field(default_factory=HuggingFaceSourceConfig)
 
 
+class ReportSourceItem(BaseModel):
+    """A single report source with per-source settings.
+
+    In config.json this maps to e.g. ``{"name": "fxbaogao", "ai_filter": true}``.
+    """
+
+    name: str
+    ai_filter: bool = True
+
+
 class ReportsConfig(BaseModel):
     """Research-reports library configuration.
 
     Standalone pipeline, independent of both the news pipeline and the papers
-    library: each entry in `sources` names one institution-specific fetcher
-    (see `src.reports.sources`), fetched directly against that institution's
-    own site/API with no AI scoring or enrichment. Per-source tunables (e.g.
-    page size) live in that source's own module, not here, since they vary
-    per site.
+    library. Per-source tunables (e.g. page size) live in that source's own
+    module.
     """
 
     enabled: bool = False
-    sources: List[str] = Field(default_factory=lambda: ["aliresearch", "aliyunreports"])
-    ai_filter_enabled: bool = False  # 入库前调用 LLM 过滤非科技/非 AI 相关报告
+    sources: List[ReportSourceItem] = Field(
+        default_factory=lambda: [
+            ReportSourceItem(name="aliresearch"),
+            ReportSourceItem(name="aliyunreports"),
+        ],
+        description="每个来源的配置：{\"name\": \"...\", \"ai_filter\": true/false}，也兼容旧版字符串列表",
+    )
+
+    @field_validator("sources", mode="before")
+    @classmethod
+    def _coerce_sources(cls, v):
+        """Accept both ``["name"]`` and ``[{"name": "...", "ai_filter": ...}]``."""
+        if isinstance(v, list):
+            items = []
+            for item in v:
+                if isinstance(item, str):
+                    items.append({"name": item})
+                elif isinstance(item, dict):
+                    items.append(item)
+                else:
+                    items.append(item)
+            return items
+        return v
+    pdf_output_dir: str = "data/reports_pdfs"  # PDF 本地存储根目录
+    download_pdfs: bool = True  # 取报告时自动下载 PDF
+    aliyunreports_year: str = Field(
+        default_factory=lambda: f"{datetime.now().year}年",
+        description="阿里云研究院筛选年份（默认当前年份）",
+    )
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def ai_filter_enabled(self) -> bool:
+        """Whether any source has AI filtering enabled (replaces old boolean flag)."""
+        return any(s.ai_filter for s in self.sources)
 
 
 class SourcesConfig(BaseModel):
@@ -586,6 +658,8 @@ class SourcesConfig(BaseModel):
     ossinsight: OSSInsightConfig = Field(default_factory=OSSInsightConfig)
     gdelt: Optional[GDELTConfig] = None
     google_news: Optional[GoogleNewsConfig] = None
+    huawei_news: Optional[HuaweiNewsConfig] = None
+    bytedance_news: Optional[ByteDanceNewsConfig] = None
 
 
 class WebhookConfig(BaseModel):
