@@ -26,6 +26,8 @@ from .scrapers.openbb import OpenBBScraper
 from .scrapers.ossinsight import OSSInsightScraper
 from .scrapers.gdelt import GDELTScraper
 from .scrapers.google_news import GoogleNewsScraper
+from .scrapers.huawei_news import HuaweiNewsScraper
+from .scrapers.seed_bytedance import ByteDanceSeedScraper
 from .ai.client import create_ai_client
 from .ai.analyzer import ContentAnalyzer
 from .ai.summarizer import DailySummarizer
@@ -62,11 +64,12 @@ class HorizonOrchestrator:
             else None
         )
 
-    async def run(self, force_hours: int = None) -> None:
+    async def run(self, force_hours: int = None, refetch_date: str = None) -> None:
         """Execute the complete workflow.
 
         Args:
             force_hours: Optional override for time window in hours
+            refetch_date: Optional absolute date (YYYY-MM-DD) to re-fetch for, overrides force_hours
         """
         self.console.print("[bold cyan]🌅 Horizon - Starting aggregation...[/bold cyan]\n")
 
@@ -85,12 +88,37 @@ class HorizonOrchestrator:
 
         try:
             # 1. Determine time window
-            since = self._determine_time_window(force_hours)
-            self.console.print(f"📅 Fetching content since: {since.strftime('%Y-%m-%d %H:%M:%S')}\n")
+            since = self._determine_time_window(force_hours, refetch_date)
+            if refetch_date:
+                date_dt = datetime.strptime(refetch_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                self.console.print(
+                    f"📅 Fetching content for report date {refetch_date}: "
+                    f"{since.strftime('%Y-%m-%d %H:%M')} – {date_dt.strftime('%Y-%m-%d %H:%M')} UTC\n"
+                )
+            else:
+                self.console.print(f"📅 Fetching content since: {since.strftime('%Y-%m-%d %H:%M:%S')}\n")
 
             # 2. Fetch content from all sources
             all_items = await self.fetch_all_sources(since)
             self.console.print(f"📥 Fetched {len(all_items)} items from all sources\n")
+
+            # 2.25 When refetching for a specific date, scope items to the 24-hour window
+            #     covering that UTC day (refetch_date 00:00 UTC – next day 00:00 UTC)
+            if refetch_date:
+                date_dt = datetime.strptime(refetch_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                until = date_dt
+                before_count = len(all_items)
+                all_items = [
+                    item for item in all_items
+                    if item.published_at and item.published_at < until
+                ]
+                scoped_out = before_count - len(all_items)
+                if scoped_out:
+                    self.console.print(
+                        f"📅 Scoped to {since.strftime('%Y-%m-%d %H:%M')} – "
+                        f"{until.strftime('%Y-%m-%d %H:%M')} UTC: "
+                        f"{len(all_items)} items ({scoped_out} outside range dropped)\n"
+                    )
 
             # 2.5 Extract full article text for each item
             all_items = await self._extract_full_content(all_items)
@@ -113,7 +141,7 @@ class HorizonOrchestrator:
 
             # 4.1 Persist ALL scored items immediately (selected=False) so
             #     dropped items are available for later audit queries.
-            today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            today = refetch_date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
             self.db.save_items(analyzed_items, today, len(all_items), selected=False, replace=True)
             self.console.print(f"💾 Persisted {len(analyzed_items)} scored items to SQLite (pre-filter)\n")
 
@@ -307,7 +335,11 @@ class HorizonOrchestrator:
 
             raise
 
-    def _determine_time_window(self, force_hours: int = None) -> datetime:
+    def _determine_time_window(self, force_hours: int = None, refetch_date: str = None) -> datetime:
+        if refetch_date:
+            # Report covers the UTC day: refetch_date 00:00 UTC – next day 00:00 UTC
+            dt = datetime.strptime(refetch_date, "%Y-%m-%d")
+            return dt.replace(tzinfo=timezone.utc) - timedelta(hours=24)
         if force_hours:
             since = datetime.now(timezone.utc) - timedelta(hours=force_hours)
         else:
@@ -382,6 +414,16 @@ class HorizonOrchestrator:
             if self.config.sources.google_news and self.config.sources.google_news.enabled:
                 gn_scraper = GoogleNewsScraper(self.config.sources.google_news, client)
                 tasks.append(self._fetch_with_progress("Google News", gn_scraper, since))
+
+            # Huawei News Center (Playwright-based JS rendering)
+            if self.config.sources.huawei_news and self.config.sources.huawei_news.enabled:
+                hw_scraper = HuaweiNewsScraper(self.config.sources.huawei_news, client)
+                tasks.append(self._fetch_with_progress("Huawei News", hw_scraper, since))
+
+            # ByteDance Seed tech blog (SSR JSON extraction)
+            if self.config.sources.bytedance_news and self.config.sources.bytedance_news.enabled:
+                bt_scraper = ByteDanceSeedScraper(self.config.sources.bytedance_news, client)
+                tasks.append(self._fetch_with_progress("ByteDance Seed", bt_scraper, since))
 
             # Fetch all concurrently
             results = await asyncio.gather(*tasks, return_exceptions=True)

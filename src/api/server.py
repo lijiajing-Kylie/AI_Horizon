@@ -6,11 +6,12 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from datetime import datetime, timezone
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, FileResponse
 from pydantic import BaseModel
@@ -376,6 +377,15 @@ _TEMPLATES_DIR = Path(__file__).parent / "templates"
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
 
 db = HorizonDB()
+
+# ── Mount /api/reports/pdfs/ to serve locally-downloaded report PDFs ──
+_reports_pdf_dir = Path("data") / "reports_pdfs"
+_reports_pdf_dir.mkdir(parents=True, exist_ok=True)
+app.mount(
+    "/api/reports/pdfs",
+    StaticFiles(directory=str(_reports_pdf_dir)),
+    name="reports_pdfs",
+)
 
 
 def _attach_favorited(items: list[dict], user_id: Optional[str]) -> None:
@@ -768,8 +778,9 @@ def daily_detail(date: str, user_id: Optional[str] = Depends(_get_user_id_option
 def list_papers(
     source: Optional[str] = Query(None, description="Filter by source (openalex/huggingface)"),
     category: Optional[str] = Query(None, description="Filter by category"),
+    topic_slug: Optional[str] = Query(None, description="Filter by research topic slug"),
     search: Optional[str] = Query(None, description="Search title/abstract"),
-    year: Optional[int] = Query(None, description="Filter by publication year"),
+    month: Optional[str] = Query(None, description="Filter by publication month (YYYY-MM)"),
     sort: str = Query("published_at"),
     order: str = Query("desc"),
     page: int = Query(1, ge=1),
@@ -780,8 +791,9 @@ def list_papers(
     result = db.get_papers(
         source=source,
         category=category,
+        topic_slug=topic_slug,
         search=search,
-        publication_year=year,
+        publication_month=month,
         sort=sort,
         order=order,
         page=page,
@@ -789,6 +801,12 @@ def list_papers(
     )
     _attach_paper_favorited(result["items"], user_id)
     return result
+
+
+@app.get("/api/papers/month-counts")
+def list_paper_month_counts() -> list[dict[str, Any]]:
+    """Return month-by-month paper counts, newest first."""
+    return db.get_paper_month_counts()
 
 
 @app.get("/api/papers/{paper_id}")
@@ -804,6 +822,55 @@ def get_paper(
         ids = db.get_favorited_paper_ids(user_id, [paper_id])
         paper["is_favorited"] = paper_id in ids
     return paper
+
+
+@app.get("/api/paper-topics")
+def list_paper_topics() -> dict:
+    """Return paper-specific topics grouped by ``group_name`` with paper counts."""
+    from ..papers.topics import build_paper_topics
+    all_topics = db.get_topics(grouped=True)
+    paper_topic_slugs = {t["slug"] for t in build_paper_topics()}
+    counts = db.get_paper_topic_counts()
+
+    # Filter groups to only contain paper topics
+    paper_groups = []
+    for group in all_topics.get("groups", []):
+        filtered = [t for t in group["topics"] if t["slug"] in paper_topic_slugs]
+        if filtered:
+            for t in filtered:
+                t["paper_count"] = counts.get(t["slug"], 0)
+            paper_groups.append({"group_name": group["group_name"], "topics": filtered})
+
+    return {"groups": paper_groups}
+
+
+@app.get("/api/paper-topics/{slug}/papers")
+def list_topic_papers(
+    slug: str,
+    search: Optional[str] = Query(None, description="Search title/abstract"),
+    source: Optional[str] = Query(None, description="Filter by source"),
+    year: Optional[int] = Query(None, description="Filter by publication year"),
+    sort: str = Query("published_at"),
+    order: str = Query("desc"),
+    page: int = Query(1, ge=1),
+    per_page: int = Query(20, ge=1, le=100),
+    user_id: Optional[str] = Depends(_get_user_id_optional),
+) -> dict:
+    """Paginated papers for a specific research topic."""
+    result = db.get_topic_papers(
+        slug,
+        page=page,
+        per_page=per_page,
+        sort=sort,
+        order=order,
+        search=search,
+        source=source,
+        year=year,
+    )
+    if result["topic"] is None:
+        raise HTTPException(status_code=404, detail="Topic not found")
+    _attach_paper_favorited(result.get("papers", []), user_id)
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -889,6 +956,72 @@ def search_items(
     items = db.search(q, limit=limit, blocked_topic_ids=blocked_topic_ids)
     _attach_favorited(items, user_id)
     return items
+
+
+@app.get("/api/global-search")
+def global_search(
+    q: str = Query(..., min_length=1, description="Search query"),
+    per_page: int = Query(10, ge=1, le=50, description="Results per category per page"),
+    news_page: int = Query(1, ge=1, description="Page for news results"),
+    papers_page: int = Query(1, ge=1, description="Page for paper results"),
+    reports_page: int = Query(1, ge=1, description="Page for report results"),
+    sort: str = Query("relevance", description="Sort order: relevance, published_at"),
+    order: str = Query("desc", description="Sort direction: asc, desc"),
+    user_id: Optional[str] = Depends(_get_user_id_optional),
+) -> dict:
+    """Combined search across news, papers, and reports."""
+    # Helper: compute pages from total and per_page
+    def _pages(total: int, per_page: int) -> int:
+        return max(1, (total + per_page - 1) // per_page)
+
+    # 1. News items
+    blocked_topic_ids = db.get_blocked_topic_ids(user_id) if user_id else None
+    news_result = db.search(
+        q, limit=per_page, page=news_page, sort=sort, order=order,
+        blocked_topic_ids=blocked_topic_ids,
+    )
+    _attach_favorited(news_result["items"], user_id)
+
+    # 2. Papers — pass sort through; get_papers defaults to published_at
+    #    (relevance sort is only meaningful for FTS-backed news search).
+    papers_result = db.get_papers(
+        search=q, page=papers_page, per_page=per_page,
+        sort=sort,
+        order=order,
+    )
+    _attach_paper_favorited(papers_result["items"], user_id)
+
+    # 3. Reports
+    reports_result = db.get_reports(
+        search=q, page=reports_page, per_page=per_page,
+        sort=sort,
+        order=order,
+    )
+    _attach_report_favorited(reports_result["items"], user_id)
+
+    return {
+        "news": {
+            "items": news_result["items"],
+            "total": news_result["total"],
+            "page": news_result["page"],
+            "per_page": news_result["per_page"],
+            "pages": _pages(news_result["total"], per_page),
+        },
+        "papers": {
+            "items": papers_result["items"],
+            "total": papers_result["total"],
+            "page": papers_result["page"],
+            "per_page": papers_result["per_page"],
+            "pages": _pages(papers_result["total"], per_page),
+        },
+        "reports": {
+            "items": reports_result["items"],
+            "total": reports_result["total"],
+            "page": reports_result["page"],
+            "per_page": reports_result["per_page"],
+            "pages": _pages(reports_result["total"], per_page),
+        },
+    }
 
 
 # ---------------------------------------------------------------------------
