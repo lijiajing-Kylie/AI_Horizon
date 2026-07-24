@@ -50,6 +50,7 @@ import type {
   TopicsResponse, TopicNewsResponse,
   DailyListResponse, DailyDetailResponse,
   Stats, Run, TopicPrefs, TopicPrefState, Paper, Report,
+  GlobalSearchResponse,
 } from './types'
 
 // Items
@@ -120,6 +121,19 @@ export function searchItems(q: string, limit?: number) {
   return get<NewsItem[]>('/api/search', { q, limit })
 }
 
+// Global Search
+export function globalSearch(params: {
+  q: string
+  per_page?: number
+  news_page?: number
+  papers_page?: number
+  reports_page?: number
+  sort?: string
+  order?: string
+}) {
+  return get<GlobalSearchResponse>('/api/global-search', params as Record<string, string | number | undefined>)
+}
+
 // Favorites
 export function putFavorite(itemId: string) {
   return mutate<{ item_id: string; is_favorited: boolean }>('PUT', `/api/favorites/${itemId}`)
@@ -162,14 +176,29 @@ export function getReportFavorites(params?: { page?: number; per_page?: number }
 // Papers
 export function getPapers(params?: {
   category?: string; source?: string; search?: string;
-  year?: number; sort?: string; order?: string;
+  topic_slug?: string; month?: string; sort?: string; order?: string;
   page?: number; per_page?: number;
 }) {
   return get<PaginatedResponse<Paper>>('/api/papers', params as Record<string, string | number | undefined>)
 }
 
+export function getPaperMonthCounts() {
+  return get<{ ym: string; cnt: number }[]>('/api/papers/month-counts')
+}
+
 export function getPaper(id: string) {
   return get<Paper>(`/api/papers/${id}`)
+}
+
+export function getPaperTopics() {
+  return get<{ groups: { group_name: string; topics: { id: number; name: string; slug: string; group_name: string; description: string; paper_count: number }[] }[] }>('/api/paper-topics')
+}
+
+export function getTopicPapers(slug: string, params?: {
+  search?: string; source?: string; year?: number;
+  sort?: string; order?: string; page?: number; per_page?: number;
+}) {
+  return get<{ topic: object; papers: Paper[]; total: number; page: number; per_page: number; pages: number }>(`/api/paper-topics/${slug}/papers`, params as Record<string, string | number | undefined>)
 }
 
 // Reports

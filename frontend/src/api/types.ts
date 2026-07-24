@@ -290,6 +290,7 @@ export interface Run {
 export interface ReportPdf {
   name: string
   url: string
+  local_path?: string
 }
 
 export interface Report {
@@ -298,6 +299,7 @@ export interface Report {
   native_id: string
   title: string
   institution: string
+  institutions: string[]
   author: string | null
   url: string
   pdf_urls: ReportPdf[]
@@ -309,8 +311,20 @@ export interface Report {
   view_count: number | null
   download_count: number | null
   fetched_at: string
+  /** Whether at least one PDF has been downloaded and is served locally. */
+  has_local_pdf?: boolean
   /** Only present when the request carried X-User-Id (see utils/userId.ts). */
   is_favorited?: boolean
+}
+
+export interface PaperTopic {
+  id: number
+  name: string
+  slug: string
+  group_name: string
+  description: string
+  confidence?: number
+  reason?: string
 }
 
 export interface Paper {
@@ -330,8 +344,10 @@ export interface Paper {
   comment: string | null
   journal_ref: string | null
   doi: string | null
+  arxiv_id: string | null
   open_access: boolean | null
   citation_count: number | null
+  citation_percentile: number | null
   upvote_count: number | null
   fetched_at: string
   /** AI-translated Chinese title (null when not yet translated). */
@@ -340,6 +356,24 @@ export interface Paper {
   abstract_zh: string | null
   /** Detected source language: "zh", "en", or "unknown". */
   original_language: string | null
+  /** Assigned research-direction topics (from rule-based classification). */
+  topics?: PaperTopic[]
   /** Only present when the request carried X-User-Id (see utils/userId.ts). */
   is_favorited?: boolean
+}
+
+// ---- Global Search -------------------------------------------------------
+
+export interface GlobalSearchSection<T> {
+  items: T[]
+  total: number
+  page: number
+  per_page: number
+  pages: number
+}
+
+export interface GlobalSearchResponse {
+  news: GlobalSearchSection<NewsItem>
+  papers: GlobalSearchSection<Paper>
+  reports: GlobalSearchSection<Report>
 }

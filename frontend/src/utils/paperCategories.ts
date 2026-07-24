@@ -64,6 +64,13 @@ export const PAPER_CATEGORY_GROUPS: CategoryGroup[] = [
       { id: 'embodied-robotics', label: '机器人与具身智能' },
     ],
   },
+  {
+    id: 'other',
+    label: '其他',
+    children: [
+      { id: 'other', label: '其他' },
+    ],
+  },
 ]
 
 /** Flat list of visible subcategory IDs in hierarchy order (for the filter menu). */

@@ -28,6 +28,7 @@ export const UNIFIED_CATEGORY_IDS = [
   'robotics-control',
   'graph-learning',
   'interdisciplinary',
+  'other',
 ] as const
 
 export type UnifiedCategoryId = (typeof UNIFIED_CATEGORY_IDS)[number]
@@ -51,6 +52,7 @@ export const UNIFIED_LABELS_ZH: Record<UnifiedCategoryId, string> = {
   'robotics-control': '机器人与控制',
   'graph-learning': '图学习',
   'interdisciplinary': '跨学科',
+  'other': '其他',
 }
 
 // ── Raw category → unified category ID ────────────────────────────────────
