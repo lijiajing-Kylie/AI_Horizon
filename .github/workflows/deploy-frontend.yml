@@ -25,6 +25,8 @@ jobs:
 
       - name: Build React frontend
         env:
+          # When deploying to GitHub Pages, use static JSON data instead of API
+          VITE_STATIC_MODE: 'true'
           # 当部署后端服务器后，在这里设置 API 地址
           # 例如：VITE_API_BASE_URL: https://your-api-server.com
           VITE_API_BASE_URL: ${{ github.event.inputs.api_base_url }}
