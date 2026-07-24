@@ -1,0 +1,1225 @@
+{
+  "version": "1.0",
+  "ai": {
+    "provider": "deepseek",
+    "provider_chain": null,
+    "model": "deepseek-v4-flash",
+    "base_url": null,
+    "api_key_env": "DEEPSEEK_API_KEY",
+    "temperature": 0.3,
+    "max_tokens": 8192,
+    "throttle_sec": 0.0,
+    "analysis_concurrency": 5,
+    "enrichment_concurrency": 3,
+    "languages": [
+      "zh"
+    ],
+    "azure_endpoint_env": null,
+    "api_version": null
+  },
+  "sources": {
+    "github": [
+      {
+        "type": "repo_releases",
+        "username": null,
+        "owner": "sgl-project",
+        "repo": "sglang",
+        "enabled": true,
+        "category": "github-official"
+      },
+      {
+        "type": "repo_releases",
+        "username": null,
+        "owner": "vllm-project",
+        "repo": "vllm",
+        "enabled": true,
+        "category": "github-official"
+      },
+      {
+        "type": "repo_releases",
+        "username": null,
+        "owner": "YD4223",
+        "repo": "aihub",
+        "enabled": true,
+        "category": "chinese-blogger"
+      }
+    ],
+    "hackernews": {
+      "enabled": true,
+      "fetch_top_stories": 30,
+      "min_score": 100,
+      "category": "foreign-community"
+    },
+    "rss": [
+      {
+        "name": "Anthropic Research",
+        "url": "https://www.anthropic.com/research/rss",
+        "enabled": false,
+        "category": "foreign-official",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "BAIR Blog",
+        "url": "https://bair.berkeley.edu/blog/feed.xml",
+        "enabled": true,
+        "category": "foreign-official",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "GitHub AI & ML",
+        "url": "https://github.blog/ai-and-ml/feed/",
+        "enabled": true,
+        "category": "foreign-official",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "GitHub Changelog",
+        "url": "https://github.blog/changelog/feed/",
+        "enabled": true,
+        "category": "foreign-official",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "Google AI Blog",
+        "url": "https://blog.google/innovation-and-ai/technology/ai/rss/",
+        "enabled": true,
+        "category": "foreign-official",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "Google DeepMind",
+        "url": "https://deepmind.google/blog/rss.xml",
+        "enabled": true,
+        "category": "foreign-official",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "Hugging Face Blog",
+        "url": "https://huggingface.co/blog/feed.xml",
+        "enabled": true,
+        "category": "foreign-official",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "OpenAI Blog",
+        "url": "https://openai.com/blog/rss.xml",
+        "enabled": true,
+        "category": "foreign-official",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "OpenAI News",
+        "url": "https://openai.com/news/rss.xml",
+        "enabled": true,
+        "category": "foreign-official",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "OpenAI Skills",
+        "url": "https://github.com/openai/skills/commits/main.atom",
+        "enabled": true,
+        "category": "foreign-official",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "Stanford AI Lab (SAIL) Blog",
+        "url": "https://ai.stanford.edu/blog/feed.xml",
+        "enabled": true,
+        "category": "foreign-official",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "The Batch",
+        "url": "https://www.deeplearning.ai/the-batch/feed/",
+        "enabled": false,
+        "category": "foreign-official",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "Lobsters",
+        "url": "https://lobste.rs/rss",
+        "enabled": false,
+        "category": "foreign-community",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "Ars Technica AI",
+        "url": "http://feeds.arstechnica.com/arstechnica/artificial-intelligence",
+        "enabled": true,
+        "category": "foreign-media",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "TechCrunch AI",
+        "url": "https://techcrunch.com/category/artificial-intelligence/feed/",
+        "enabled": true,
+        "category": "foreign-media",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "The Economist",
+        "url": "https://www.economist.com/latest/rss.xml",
+        "enabled": false,
+        "category": "foreign-media",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "The Verge",
+        "url": "https://www.theverge.com/rss/index.xml",
+        "enabled": true,
+        "category": "foreign-media",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "VentureBeat AI",
+        "url": "https://venturebeat.com/category/ai/feed/",
+        "enabled": true,
+        "category": "foreign-media",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "Ahead of AI (Sebastian Raschka)",
+        "url": "https://magazine.sebastianraschka.com/feed",
+        "enabled": true,
+        "category": "foreign-blogger",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "Chip Huyen",
+        "url": "https://huyenchip.com/feed.xml",
+        "enabled": true,
+        "category": "foreign-blogger",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "Interconnects",
+        "url": "https://www.interconnects.ai/feed",
+        "enabled": true,
+        "category": "foreign-blogger",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "Jay Alammar",
+        "url": "https://jalammar.github.io/feed.xml",
+        "enabled": true,
+        "category": "foreign-blogger",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "Latent Space",
+        "url": "https://www.latent.space/feed",
+        "enabled": true,
+        "category": "foreign-blogger",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "Lilian Weng",
+        "url": "https://lilianweng.github.io/index.xml",
+        "enabled": true,
+        "category": "foreign-blogger",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "Machine Learning Mastery",
+        "url": "https://machinelearningmastery.com/feed/",
+        "enabled": true,
+        "category": "foreign-blogger",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "Sebastian Raschka",
+        "url": "https://sebastianraschka.com/rss_feed.xml",
+        "enabled": true,
+        "category": "foreign-blogger",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "Simon Willison",
+        "url": "https://simonwillison.net/atom/everything/",
+        "enabled": true,
+        "category": "foreign-blogger",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "The Gradient",
+        "url": "https://thegradient.pub/rss/",
+        "enabled": true,
+        "category": "foreign-blogger",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "The Pragmatic Engineer",
+        "url": "https://newsletter.pragmaticengineer.com/feed",
+        "enabled": true,
+        "category": "foreign-blogger",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "机器之心",
+        "url": "https://wechat2rss.xlab.app/feed/51e92aad2728acdd1fda7314be32b16639353001.xml",
+        "enabled": true,
+        "category": "wechat-account",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "深科技",
+        "url": "https://decemberpei.cyou/rssbox/wechat-shenkeji.xml",
+        "enabled": true,
+        "category": "wechat-account",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "PaperWeekly",
+        "url": "https://decemberpei.cyou/rssbox/wechat-paperweekly.xml",
+        "enabled": true,
+        "category": "wechat-account",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "计算机视觉life",
+        "url": "https://decemberpei.cyou/rssbox/wechat-jisuanjishijuelife.xml",
+        "enabled": true,
+        "category": "wechat-account",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "AI前线",
+        "url": "https://wechatrss.waytomaster.com/api/rss/MzU1NDA4NjU2MA==?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxODEwIiwidHlwZSI6InJzcyJ9.DQmf_sjp3y_iQV78XZN3iF3qnn6VSrrp_d3GW3dmcVo",
+        "enabled": true,
+        "category": "wechat-account",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "夕小瑶科技说",
+        "url": "https://decemberpei.cyou/rssbox/wechat-xixiaoyaokejishuo.xml",
+        "enabled": true,
+        "category": "wechat-account",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "海外独角兽",
+        "url": "https://decemberpei.cyou/rssbox/wechat-haiwaidujiaoshou.xml",
+        "enabled": true,
+        "category": "wechat-account",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "甲子光年",
+        "url": "https://wechatrss.waytomaster.com/api/rss/MzU5OTI0NTc3Mg==?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxODEwIiwidHlwZSI6InJzcyJ9.DQmf_sjp3y_iQV78XZN3iF3qnn6VSrrp_d3GW3dmcVo",
+        "enabled": true,
+        "category": "wechat-account",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "极智俱乐部",
+        "url": "https://decemberpei.cyou/rssbox/wechat-jizhijvlebu.xml",
+        "enabled": true,
+        "category": "wechat-account",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "量子位",
+        "url": "https://wechat2rss.xlab.app/feed/7131b577c61365cb47e81000738c10d872685908.xml",
+        "enabled": true,
+        "category": "wechat-account",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "新智元",
+        "url": "https://wechat2rss.xlab.app/feed/ede30346413ea70dbef5d485ea5cbb95cca446e7.xml",
+        "enabled": true,
+        "category": "wechat-account",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "晚点 LatePost",
+        "url": "https://decemberpei.cyou/rssbox/wechat-wandian.xml",
+        "enabled": true,
+        "category": "wechat-account",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "36氪Pro",
+        "url": "https://wechatrss.waytomaster.com/api/rss/MzUxOTA3MzMzOQ==?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxODEwIiwidHlwZSI6InJzcyJ9.DQmf_sjp3y_iQV78XZN3iF3qnn6VSrrp_d3GW3dmcVo",
+        "enabled": true,
+        "category": "wechat-account",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "虎嗅APP",
+        "url": "https://decemberpei.cyou/rssbox/wechat-huxiuapp.xml",
+        "enabled": true,
+        "category": "wechat-account",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "极客公园",
+        "url": "https://wechat2rss.xlab.app/feed/1a5aec98e71c707c8ca092bc2c255b9d4bac477d.xml",
+        "enabled": true,
+        "category": "wechat-account",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "APPSO",
+        "url": "https://decemberpei.cyou/rssbox/wechat-appso.xml",
+        "enabled": true,
+        "category": "wechat-account",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "爱范儿",
+        "url": "https://decemberpei.cyou/rssbox/wechat-anfaner.xml",
+        "enabled": true,
+        "category": "wechat-account",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "差评",
+        "url": "https://decemberpei.cyou/rssbox/wechat-chaping.xml",
+        "enabled": true,
+        "category": "wechat-account",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "钛媒体",
+        "url": "https://decemberpei.cyou/rssbox/wechat-taimeiti.xml",
+        "enabled": true,
+        "category": "wechat-account",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "腾讯玄武实验室",
+        "url": "https://wechat2rss.xlab.app/feed/923c0e2f33b6d39c8a826a90f185725f0edb10e8.xml",
+        "enabled": true,
+        "category": "wechat-account",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "腾讯安全智能",
+        "url": "https://wechat2rss.xlab.app/feed/88c9f7cfba0f4f60415eedf32cc5958b131c7065.xml",
+        "enabled": true,
+        "category": "wechat-account",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "vivo千镜安全实验室",
+        "url": "https://wechat2rss.xlab.app/feed/6f07fe5af57e7a13c75b12bd0718840bdf4dc3f2.xml",
+        "enabled": true,
+        "category": "wechat-account",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "阿里云开发者",
+        "url": "https://wechat2rss.xlab.app/feed/c74ed6db00cfbf16f2a048a165b4453f982681f0.xml",
+        "enabled": true,
+        "category": "wechat-account",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "阿里技术",
+        "url": "https://wechat2rss.xlab.app/feed/6e1f9b775f7a5841ac1a94310f0478b45a02ec01.xml",
+        "enabled": true,
+        "category": "wechat-account",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "通义实验室",
+        "url": "https://wechatrss.waytomaster.com/api/rss/MzkxMTYyMTAzNA==?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxODEwIiwidHlwZSI6InJzcyJ9.DQmf_sjp3y_iQV78XZN3iF3qnn6VSrrp_d3GW3dmcVo",
+        "enabled": true,
+        "category": "wechat-account",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "腾讯技术工程",
+        "url": "https://wechat2rss.xlab.app/feed/9685937b45fe9c7a526dbc32e4f24ba879a65b9a.xml",
+        "enabled": true,
+        "category": "wechat-account",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "字节跳动安全中心",
+        "url": "https://wechat2rss.xlab.app/feed/f4087ff02b808a1a995e2ba930219ada5b82425d.xml",
+        "enabled": true,
+        "category": "wechat-account",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "小米技术",
+        "url": "https://wechat2rss.xlab.app/feed/20bc9c3251b3c4f73d3b53aa1f1ab853d05d4cbc.xml",
+        "enabled": true,
+        "category": "wechat-account",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "前端之巅",
+        "url": "https://decemberpei.cyou/rssbox/wechat-qianduanzhidian.xml",
+        "enabled": true,
+        "category": "wechat-account",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "架构师之路",
+        "url": "https://decemberpei.cyou/rssbox/wechat-jiagoushizhilu.xml",
+        "enabled": true,
+        "category": "wechat-account",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "GitHubDaily",
+        "url": "https://decemberpei.cyou/rssbox/wechat-githubdaily.xml",
+        "enabled": true,
+        "category": "wechat-account",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "经纬创投",
+        "url": "https://decemberpei.cyou/rssbox/wechat-jingweichuangtou.xml",
+        "enabled": true,
+        "category": "wechat-account",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "我爱计算机视觉",
+        "url": "https://wechat2rss.xlab.app/feed/b81ffcfff1107b5265cd7e39de610dc7ca72caf4.xml",
+        "enabled": true,
+        "category": "wechat-account",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "红杉汇",
+        "url": "https://decemberpei.cyou/rssbox/wechat-hongshanhui.xml",
+        "enabled": true,
+        "category": "wechat-account",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "乱翻书",
+        "url": "https://decemberpei.cyou/rssbox/wechat-luanfanshu.xml",
+        "enabled": true,
+        "category": "wechat-account",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "Founder Park",
+        "url": "https://decemberpei.cyou/rssbox/wechat-founderpark.xml",
+        "enabled": true,
+        "category": "wechat-account",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "AI Hot",
+        "url": "https://aihot.virxact.com/feed.xml",
+        "enabled": true,
+        "category": "ai-aggregator",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "AI News",
+        "url": "https://www.artificialintelligence-news.com/feed/",
+        "enabled": true,
+        "category": "ai-aggregator",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "AI Weekly",
+        "url": "https://aiweekly.co/issues.rss",
+        "enabled": true,
+        "category": "ai-aggregator",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "AINews (Buttondown)",
+        "url": "https://buttondown.com/ainews/rss",
+        "enabled": true,
+        "category": "ai-aggregator",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "Anavem.com",
+        "url": "https://www.anavem.com/en/rss.xml",
+        "enabled": true,
+        "category": "ai-aggregator",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "Last Week in AI",
+        "url": "https://lastweekin.ai/feed",
+        "enabled": true,
+        "category": "ai-aggregator",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "MarkTechPost",
+        "url": "https://www.marktechpost.com/feed/",
+        "enabled": true,
+        "category": "ai-aggregator",
+        "extraction_mode": "browser"
+      },
+      {
+        "name": "The Decoder",
+        "url": "https://the-decoder.com/feed/",
+        "enabled": true,
+        "category": "ai-aggregator",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "InfoQ CN",
+        "url": "https://www.infoq.cn/feed",
+        "enabled": true,
+        "category": "chinese-media",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "36氪",
+        "url": "https://36kr.com/feed",
+        "enabled": true,
+        "category": "chinese-media",
+        "extraction_mode": "browser"
+      },
+      {
+        "name": "少数派",
+        "url": "https://sspai.com/feed",
+        "enabled": true,
+        "category": "chinese-media",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "ReadHub",
+        "url": "https://readhub.cn/rss",
+        "enabled": true,
+        "category": "chinese-aggregator",
+        "extraction_mode": "browser"
+      },
+      {
+        "name": "美团技术团队",
+        "url": "https://tech.meituan.com/rss.xml",
+        "enabled": true,
+        "category": "chinese-official",
+        "extraction_mode": "http"
+      },
+      {
+        "name": "Matthew Garrett / mjg59",
+        "url": "http://mjg59.dreamwidth.org/data/rss",
+        "enabled": true,
+        "category": "foreign-blogger",
+        "extraction_mode": "http"
+      }
+    ],
+    "reddit": {
+      "enabled": true,
+      "subreddits": [
+        {
+          "subreddit": "MachineLearning",
+          "enabled": true,
+          "sort": "hot",
+          "time_filter": "day",
+          "fetch_limit": 15,
+          "min_score": 60,
+          "category": "foreign-community"
+        },
+        {
+          "subreddit": "LocalLLaMA",
+          "enabled": true,
+          "sort": "hot",
+          "time_filter": "day",
+          "fetch_limit": 15,
+          "min_score": 60,
+          "category": "foreign-community"
+        },
+        {
+          "subreddit": "StableDiffusion",
+          "enabled": true,
+          "sort": "hot",
+          "time_filter": "day",
+          "fetch_limit": 15,
+          "min_score": 60,
+          "category": "foreign-community"
+        },
+        {
+          "subreddit": "artificial",
+          "enabled": true,
+          "sort": "hot",
+          "time_filter": "day",
+          "fetch_limit": 15,
+          "min_score": 60,
+          "category": "foreign-community"
+        },
+        {
+          "subreddit": "OpenAI",
+          "enabled": true,
+          "sort": "hot",
+          "time_filter": "day",
+          "fetch_limit": 15,
+          "min_score": 60,
+          "category": "foreign-community"
+        },
+        {
+          "subreddit": "ChatGPTCoding",
+          "enabled": true,
+          "sort": "hot",
+          "time_filter": "day",
+          "fetch_limit": 15,
+          "min_score": 60,
+          "category": "foreign-community"
+        },
+        {
+          "subreddit": "technology",
+          "enabled": true,
+          "sort": "hot",
+          "time_filter": "day",
+          "fetch_limit": 15,
+          "min_score": 60,
+          "category": "foreign-media"
+        },
+        {
+          "subreddit": "ChatGPT",
+          "enabled": true,
+          "sort": "hot",
+          "time_filter": "day",
+          "fetch_limit": 15,
+          "min_score": 60,
+          "category": "foreign-community"
+        }
+      ],
+      "users": [],
+      "fetch_comments": 10
+    },
+    "telegram": {
+      "enabled": false,
+      "channels": []
+    },
+    "twitter": null,
+    "openbb": null,
+    "ossinsight": {
+      "enabled": false,
+      "period": "past_24_hours",
+      "languages": [
+        "All",
+        "Python",
+        "TypeScript"
+      ],
+      "keywords": [],
+      "min_stars": 5,
+      "max_items": 30
+    },
+    "gdelt": null,
+    "google_news": null,
+    "huawei_news": {
+      "enabled": true,
+      "url": "https://www.huawei.com/cn/news",
+      "fetch_limit": 50,
+      "category": "chinese-official"
+    },
+    "bytedance_news": {
+      "enabled": true,
+      "url": "https://seed.bytedance.com/zh/blog",
+      "fetch_limit": 50,
+      "fetch_details": false,
+      "category": "chinese-official"
+    }
+  },
+  "filtering": {
+    "ai_score_threshold": 7.0,
+    "time_window_hours": 24,
+    "max_items": 30,
+    "category_groups": {},
+    "default_group": "other",
+    "default_group_limit": null
+  },
+  "email": null,
+  "webhook": {
+    "url_env": "DINGTALK_WEBHOOK_URL",
+    "request_body": {
+      "msgtype": "markdown",
+      "markdown": {
+        "title": "Horizon #{date} Daily",
+        "text": "Horizon result: #{result}\n\nHorizon important items: #{important_items}/#{all_items}\n\n#{summary}"
+      }
+    },
+    "headers": null,
+    "delivery": "summary_and_items",
+    "overview_position": "first",
+    "platform": "dingtalk",
+    "layout": "markdown",
+    "fallback_layout": "markdown",
+    "languages": [
+      "zh"
+    ],
+    "enabled": false,
+    "max_items": null
+  },
+  "papers": {
+    "enabled": true,
+    "openalex": {
+      "enabled": true
+    },
+    "huggingface": {
+      "enabled": true,
+      "top_n": 30,
+      "topics": []
+    }
+  },
+  "reports": {
+    "enabled": true,
+    "sources": [
+      {
+        "name": "fxbaogao",
+        "ai_filter": true
+      },
+      {
+        "name": "aliyunreports",
+        "ai_filter": true
+      }
+    ],
+    "pdf_output_dir": "data/reports_pdfs",
+    "download_pdfs": true,
+    "aliyunreports_year": "2025年",
+    "ai_filter_enabled": true
+  },
+  "wechat": {
+    "enabled": false,
+    "bridge_type": "wemp_rss",
+    "api_base_url": "http://we-mp-rss:8001",
+    "api_key": null,
+    "username": "admin",
+    "password": "admin123",
+    "wechatferry_enabled": false,
+    "wechatferry_dll_path": null,
+    "wechatferry_process_name": "WeChat.exe",
+    "max_articles_per_account": 30,
+    "request_delay": 1.0,
+    "timeout": 30,
+    "ai": null,
+    "accounts": [
+      {
+        "mp_name": "机器之心",
+        "display_name": null,
+        "enabled": true,
+        "pipeline": [
+          "news",
+          "papers"
+        ],
+        "category": "wechat-ai-news",
+        "paper_topics": [],
+        "institution": null,
+        "pdf_reply_rules": []
+      },
+      {
+        "mp_name": "量子位",
+        "display_name": null,
+        "enabled": true,
+        "pipeline": [
+          "news"
+        ],
+        "category": "wechat-ai-news",
+        "paper_topics": [],
+        "institution": null,
+        "pdf_reply_rules": []
+      },
+      {
+        "mp_name": "新智元",
+        "display_name": null,
+        "enabled": true,
+        "pipeline": [
+          "news"
+        ],
+        "category": "wechat-ai-news",
+        "paper_topics": [],
+        "institution": null,
+        "pdf_reply_rules": []
+      },
+      {
+        "mp_name": "虎嗅APP",
+        "display_name": null,
+        "enabled": true,
+        "pipeline": [
+          "news"
+        ],
+        "category": "wechat-tech-media",
+        "paper_topics": [],
+        "institution": null,
+        "pdf_reply_rules": []
+      },
+      {
+        "mp_name": "差评",
+        "display_name": null,
+        "enabled": true,
+        "pipeline": [
+          "news"
+        ],
+        "category": "wechat-tech-media",
+        "paper_topics": [],
+        "institution": null,
+        "pdf_reply_rules": []
+      },
+      {
+        "mp_name": "晚点LatePost",
+        "display_name": null,
+        "enabled": true,
+        "pipeline": [
+          "news"
+        ],
+        "category": "wechat-tech-media",
+        "paper_topics": [],
+        "institution": null,
+        "pdf_reply_rules": []
+      },
+      {
+        "mp_name": "极客公园",
+        "display_name": null,
+        "enabled": true,
+        "pipeline": [
+          "news"
+        ],
+        "category": "wechat-tech-media",
+        "paper_topics": [],
+        "institution": null,
+        "pdf_reply_rules": []
+      },
+      {
+        "mp_name": "爱范儿",
+        "display_name": null,
+        "enabled": true,
+        "pipeline": [
+          "news"
+        ],
+        "category": "wechat-tech-media",
+        "paper_topics": [],
+        "institution": null,
+        "pdf_reply_rules": []
+      },
+      {
+        "mp_name": "APPSO",
+        "display_name": null,
+        "enabled": true,
+        "pipeline": [
+          "news"
+        ],
+        "category": "wechat-tech-media",
+        "paper_topics": [],
+        "institution": null,
+        "pdf_reply_rules": []
+      },
+      {
+        "mp_name": "钛媒体",
+        "display_name": null,
+        "enabled": true,
+        "pipeline": [
+          "news"
+        ],
+        "category": "wechat-tech-media",
+        "paper_topics": [],
+        "institution": null,
+        "pdf_reply_rules": []
+      },
+      {
+        "mp_name": "深科技",
+        "display_name": null,
+        "enabled": true,
+        "pipeline": [
+          "news"
+        ],
+        "category": "wechat-tech-media",
+        "paper_topics": [],
+        "institution": null,
+        "pdf_reply_rules": []
+      },
+      {
+        "mp_name": "海外独角兽",
+        "display_name": null,
+        "enabled": true,
+        "pipeline": [
+          "news"
+        ],
+        "category": "wechat-investment",
+        "paper_topics": [],
+        "institution": null,
+        "pdf_reply_rules": []
+      },
+      {
+        "mp_name": "夕小瑶科技说",
+        "display_name": null,
+        "enabled": true,
+        "pipeline": [
+          "news"
+        ],
+        "category": "wechat-ai-news",
+        "paper_topics": [],
+        "institution": null,
+        "pdf_reply_rules": []
+      },
+      {
+        "mp_name": "36氪Pro",
+        "display_name": null,
+        "enabled": true,
+        "pipeline": [
+          "news"
+        ],
+        "category": "wechat-tech-media",
+        "paper_topics": [],
+        "institution": null,
+        "pdf_reply_rules": []
+      },
+      {
+        "mp_name": "经纬创投",
+        "display_name": null,
+        "enabled": true,
+        "pipeline": [
+          "news"
+        ],
+        "category": "wechat-investment",
+        "paper_topics": [],
+        "institution": null,
+        "pdf_reply_rules": []
+      },
+      {
+        "mp_name": "乱翻书",
+        "display_name": null,
+        "enabled": true,
+        "pipeline": [
+          "news"
+        ],
+        "category": "wechat-tech-media",
+        "paper_topics": [],
+        "institution": null,
+        "pdf_reply_rules": []
+      },
+      {
+        "mp_name": "Founder Park",
+        "display_name": null,
+        "enabled": true,
+        "pipeline": [
+          "news"
+        ],
+        "category": "wechat-tech-media",
+        "paper_topics": [],
+        "institution": null,
+        "pdf_reply_rules": []
+      },
+      {
+        "mp_name": "阿里云开发者",
+        "display_name": null,
+        "enabled": true,
+        "pipeline": [
+          "news"
+        ],
+        "category": "wechat-dev",
+        "paper_topics": [],
+        "institution": null,
+        "pdf_reply_rules": []
+      },
+      {
+        "mp_name": "阿里技术",
+        "display_name": null,
+        "enabled": true,
+        "pipeline": [
+          "news"
+        ],
+        "category": "wechat-dev",
+        "paper_topics": [],
+        "institution": null,
+        "pdf_reply_rules": []
+      },
+      {
+        "mp_name": "腾讯技术工程",
+        "display_name": null,
+        "enabled": true,
+        "pipeline": [
+          "news"
+        ],
+        "category": "wechat-dev",
+        "paper_topics": [],
+        "institution": null,
+        "pdf_reply_rules": []
+      },
+      {
+        "mp_name": "小米技术",
+        "display_name": null,
+        "enabled": true,
+        "pipeline": [
+          "news"
+        ],
+        "category": "wechat-dev",
+        "paper_topics": [],
+        "institution": null,
+        "pdf_reply_rules": []
+      },
+      {
+        "mp_name": "腾讯玄武实验室",
+        "display_name": null,
+        "enabled": true,
+        "pipeline": [
+          "news"
+        ],
+        "category": null,
+        "paper_topics": [],
+        "institution": null,
+        "pdf_reply_rules": []
+      },
+      {
+        "mp_name": "腾讯安全智能",
+        "display_name": null,
+        "enabled": true,
+        "pipeline": [
+          "news"
+        ],
+        "category": null,
+        "paper_topics": [],
+        "institution": null,
+        "pdf_reply_rules": []
+      },
+      {
+        "mp_name": "vivo千镜安全实验室",
+        "display_name": null,
+        "enabled": true,
+        "pipeline": [
+          "news"
+        ],
+        "category": null,
+        "paper_topics": [],
+        "institution": null,
+        "pdf_reply_rules": []
+      },
+      {
+        "mp_name": "字节跳动安全中心",
+        "display_name": null,
+        "enabled": true,
+        "pipeline": [
+          "news"
+        ],
+        "category": null,
+        "paper_topics": [],
+        "institution": null,
+        "pdf_reply_rules": []
+      },
+      {
+        "mp_name": "AI前线",
+        "display_name": null,
+        "enabled": true,
+        "pipeline": [
+          "news",
+          "papers"
+        ],
+        "category": null,
+        "paper_topics": [],
+        "institution": null,
+        "pdf_reply_rules": []
+      },
+      {
+        "mp_name": "通义实验室",
+        "display_name": null,
+        "enabled": true,
+        "pipeline": [
+          "news",
+          "papers"
+        ],
+        "category": null,
+        "paper_topics": [],
+        "institution": null,
+        "pdf_reply_rules": []
+      },
+      {
+        "mp_name": "PaperWeekly",
+        "display_name": null,
+        "enabled": true,
+        "pipeline": [
+          "news",
+          "papers"
+        ],
+        "category": null,
+        "paper_topics": [
+          "nlp",
+          "llm"
+        ],
+        "institution": null,
+        "pdf_reply_rules": []
+      },
+      {
+        "mp_name": "计算机视觉life",
+        "display_name": null,
+        "enabled": true,
+        "pipeline": [
+          "news",
+          "papers"
+        ],
+        "category": null,
+        "paper_topics": [
+          "cv"
+        ],
+        "institution": null,
+        "pdf_reply_rules": []
+      },
+      {
+        "mp_name": "极智俱乐部",
+        "display_name": null,
+        "enabled": true,
+        "pipeline": [
+          "news",
+          "papers"
+        ],
+        "category": null,
+        "paper_topics": [],
+        "institution": null,
+        "pdf_reply_rules": []
+      },
+      {
+        "mp_name": "阿里研究院",
+        "display_name": null,
+        "enabled": true,
+        "pipeline": [
+          "reports"
+        ],
+        "category": null,
+        "paper_topics": [],
+        "institution": "阿里研究院",
+        "pdf_reply_rules": []
+      },
+      {
+        "mp_name": "腾讯研究院",
+        "display_name": null,
+        "enabled": true,
+        "pipeline": [
+          "reports"
+        ],
+        "category": null,
+        "paper_topics": [],
+        "institution": "腾讯研究院",
+        "pdf_reply_rules": []
+      },
+      {
+        "mp_name": "红杉汇",
+        "display_name": null,
+        "enabled": true,
+        "pipeline": [
+          "reports"
+        ],
+        "category": null,
+        "paper_topics": [],
+        "institution": "红杉资本",
+        "pdf_reply_rules": []
+      },
+      {
+        "mp_name": "甲子光年",
+        "display_name": null,
+        "enabled": true,
+        "pipeline": [
+          "reports",
+          "news"
+        ],
+        "category": null,
+        "paper_topics": [],
+        "institution": "甲子光年",
+        "pdf_reply_rules": [
+          {
+            "trigger_pattern": "PDF下载|获取报告",
+            "reply_keywords": [
+              "甲子光年报告",
+              "完整报告"
+            ],
+            "expected_download_urls": null
+          }
+        ]
+      }
+    ]
+  }
+}
