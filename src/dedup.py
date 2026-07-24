@@ -12,7 +12,7 @@ to give independently-corroborated stories a small score bump.
 from __future__ import annotations
 
 from typing import Dict, List, Optional
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, urlparse
 
 from rich.console import Console
 
@@ -32,6 +32,16 @@ _MAX_MERGED_IMAGES = 20
 
 MULTI_SOURCE_BONUS_THRESHOLD = 3
 MULTI_SOURCE_BONUS = 1.0
+
+# Query parameters that don't affect content identity — stripped during URL
+# normalization so pages reachable via multiple tracking URLs still deduplicate.
+_TRACKING_PARAMS = frozenset({
+    "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
+    "fbclid", "gclid", "gclsrc", "dclid", "gbraid", "wbraid",
+    "msclkid", "twclid", "sc_campaign", "sc_channel", "sc_content",
+    "sc_medium", "sc_outcome", "sc_geo", "sc_country",
+    "ref", "source", "source_type", "from", "isappinstalled",
+})
 
 
 def merge_item_images(primary: ContentItem, other: ContentItem) -> None:
@@ -221,7 +231,20 @@ def merge_cross_source_duplicates(items: List[ContentItem]) -> List[ContentItem]
         if host.startswith("www."):
             host = host[4:]
         path = parsed.path.rstrip("/")
-        return f"{host}{path}"
+        key = f"{host}{path}"
+
+        # Include query parameters (minus tracking/fragment params) so that
+        # pages like WeChat articles (mp.weixin.qq.com/s?__biz=…&sn=…), which
+        # differ only in query string, are treated as distinct URLs.
+        if parsed.query:
+            params = sorted(
+                (k, v) for k, v in parse_qsl(parsed.query)
+                if k.lower() not in _TRACKING_PARAMS
+            )
+            if params:
+                key += "?" + "&".join(f"{k}={v}" for k, v in params)
+
+        return key
 
     def _build_source_entry(item: ContentItem, discovered_via: str = "url_dedup", confidence: float = 1.0) -> dict:
         """Build a single source provenance entry for a ContentItem."""
