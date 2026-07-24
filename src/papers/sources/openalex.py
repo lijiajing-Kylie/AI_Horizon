@@ -246,18 +246,16 @@ class OpenAlexFetcher(PaperSourceFetcher):
         if not _year_matches(work_year, seed.expected_year):
             return False
 
-        # Author overlap: blocking only if both sets are present and clearly
-        # incompatible; otherwise pass.
+        # Author overlap: when the seed carries canonical_authors, use it as
+        # a blocking signal; without it, skip author validation (too many early
+        # papers lack author metadata in OpenAlex).
         work_authors = [
             a["author"]["display_name"]
             for a in work.get("authorships", [])
             if a.get("author", {}).get("display_name")
         ]
-        if work_authors and not _author_overlap(work_authors, []):
-            # We don't have seed authors to compare against from the seed list.
-            # OpenAlex's author metadata is sufficient — if the title and year
-            # match, accept.
-            pass
+        if work_authors and seed.canonical_authors and not _author_overlap(work_authors, seed.canonical_authors):
+            return False
 
         return True
 

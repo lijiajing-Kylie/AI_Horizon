@@ -47,24 +47,52 @@ class HuggingFaceFetcher(PaperSourceFetcher):
         self.cfg = config
         self._api = api or HfApi()
 
-    async def fetch(self, client: httpx.AsyncClient) -> List[Paper]:
-        month = _last_full_month()
+    async def fetch(
+        self,
+        client: httpx.AsyncClient,
+        month: Optional[str] = None,
+        week: Optional[str] = None,
+        top_n_override: Optional[int] = None,
+        no_enrich: bool = False,
+    ) -> List[Paper]:
+        """Fetch top-upvoted papers for a time period.
+
+        When *week* is given, fetch that ISO week (YYYY-Www). When *month* is
+        given, fetch that month (YYYY-MM). When neither is given, defaults to
+        the last full calendar month (backward-compatible).
+
+        When *no_enrich* is True, skip the arXiv batch-enrichment step
+        (journal_ref, categories, comment).
+        """
+        top_n = top_n_override if top_n_override is not None else self.cfg.top_n
+
+        # Determine the time window and label for logging.
         try:
-            infos = await asyncio.to_thread(self._fetch_month, month)
+            if week:
+                period_label = week
+                infos = await asyncio.to_thread(self._fetch_week, week)
+            elif month:
+                period_label = month
+                infos = await asyncio.to_thread(self._fetch_month, month)
+            else:
+                period_label = _last_full_month()
+                infos = await asyncio.to_thread(self._fetch_month, period_label)
         except Exception as e:
-            logger.warning("Error fetching Hugging Face daily papers for %s: %s", month, e)
+            period_hint = week or month or _last_full_month()
+            logger.warning("Error fetching Hugging Face daily papers for %s: %s", period_hint, e)
             return []
 
         if not infos:
-            logger.info("No Hugging Face daily papers found for %s", month)
+            logger.info("No Hugging Face daily papers found for %s", period_label)
             return []
 
         # Step 1: sort by upvotes, keep top candidates for enrichment
         infos.sort(key=lambda i: i.upvotes or 0, reverse=True)
-        candidates = infos[:_CANDIDATE_LIMIT]
+        cap = max(_CANDIDATE_LIMIT, top_n)
+        candidates = infos[:cap]
         logger.info(
-            "Hugging Face: %d papers in %s, enriching top %d candidates",
-            len(infos), month, len(candidates),
+            "Hugging Face: %d papers in %s, enriching top %d candidates (top_n=%d)",
+            len(infos), period_label, len(candidates), top_n,
         )
 
         # Step 2: convert to Paper objects (basic fields from HF)
@@ -72,7 +100,8 @@ class HuggingFaceFetcher(PaperSourceFetcher):
         papers = [p for p in papers if p is not None]
 
         # Step 3: batch arXiv enrichment (journal_ref, categories, comment)
-        papers = await self._enrich_with_arxiv(client, papers)
+        if not no_enrich:
+            papers = await self._enrich_with_arxiv(client, papers)
 
         # Step 4: topic keyword filtering (if configured)
         if self.cfg.topics:
@@ -80,10 +109,10 @@ class HuggingFaceFetcher(PaperSourceFetcher):
 
         # Step 5: re-sort by upvotes, keep final top N
         papers.sort(key=lambda p: p.upvote_count or 0, reverse=True)
-        final = papers[: self.cfg.top_n]
+        final = papers[:top_n]
         logger.info(
             "Hugging Face: returning %d papers (from %d enriched, top_n=%d)",
-            len(final), len(papers), self.cfg.top_n,
+            len(final), len(papers), top_n,
         )
         return final
 
@@ -94,6 +123,23 @@ class HuggingFaceFetcher(PaperSourceFetcher):
             batch = list(
                 self._api.list_daily_papers(
                     month=month, sort="publishedAt", limit=_PAGE_SIZE, p=page
+                )
+            )
+            infos.extend(batch)
+            if len(batch) < _PAGE_SIZE:
+                break
+        return infos
+
+    def _fetch_week(self, week: str) -> list:
+        """Page through every daily paper submitted in `week` (sync; runs in a thread).
+
+        A typical week has ~50-70 papers, well under _PAGE_SIZE (100), but we
+        paginate defensively."""
+        infos = []
+        for page in range(_MAX_PAGES):
+            batch = list(
+                self._api.list_daily_papers(
+                    week=week, sort="publishedAt", limit=_PAGE_SIZE, p=page
                 )
             )
             infos.extend(batch)
@@ -234,3 +280,14 @@ def _last_full_month() -> str:
     first_of_this_month = datetime.now(timezone.utc).date().replace(day=1)
     last_day_of_prev_month = first_of_this_month - timedelta(days=1)
     return last_day_of_prev_month.strftime("%Y-%m")
+
+
+def _last_week() -> str:
+    """Return the last completed ISO week as "YYYY-Www" (UTC)."""
+    today = datetime.now(timezone.utc).date()
+    # ISO weeks start on Monday; the current week's Monday
+    monday = today - timedelta(days=today.weekday())
+    # Previous week's Monday
+    prev_monday = monday - timedelta(days=7)
+    iso_year, iso_week, _ = prev_monday.isocalendar()
+    return f"{iso_year}-W{iso_week:02d}"

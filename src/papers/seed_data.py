@@ -78,11 +78,6 @@ class SeedPaper(BaseModel):
     canonical_authors: Optional[List[str]] = None
     reprint_doi: Optional[str] = None
     source_version_type: Optional[str] = None  # "original" | "journal_version" | "reprint" | "preprint"
-    arxiv_id: Optional[str] = None
-    doi: Optional[str] = None
-    # Manual override for a seed whose title-search match turns out unreliable —
-    # pin the exact OpenAlex work id (e.g. "W2194775991") to skip matching entirely.
-    openalex_id_override: Optional[str] = None
 
 
 SEED_PAPERS: List[SeedPaper] = [

@@ -23,12 +23,18 @@ async def fetch_all_papers(
     config: PapersConfig,
     client: httpx.AsyncClient,
     only_source: Optional[str] = None,
+    month: Optional[str] = None,
+    week: Optional[str] = None,
+    top_n: Optional[int] = None,
 ) -> List[Paper]:
     """Fetch papers from every enabled source, optionally restricted to one.
 
     `only_source` backs the CLI's `--source` flag so a single source can be
     run on its own schedule (e.g. Hugging Face monthly) without re-running
     the others on the same invocation.
+
+    `month`, `week`, and `top_n` are forwarded to the Hugging Face fetcher
+    for targeted backfills.
     """
     fetchers: List[PaperSourceFetcher] = []
     if config.openalex.enabled and only_source in (None, "openalex"):
