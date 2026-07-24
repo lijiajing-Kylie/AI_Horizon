@@ -6,7 +6,7 @@ import logging
 import os
 import re
 from datetime import datetime, timezone
-from typing import List
+from typing import List, Optional
 from email.utils import parsedate_to_datetime
 import httpx
 import feedparser
@@ -95,7 +95,8 @@ class RSSScraper(BaseScraper):
 
             for entry in feed.entries:
                 # Parse published date
-                published_at = self._parse_date(entry)
+                entry_link = entry.get("link", "")
+                published_at = self._parse_date(entry, entry_link)
                 if not published_at or published_at < since:
                     continue
 
@@ -134,15 +135,19 @@ class RSSScraper(BaseScraper):
 
         return items
 
-    def _parse_date(self, entry: dict) -> datetime:
+    def _parse_date(self, entry: dict, fallback_url: str = "") -> Optional[datetime]:
         """Parse publication date from feed entry.
 
         Args:
             entry: Feed entry data
+            fallback_url: Optional URL to extract date from as last resort
+                          (handles feeds like Meituan Tech that omit per-item pubDate)
 
         Returns:
             datetime: Parsed publication date or None
         """
+        import re as _re
+
         # Try different date fields
         for field in ["published", "updated", "created"]:
             if field in entry:
@@ -157,6 +162,17 @@ class RSSScraper(BaseScraper):
                     return parsedate_to_datetime(date_str)
                 except Exception:
                     continue
+
+        # Fallback: extract date from URL path patterns like /YYYY/MM/DD/
+        if fallback_url:
+            m = _re.search(r"/(\d{4})/(\d{1,2})/(\d{1,2})(/|$|[?#])", fallback_url)
+            if m:
+                try:
+                    return datetime(
+                        int(m.group(1)), int(m.group(2)), int(m.group(3)), tzinfo=timezone.utc
+                    )
+                except Exception:
+                    pass
 
         return None
 
