@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import threading
 from datetime import datetime, timezone
@@ -191,6 +192,21 @@ CREATE TABLE IF NOT EXISTS papers (
 
 CREATE INDEX IF NOT EXISTS idx_papers_source ON papers(source);
 CREATE INDEX IF NOT EXISTS idx_papers_published_at ON papers(published_at);
+
+CREATE TABLE IF NOT EXISTS paper_topics (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    paper_id        TEXT NOT NULL,
+    topic_id        INTEGER NOT NULL,
+    confidence      REAL NOT NULL DEFAULT 1.0,
+    reason          TEXT NOT NULL DEFAULT '',
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (paper_id) REFERENCES papers(id) ON DELETE CASCADE,
+    FOREIGN KEY (topic_id) REFERENCES topics(id) ON DELETE CASCADE,
+    UNIQUE(paper_id, topic_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_paper_topics_paper_id ON paper_topics(paper_id);
+CREATE INDEX IF NOT EXISTS idx_paper_topics_topic_id ON paper_topics(topic_id);
 
 CREATE TABLE IF NOT EXISTS reports (
     id                  TEXT PRIMARY KEY,
@@ -388,6 +404,12 @@ def _row_to_paper(row: sqlite3.Row) -> dict[str, Any]:
         "citation_percentile": row["citation_percentile"],
         "upvote_count": row["upvote_count"],
         "raw_metadata": json.loads(row["raw_metadata_json"]) if row["raw_metadata_json"] else None,
+        "canonical_doi": row["canonical_doi"],
+        "reprint_doi": row["reprint_doi"],
+        "source_version_type": row["source_version_type"],
+        "openalex_id_override": row["openalex_id_override"],
+        "arxiv_id": row["arxiv_id"],
+        "semantic_scholar_id": row["semantic_scholar_id"],
         "title_zh": row["title_zh"],
         "abstract_zh": row["abstract_zh"],
         "original_language": row["original_language"],
@@ -395,17 +417,59 @@ def _row_to_paper(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
+def _split_institutions(raw: str) -> list[str]:
+    """Split a combined institution string into individual institutions.
+
+    AliResearch returns institutions joined by ``&`` or ``、``, e.g.
+    ``"阿里云研究院 & 阿里云公共云技术服务部"`` or
+    ``"阿里云研究院、中央广播电视总台视听新媒体中心"``.
+
+    Returns a list of stripped, non-empty institution names.
+    """
+    if not raw:
+        return []
+    parts = re.split(r"\s*[&,、;；]\s*", raw)
+    return [p.strip() for p in parts if p.strip()]
+
+
+def _first_institution(raw: str) -> str:
+    """Return only the first institution from a possibly multi-valued string.
+
+    Source fetchers sometimes persist institution strings joined by ``、``
+    or ``&`` (e.g. ``"阿里云研究院、中央广播电视总台研究院"``).  Callers
+    that want the raw list still use ``_split_institutions()``; this
+    normalizes the stored value to the primary institution only.
+    """
+    parts = _split_institutions(raw)
+    return parts[0] if parts else raw
+
+
 def _row_to_report(row: sqlite3.Row) -> dict[str, Any]:
     """Convert a reports-table row to a JSON-serializable dict matching the Report shape."""
+    pdf_urls: list[dict] = json.loads(row["pdf_urls_json"])
+    # Transform legacy filesystem ``local_path`` values (e.g.
+    # ``data/reports_pdfs/…``) into serveable URL paths under the
+    # ``/api/reports/pdfs/`` StaticFiles mount.  New downloads from
+    # ``pdf_downloader.py`` already store URL-path format, so this
+    # is purely a one-way backward-compatibility shim.
+    for entry in pdf_urls:
+        lp = entry.get("local_path")
+        if lp and lp.startswith("data/reports_pdfs/"):
+            entry["local_path"] = "/api/reports/pdfs/" + lp.removeprefix("data/reports_pdfs/")
+        elif lp and lp.startswith("data/"):
+            entry["local_path"] = "/api/reports/pdfs/" + lp.removeprefix("data/")
+    has_local_pdf = any("local_path" in entry for entry in pdf_urls)
     return {
         "id": row["id"],
         "source": row["source"],
         "native_id": row["native_id"],
         "title": row["title"],
         "institution": row["institution"],
+        "institutions": _split_institutions(row["institution"]),
         "author": row["author"],
         "url": row["url"],
-        "pdf_urls": json.loads(row["pdf_urls_json"]),
+        "pdf_urls": pdf_urls,
+        "has_local_pdf": has_local_pdf,
         "summary": row["summary"],
         "content_text": row["content_text"],
         "categories": json.loads(row["categories_json"]),
@@ -866,42 +930,56 @@ class HorizonDB:
         source: Optional[str] = None,
         category: Optional[str] = None,
         search: Optional[str] = None,
-        publication_year: Optional[int] = None,
+        topic_slug: Optional[str] = None,
+        publication_month: Optional[str] = None,
         sort: str = "published_at",
         order: str = "desc",
         page: int = 1,
         per_page: int = 20,
     ) -> dict[str, Any]:
-        """Paginated papers query with optional filters."""
+        """Paginated papers query with optional filters.
+
+        When *topic_slug* is given, only papers associated with that topic are
+        returned (via JOIN on paper_topics + topics).
+        """
         where = []
         params: list[Any] = []
 
+        # ── topic_slug filter (JOIN path) ──
+        topic_join = ""
+        if topic_slug:
+            topic_join = (
+                "JOIN paper_topics pt_filter ON p.id = pt_filter.paper_id "
+                "JOIN topics t_filter ON pt_filter.topic_id = t_filter.id AND t_filter.slug = ?"
+            )
+            params.append(topic_slug)
+
         if source:
-            where.append("source = ?")
+            where.append("p.source = ?")
             params.append(source)
 
         if category:
             cats = [c.strip() for c in category.split(",") if c.strip()]
             if len(cats) == 1:
-                where.append("category = ?")
+                where.append("p.category = ?")
                 params.append(cats[0])
             else:
                 placeholders = ", ".join("?" for _ in cats)
-                where.append(f"category IN ({placeholders})")
+                where.append(f"p.category IN ({placeholders})")
                 params.extend(cats)
 
-        if publication_year is not None:
-            where.append("publication_year = ?")
-            params.append(publication_year)
+        if publication_month is not None:
+            where.append("strftime('%Y-%m', p.published_at) = ?")
+            params.append(publication_month)
 
         if search:
             escaped = _escape_like(search)
-            where.append("(title LIKE ? ESCAPE '\\' OR abstract LIKE ? ESCAPE '\\')")
+            where.append("(p.title LIKE ? ESCAPE '\\' OR p.abstract LIKE ? ESCAPE '\\')")
             like_pattern = f"%{escaped}%"
             params.extend([like_pattern, like_pattern])
 
         where_clause = " AND ".join(where) if where else "1=1"
-        base_from = f"FROM papers WHERE {where_clause}"
+        base_from = f"FROM papers p {topic_join} WHERE {where_clause}"
 
         count_row = self.conn.execute(
             f"SELECT COUNT(*) as cnt {base_from}", params
@@ -915,22 +993,41 @@ class HorizonDB:
 
         page_params = params + [per_page, offset]
         rows = self.conn.execute(
-            f"SELECT * {base_from} ORDER BY {sort_col} {order_dir} LIMIT ? OFFSET ?",
+            f"SELECT p.* {base_from} ORDER BY p.{sort_col} {order_dir} LIMIT ? OFFSET ?",
             page_params,
         ).fetchall()
 
+        papers = [_row_to_paper(r) for r in rows]
+
+        # Batch-attach topic associations
+        paper_ids = [p["id"] for p in papers]
+        topics_map = self._batch_get_paper_topics(paper_ids)
+        for paper in papers:
+            paper["topics"] = topics_map.get(paper["id"], [])
+
         return {
-            "items": [_row_to_paper(r) for r in rows],
+            "items": papers,
             "total": total,
             "page": page,
             "per_page": per_page,
             "pages": max(1, (total + per_page - 1) // per_page),
         }
 
+    def get_paper_month_counts(self) -> list[dict[str, Any]]:
+        """Return month-by-month paper counts across all sources, newest first."""
+        rows = self.conn.execute(
+            "SELECT strftime('%Y-%m', published_at) AS ym, COUNT(*) AS cnt FROM papers GROUP BY ym ORDER BY ym DESC"
+        ).fetchall()
+        return [{"ym": r["ym"], "cnt": r["cnt"]} for r in rows]
+
     def get_paper(self, paper_id: str) -> Optional[dict[str, Any]]:
-        """Get a single paper by its source-namespaced id."""
+        """Get a single paper by its source-namespaced id, with topics attached."""
         row = self.conn.execute("SELECT * FROM papers WHERE id = ?", (paper_id,)).fetchone()
-        return _row_to_paper(row) if row is not None else None
+        if row is None:
+            return None
+        paper = _row_to_paper(row)
+        paper["topics"] = self.get_paper_topics(paper_id)
+        return paper
 
     # -- reports ------------------------------------------------------------
 
@@ -942,6 +1039,9 @@ class HorizonDB:
         its view/download counts change) and should just update in place.
         """
         for r in reports:
+            # Normalize multi-institution strings to only the first institution.
+            institution = _first_institution(r.institution)
+
             self.conn.execute(
                 """
                 INSERT INTO reports (
@@ -971,7 +1071,7 @@ class HorizonDB:
                     r.source,
                     r.native_id,
                     r.title,
-                    r.institution,
+                    institution,
                     r.author,
                     r.url,
                     json.dumps(r.pdf_urls, ensure_ascii=False),
@@ -1009,7 +1109,7 @@ class HorizonDB:
             params.append(source)
 
         if institution:
-            where.append("institution = ?")
+            where.append("institution LIKE '%' || ? || '%'")
             params.append(institution)
 
         if category:
@@ -1057,17 +1157,26 @@ class HorizonDB:
         return _row_to_report(row) if row is not None else None
 
     def get_report_institutions(self, source: Optional[str] = None) -> List[dict[str, Any]]:
-        """Return distinct (institution, source) pairs with report counts."""
+        """Return distinct individual institutions (split on ``&``, ``、``) with report counts."""
         where = "1=1"
         params: list[Any] = []
         if source:
             where = "source = ?"
             params.append(source)
         rows = self.conn.execute(
-            f"SELECT institution, source, COUNT(*) as cnt FROM reports WHERE {where} GROUP BY institution, source ORDER BY cnt DESC",
+            f"SELECT institution, source FROM reports WHERE {where}",
             params,
         ).fetchall()
-        return [{"institution": r["institution"], "source": r["source"], "count": r["cnt"]} for r in rows]
+        counts: dict[tuple[str, str], int] = {}
+        for r in rows:
+            insts = _split_institutions(r["institution"])
+            for inst in insts:
+                key = (inst, r["source"])
+                counts[key] = counts.get(key, 0) + 1
+        return [
+            {"institution": inst, "source": src, "count": cnt}
+            for (inst, src), cnt in sorted(counts.items(), key=lambda x: -x[1])
+        ]
 
     def get_tags(self, run_date: Optional[str] = None, min_count: int = 1, *, selected_only: bool = True) -> list[dict[str, Any]]:
         """Get all tags with occurrence counts.
@@ -1179,9 +1288,12 @@ class HorizonDB:
         query: str,
         *,
         limit: int = 20,
+        page: Optional[int] = None,
+        sort: str = "relevance",
+        order: str = "desc",
         selected_only: bool = True,
         blocked_topic_ids: Optional[Iterable[int]] = None,
-    ) -> list[dict[str, Any]]:
+    ) -> list[dict[str, Any]] | dict[str, Any]:
         """Substring search across title, summary, reason, and tags.
 
         Uses LIKE against the trigram-tokenized FTS columns (index-accelerated)
@@ -1191,6 +1303,11 @@ class HorizonDB:
         Args:
             selected_only: When True (default), only search across selected items.
             blocked_topic_ids: See get_items().
+            page: When provided, return paginated results as a dict with
+                ``items``, ``total``, ``page``, and ``per_page`` keys.
+                When None (default), return a flat list of items.
+            sort: Sort column — "relevance" (ai_score), "published_at".
+            order: Sort direction — "asc" or "desc".
         """
         like = f"%{_escape_like(query)}%"
         where = [
@@ -1212,21 +1329,50 @@ class HorizonDB:
             )
             params.extend(blocked_topic_ids)
 
-        params.append(limit)
-        rows = self.conn.execute(
-            f"""SELECT items.* FROM items
-               JOIN items_fts ON items.rowid = items_fts.rowid
-               WHERE {" AND ".join(where)}
-               ORDER BY items.ai_score DESC
-               LIMIT ?""",
-            params,
-        ).fetchall()
-        items = [_row_to_item(r) for r in rows]
-        # Batch-fill topics
-        topics_map = self._batch_get_news_topics([item["id"] for item in items])
-        for item in items:
-            item["topics"] = topics_map.get(item["id"], [])
-        return items
+        base_from = (
+            f"FROM items JOIN items_fts ON items.rowid = items_fts.rowid "
+            f"WHERE {' AND '.join(where)}"
+        )
+
+        sort_col = "items.ai_score" if sort == "relevance" else "items.published_at"
+        sort_dir = "DESC" if order == "desc" else "ASC"
+        order_clause = f"ORDER BY {sort_col} {sort_dir}"
+
+        if page is not None:
+            # Count total matching rows
+            count_row = self.conn.execute(
+                f"SELECT COUNT(*) as cnt {base_from}", params
+            ).fetchone()
+            total = count_row["cnt"] if count_row else 0
+
+            offset = (page - 1) * limit
+            page_params = params + [limit, offset]
+            rows = self.conn.execute(
+                f"SELECT items.* {base_from} {order_clause} LIMIT ? OFFSET ?",
+                page_params,
+            ).fetchall()
+            items = [_row_to_item(r) for r in rows]
+            topics_map = self._batch_get_news_topics([item["id"] for item in items])
+            for item in items:
+                item["topics"] = topics_map.get(item["id"], [])
+            return {
+                "items": items,
+                "total": total,
+                "page": page,
+                "per_page": limit,
+            }
+        else:
+            params.append(limit)
+            rows = self.conn.execute(
+                f"SELECT items.* {base_from} {order_clause} LIMIT ?",
+                params,
+            ).fetchall()
+            items = [_row_to_item(r) for r in rows]
+            # Batch-fill topics
+            topics_map = self._batch_get_news_topics([item["id"] for item in items])
+            for item in items:
+                item["topics"] = topics_map.get(item["id"], [])
+            return items
 
     # -- topics ----------------------------------------------------------------
 
@@ -1440,6 +1586,216 @@ class HorizonDB:
                 }
             )
         return result
+
+    # -- paper topics ----------------------------------------------------
+
+    def seed_paper_topics(self, topics_data: list[dict[str, Any]]) -> int:
+        """Idempotent upsert of paper topic seed rows into ``topics``.
+
+        Delegates to ``seed_topics()`` — paper topics live in the same table
+        as news topics, distinguished by ``group_name``.
+        """
+        return self.seed_topics(topics_data)
+
+    def save_paper_topics(
+        self, paper_id: str, topics_data: list[dict[str, Any]]
+    ) -> int:
+        """Save topic associations for a paper.
+
+        *topics_data* is a list of dicts with keys: slug, confidence, reason.
+        Upserts by (paper_id, topic_id).
+        """
+        count = 0
+        for td in topics_data:
+            slug = td.get("slug", "").strip()
+            if not slug:
+                continue
+
+            topic = self.conn.execute(
+                "SELECT id FROM topics WHERE slug = ? AND is_active = 1", (slug,)
+            ).fetchone()
+
+            if topic is None:
+                print(f"Warning: unknown topic slug '{slug}' for paper {paper_id}, skipping")
+                continue
+
+            self.conn.execute(
+                """INSERT INTO paper_topics (paper_id, topic_id, confidence, reason)
+                   VALUES (?, ?, ?, ?)
+                   ON CONFLICT(paper_id, topic_id) DO UPDATE SET
+                       confidence = excluded.confidence,
+                       reason = excluded.reason""",
+                (
+                    paper_id,
+                    topic["id"],
+                    td.get("confidence", 1.0),
+                    td.get("reason", ""),
+                ),
+            )
+            count += 1
+
+        self.conn.commit()
+        return count
+
+    def get_paper_topics(self, paper_id: str) -> list[dict[str, Any]]:
+        """Get all topics associated with a single paper."""
+        rows = self.conn.execute(
+            """SELECT t.*, pt.confidence, pt.reason AS classification_reason
+               FROM paper_topics pt
+               JOIN topics t ON pt.topic_id = t.id
+               WHERE pt.paper_id = ?
+               ORDER BY t.group_name, t.sort_order""",
+            (paper_id,),
+        ).fetchall()
+
+        return [
+            {
+                "id": r["id"],
+                "name": r["name"],
+                "slug": r["slug"],
+                "group_name": r["group_name"],
+                "description": r["description"],
+                "confidence": r["confidence"],
+                "reason": r["classification_reason"],
+            }
+            for r in rows
+        ]
+
+    def _batch_get_paper_topics(
+        self, paper_ids: list[str]
+    ) -> dict[str, list[dict[str, Any]]]:
+        """Batch-fetch topics for multiple papers.
+
+        Returns a dict mapping paper_id -> list of topic dicts.
+        """
+        if not paper_ids:
+            return {}
+
+        placeholders = ",".join("?" for _ in paper_ids)
+        rows = self.conn.execute(
+            f"""SELECT pt.paper_id, t.id, t.name, t.slug, t.group_name,
+                       t.description, pt.confidence, pt.reason AS classification_reason
+                FROM paper_topics pt
+                JOIN topics t ON pt.topic_id = t.id
+                WHERE pt.paper_id IN ({placeholders})
+                ORDER BY t.group_name, t.sort_order""",
+            paper_ids,
+        ).fetchall()
+
+        result: dict[str, list[dict[str, Any]]] = {pid: [] for pid in paper_ids}
+        for r in rows:
+            result.setdefault(r["paper_id"], []).append(
+                {
+                    "id": r["id"],
+                    "name": r["name"],
+                    "slug": r["slug"],
+                    "group_name": r["group_name"],
+                    "description": r["description"],
+                    "confidence": r["confidence"],
+                    "reason": r["classification_reason"],
+                }
+            )
+        return result
+
+    def get_topic_papers(
+        self,
+        slug: str,
+        *,
+        page: int = 1,
+        per_page: int = 20,
+        sort: str = "published_at",
+        order: str = "desc",
+        search: Optional[str] = None,
+        source: Optional[str] = None,
+        year: Optional[int] = None,
+    ) -> dict[str, Any]:
+        """Get paginated papers for a specific topic by slug."""
+        topic = self.conn.execute(
+            "SELECT id, name, slug, group_name, description FROM topics WHERE slug = ?",
+            (slug,),
+        ).fetchone()
+
+        if topic is None:
+            return {
+                "topic": None, "papers": [],
+                "total": 0, "page": 1, "per_page": per_page, "pages": 0,
+            }
+
+        topic_block = {
+            "id": topic["id"],
+            "name": topic["name"],
+            "slug": topic["slug"],
+            "group_name": topic["group_name"],
+            "description": topic["description"],
+        }
+
+        allowed_sort = {"published_at", "updated_at", "fetched_at", "citation_count", "upvote_count"}
+        sort_col = sort if sort in allowed_sort else "published_at"
+        order_dir = "DESC" if order.lower() == "desc" else "ASC"
+
+        where = "WHERE pt.topic_id = ?"
+        params: list[Any] = [topic["id"]]
+
+        if search:
+            where += " AND (p.title LIKE ? OR p.abstract LIKE ?)"
+            search_term = f"%{search}%"
+            params.extend([search_term, search_term])
+
+        if source:
+            where += " AND p.source = ?"
+            params.append(source)
+
+        if year is not None:
+            where += " AND p.publication_year = ?"
+            params.append(year)
+
+        total = self.conn.execute(
+            f"SELECT COUNT(*) FROM paper_topics pt JOIN papers p ON pt.paper_id = p.id {where}",
+            params,
+        ).fetchone()[0]
+
+        pages = max(1, (total + per_page - 1) // per_page)
+        offset = (page - 1) * per_page
+
+        rows = self.conn.execute(
+            f"""SELECT p.* FROM paper_topics pt
+                JOIN papers p ON pt.paper_id = p.id
+                {where}
+                ORDER BY p.{sort_col} {order_dir}
+                LIMIT ? OFFSET ?""",
+            params + [per_page, offset],
+        ).fetchall()
+
+        paper_ids = [r["id"] for r in rows]
+        topics_map = self._batch_get_paper_topics(paper_ids)
+
+        papers = [_row_to_paper(r) for r in rows]
+        for paper in papers:
+            paper["topics"] = topics_map.get(paper["id"], [])
+
+        return {
+            "topic": topic_block,
+            "papers": papers,
+            "total": total,
+            "page": page,
+            "per_page": per_page,
+            "pages": pages,
+        }
+
+    def get_paper_topic_counts(self) -> dict[str, int]:
+        """Return a mapping of topic slug → paper count for active paper topics."""
+        rows = self.conn.execute(
+            """SELECT t.slug, COUNT(pt.paper_id) AS cnt
+               FROM topics t
+               LEFT JOIN paper_topics pt ON t.id = pt.topic_id
+               WHERE t.group_name IN (?, ?, ?, ?, ?) AND t.is_active = 1
+               GROUP BY t.slug
+               ORDER BY t.sort_order""",
+            ("基础与模型", "语言与视觉", "生成与智能体", "系统与机器人", "其他"),
+        ).fetchall()
+        return {r["slug"]: r["cnt"] for r in rows}
+
+    # -- topic news ------------------------------------------------------
 
     def get_topic_news(
         self,

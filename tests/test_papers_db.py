@@ -120,3 +120,38 @@ def test_get_papers_sort_by_citation_count(tmp_path):
 
     result = db.get_papers(sort="citation_count", order="desc")
     assert [p["id"] for p in result["items"]] == ["openalex:W2", "openalex:W1"]
+
+
+def test_get_papers_filter_by_month(tmp_path):
+    db = HorizonDB(db_path=str(tmp_path / "test.db"))
+    db.save_papers([
+        _paper(
+            id="openalex:W1",
+            native_id="W1",
+            published_at=datetime(2026, 1, 15, tzinfo=timezone.utc),
+        ),
+        _paper(
+            id="openalex:W2",
+            native_id="W2",
+            published_at=datetime(2026, 2, 1, tzinfo=timezone.utc),
+        ),
+        _paper(
+            id="openalex:W3",
+            native_id="W3",
+            published_at=datetime(2026, 1, 31, tzinfo=timezone.utc),
+        ),
+    ])
+
+    # Filter for January 2026
+    result = db.get_papers(publication_month="2026-01")
+    assert result["total"] == 2
+    assert {p["id"] for p in result["items"]} == {"openalex:W1", "openalex:W3"}
+
+    # Filter for February 2026
+    result = db.get_papers(publication_month="2026-02")
+    assert result["total"] == 1
+    assert result["items"][0]["id"] == "openalex:W2"
+
+    # No filter returns all
+    result = db.get_papers()
+    assert result["total"] == 3
