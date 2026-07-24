@@ -28,7 +28,9 @@ export default function ReportCard({ report, backTo }: ReportCardProps) {
       </div>
 
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--muted)] mt-1 mb-3">
-        <span>{report.institution}</span>
+        {(report.institutions ?? [report.institution]).map(inst => (
+          <span key={inst} className="text-xs px-2 py-0.5 rounded-full bg-black/[.03] text-[var(--muted)]">{inst}</span>
+        ))}
         {report.published_at && <span>· {report.published_at.slice(0, 10)}</span>}
         {report.view_count != null && <span>· {report.view_count}次浏览</span>}
         {report.download_count != null && <span>· {report.download_count}次下载</span>}
@@ -49,12 +51,17 @@ export default function ReportCard({ report, backTo }: ReportCardProps) {
         </a>
         {report.pdf_urls.length > 0 && (
           <a
-            href={report.pdf_urls[0].url}
+            href={report.pdf_urls[0].local_path ?? report.pdf_urls[0].url}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-[var(--accent)] hover:opacity-80 font-medium"
+            className="inline-flex items-center gap-1.5 text-[var(--accent)] hover:opacity-80 font-medium"
           >
             查看PDF文件
+            {report.has_local_pdf && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-[var(--accent)]/10 text-[var(--accent)]">
+                本地
+              </span>
+            )}
           </a>
         )}
       </div>

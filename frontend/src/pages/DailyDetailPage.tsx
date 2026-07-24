@@ -6,6 +6,7 @@ import SectionBlock from '../components/SectionBlock'
 import BackLink from '../components/BackLink'
 import LoadingSkeleton from '../components/LoadingSkeleton'
 import EmptyState from '../components/EmptyState'
+import PageEyebrow from '../components/PageEyebrow'
 import type { NewsItem } from '../api/types'
 import type { BackTarget } from '../utils/backTo'
 import { SECTION_MAP, SECTION_ORDER, groupBySection } from '../utils/sections'
@@ -48,7 +49,7 @@ export default function DailyDetailPage() {
           fallback={{ path: '/daily', label: '返回' }}
           className="inline-flex items-center gap-1 text-sm text-[var(--accent)] hover:opacity-80 mb-2"
         />
-        <p className="text-[11px] font-bold tracking-[.21em] text-[#8ea0b6] mb-2">DAILY REPORT</p>
+        <PageEyebrow>DAILY REPORT</PageEyebrow>
         <h1 className="text-[28px] font-normal text-[var(--ink)] tracking-wide">{formatDate(date!)} 日报</h1>
 
       </div>

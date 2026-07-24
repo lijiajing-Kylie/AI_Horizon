@@ -1,21 +1,38 @@
-import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useState, useCallback } from 'react'
+import { Link, useSearchParams, useLocation } from 'react-router-dom'
 import { ChevronDown, ChevronRight, BookmarkX } from 'lucide-react'
 import { useApi } from '../hooks/useApi'
+import { useScrollRestoration } from '../hooks/useScrollRestoration'
 import { getFavorites, getPaperFavorites, getReportFavorites } from '../api/client'
 import ItemCard from '../components/ItemCard'
 import PaperCard from '../components/PaperCard'
 import ReportCard from '../components/ReportCard'
 import Pagination from '../components/Pagination'
 import LoadingSkeleton from '../components/LoadingSkeleton'
+import EmptyState from '../components/EmptyState'
+import PageEyebrow from '../components/PageEyebrow'
 import type { BackTarget } from '../utils/backTo'
-
-const backToFavorites: BackTarget = { path: '/favorites', label: '返回收藏' }
 
 // Collapsed section ids, tracked outside React state so a section stays
 // collapsed across navigating to a detail page and back (same pattern as
 // SectionBlock.tsx).
 const collapsedSections = new Set<string>()
+
+/** Merge partial updates into URLSearchParams, deleting keys set to null/undefined. */
+function mergeParams(
+  prev: URLSearchParams,
+  updates: Record<string, string | null | undefined>,
+): URLSearchParams {
+  const next = new URLSearchParams(prev)
+  for (const [key, value] of Object.entries(updates)) {
+    if (value === null || value === undefined || value === '') {
+      next.delete(key)
+    } else {
+      next.set(key, value)
+    }
+  }
+  return next
+}
 
 interface CollapsibleSectionProps {
   sectionId: string
@@ -92,9 +109,21 @@ function CollapsibleSection({
 }
 
 export default function FavoritesPage() {
-  const [newsPage, setNewsPage] = useState(1)
-  const [papersPage, setPapersPage] = useState(1)
-  const [reportsPage, setReportsPage] = useState(1)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const location = useLocation()
+
+  // ── Derive per-section page from URL params ────────────────────────────
+  const newsPage = Number(searchParams.get('np') ?? '1')
+  const papersPage = Number(searchParams.get('pp') ?? '1')
+  const reportsPage = Number(searchParams.get('rp') ?? '1')
+
+  // ── URL param helper ───────────────────────────────────────────────────
+  const updateParams = useCallback(
+    (updates: Record<string, string | null | undefined>) => {
+      setSearchParams(prev => mergeParams(prev, updates), { replace: true })
+    },
+    [setSearchParams],
+  )
 
   const { data: newsData, loading: newsLoading } = useApi(
     () => getFavorites({ page: newsPage, per_page: 20 }),
@@ -114,40 +143,49 @@ export default function FavoritesPage() {
     (!newsData || newsData.items.length === 0) &&
     (!papersData || papersData.items.length === 0) &&
     (!reportsData || reportsData.items.length === 0)
+  const initialLoading = !allLoaded && !newsData && !papersData && !reportsData
+
+  // ── Dynamic backTo ─────────────────────────────────────────────────────
+  const backToFavorites: BackTarget = {
+    path: '/favorites' + location.search,
+    label: '返回收藏',
+  }
+
+  // ── Scroll restoration ─────────────────────────────────────────────────
+  useScrollRestoration(location.pathname + location.search)
 
   return (
     <div>
-      <p className="text-[11px] font-bold tracking-[.21em] text-[#8ea0b6] mb-2">FAVORITES</p>
-      <h1 className="text-[28px] font-normal text-[var(--ink)] tracking-wide mb-8">我的收藏</h1>
+      <PageEyebrow>FAVORITES</PageEyebrow>
+      <h1 className="text-[28px] font-normal text-[var(--ink)] tracking-wide mb-6">我的收藏</h1>
 
-      {allEmpty ? (
-        <div className="flex flex-col items-center justify-center min-h-[50vh] -mt-4">
-          <BookmarkX className="w-10 h-10 text-[var(--accent)] mb-4" strokeWidth={1.5} />
-          <p className="text-base font-medium text-[var(--ink)] mb-1.5">还没有收藏</p>
-          <p className="text-sm text-[var(--muted)] mb-5 text-center max-w-[260px]">
-            你收藏的内容会显示在这里
-          </p>
-          <div className="flex items-center gap-3 flex-wrap justify-center">
-            <Link
-              to="/daily"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--accent)] px-4 py-2 text-sm font-medium text-[var(--accent)] hover:bg-[var(--accent)]/5 transition-colors"
-            >
-              浏览日报
-            </Link>
-            <Link
-              to="/papers"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--accent)] px-4 py-2 text-sm font-medium text-[var(--accent)] hover:bg-[var(--accent)]/5 transition-colors"
-            >
-              浏览论文
-            </Link>
-            <Link
-              to="/reports"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--accent)] px-4 py-2 text-sm font-medium text-[var(--accent)] hover:bg-[var(--accent)]/5 transition-colors"
-            >
-              浏览报告
-            </Link>
-          </div>
-        </div>
+      {initialLoading ? (
+        <LoadingSkeleton />
+      ) : allEmpty ? (
+        <EmptyState
+          title="还没有收藏"
+          description="你收藏的内容会显示在这里"
+          icon={<BookmarkX className="w-10 h-10 text-[var(--accent)]" strokeWidth={1.5} />}
+        >
+          <Link
+            to="/daily"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--accent)] px-4 py-2 text-sm font-medium text-[var(--accent)] hover:bg-[var(--accent)]/5 transition-colors"
+          >
+            浏览日报
+          </Link>
+          <Link
+            to="/papers"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--accent)] px-4 py-2 text-sm font-medium text-[var(--accent)] hover:bg-[var(--accent)]/5 transition-colors"
+          >
+            浏览论文
+          </Link>
+          <Link
+            to="/reports"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--accent)] px-4 py-2 text-sm font-medium text-[var(--accent)] hover:bg-[var(--accent)]/5 transition-colors"
+          >
+            浏览报告
+          </Link>
+        </EmptyState>
       ) : (
         <>
           <CollapsibleSection
@@ -159,7 +197,7 @@ export default function FavoritesPage() {
             renderItem={(item) => <ItemCard key={item.id} item={item} backTo={backToFavorites} />}
             page={newsPage}
             pages={newsData?.pages ?? 0}
-            onPageChange={setNewsPage}
+            onPageChange={p => updateParams({ np: p === 1 ? null : String(p) })}
           />
 
           <CollapsibleSection
@@ -171,7 +209,7 @@ export default function FavoritesPage() {
             renderItem={(paper) => <PaperCard key={paper.id} paper={paper} backTo={backToFavorites} />}
             page={papersPage}
             pages={papersData?.pages ?? 0}
-            onPageChange={setPapersPage}
+            onPageChange={p => updateParams({ pp: p === 1 ? null : String(p) })}
           />
 
           <CollapsibleSection
@@ -183,7 +221,7 @@ export default function FavoritesPage() {
             renderItem={(report) => <ReportCard key={report.id} report={report} backTo={backToFavorites} />}
             page={reportsPage}
             pages={reportsData?.pages ?? 0}
-            onPageChange={setReportsPage}
+            onPageChange={p => updateParams({ rp: p === 1 ? null : String(p) })}
           />
         </>
       )}

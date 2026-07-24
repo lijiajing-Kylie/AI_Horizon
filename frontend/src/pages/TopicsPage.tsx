@@ -3,6 +3,7 @@ import { getTopics } from '../api/client'
 import TopicCard from '../components/TopicCard'
 import LoadingSkeleton from '../components/LoadingSkeleton'
 import EmptyState from '../components/EmptyState'
+import PageEyebrow from '../components/PageEyebrow'
 import type { BackTarget } from '../utils/backTo'
 
 const BACK_TO_TOPICS: BackTarget = { path: '/topics', label: '返回主题总览' }
@@ -18,7 +19,7 @@ export default function TopicsPage() {
   return (
     <div>
       <div className="mb-10">
-        <p className="text-[11px] font-bold tracking-[.21em] text-[#8ea0b6] mb-2">TOPICS</p>
+        <PageEyebrow>TOPICS</PageEyebrow>
         <h1 className="text-[28px] font-normal text-[var(--ink)] tracking-wide">主题分类</h1>
         <p className="text-sm text-[var(--muted)] mt-2">按公司与模型 · 技术方向 · 内容形态三维分类浏览</p>
       </div>

@@ -31,7 +31,7 @@ export default function Pagination({ page, pages, onPageChange }: PaginationProp
       <button
         onClick={() => onPageChange(page - 1)}
         disabled={page <= 1}
-        className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium border border-[var(--line)] rounded-xl text-[var(--ink)] bg-transparent hover:bg-white/60 hover:border-[var(--accent)]/30 disabled:opacity-35 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:border-[var(--line)] transition-all duration-200 active:scale-95"
+        className="inline-flex items-center gap-1.5 px-4 py-2.5 sm:py-2 min-h-[44px] text-sm font-medium border border-[var(--line)] rounded-xl text-[var(--ink)] bg-transparent hover:bg-white/60 hover:border-[var(--accent)]/30 disabled:opacity-35 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:border-[var(--line)] transition-all duration-200 active:scale-95"
       >
         <ArrowIcon direction="prev" />
         <span>上一页</span>
@@ -42,7 +42,7 @@ export default function Pagination({ page, pages, onPageChange }: PaginationProp
       <button
         onClick={() => onPageChange(page + 1)}
         disabled={page >= pages}
-        className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium border border-[var(--line)] rounded-xl text-[var(--ink)] bg-transparent hover:bg-white/60 hover:border-[var(--accent)]/30 disabled:opacity-35 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:border-[var(--line)] transition-all duration-200 active:scale-95"
+        className="inline-flex items-center gap-1.5 px-4 py-2.5 sm:py-2 min-h-[44px] text-sm font-medium border border-[var(--line)] rounded-xl text-[var(--ink)] bg-transparent hover:bg-white/60 hover:border-[var(--accent)]/30 disabled:opacity-35 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:border-[var(--line)] transition-all duration-200 active:scale-95"
       >
         <span>下一页</span>
         <ArrowIcon direction="next" />

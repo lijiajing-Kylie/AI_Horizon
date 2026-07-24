@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import {
   PAPER_CATEGORY_GROUPS,
-  parentGroupForChild,
   type CategoryGroup,
 } from '../utils/paperCategories'
 import { categoryLabelZh } from '../utils/paperCategories'
@@ -10,16 +9,23 @@ interface CategoryFilterMenuProps {
   selectedIds: string[]
   onSelectionChange: (ids: string[]) => void
   onClear: () => void
+  /** Custom groups to display (defaults to PAPER_CATEGORY_GROUPS). */
+  groups?: CategoryGroup[]
+  /** When false, selecting a child replaces the current selection (single-select). Default true. */
+  multiSelect?: boolean
 }
 
 export default function CategoryFilterMenu({
   selectedIds,
   onSelectionChange,
   onClear,
+  groups,
+  multiSelect = true,
 }: CategoryFilterMenuProps) {
+  const resolvedGroups = groups ?? PAPER_CATEGORY_GROUPS
   const [isOpen, setIsOpen] = useState(false)
   const [hoveredGroup, setHoveredGroup] = useState<CategoryGroup | null>(
-    PAPER_CATEGORY_GROUPS[0],
+    resolvedGroups[0] ?? null,
   )
   const containerRef = useRef<HTMLDivElement>(null)
 
@@ -38,12 +44,15 @@ export default function CategoryFilterMenu({
   // Default hover to first group when opening
   useEffect(() => {
     if (isOpen) {
-      setHoveredGroup(PAPER_CATEGORY_GROUPS[0])
+      setHoveredGroup(resolvedGroups[0])
     }
   }, [isOpen])
 
   const toggleGroup = useCallback(
     (group: CategoryGroup) => {
+      // In single-select mode, groups are navigation only — clicking them
+      // should not toggle all children at once.
+      if (!multiSelect) return
       const allSelected = group.children.every(c => selectedIds.includes(c.id))
       const someSelected = group.children.some(c => selectedIds.includes(c.id))
 
@@ -61,18 +70,37 @@ export default function CategoryFilterMenu({
       }
       onSelectionChange(next)
     },
-    [selectedIds, onSelectionChange],
+    [selectedIds, onSelectionChange, multiSelect],
   )
 
   const toggleChild = useCallback(
     (id: string) => {
-      const next = selectedIds.includes(id)
-        ? selectedIds.filter(i => i !== id)
-        : [...selectedIds, id]
-      onSelectionChange(next)
+      if (selectedIds.includes(id)) {
+        // Deselect
+        onSelectionChange(selectedIds.filter(i => i !== id))
+      } else if (multiSelect) {
+        // Add to existing selection
+        onSelectionChange([...selectedIds, id])
+      } else {
+        // Replace selection (single-select)
+        onSelectionChange([id])
+      }
     },
-    [selectedIds, onSelectionChange],
+    [selectedIds, onSelectionChange, multiSelect],
   )
+
+  // ── Helper: find a child label across resolved groups ─────────────────
+  const childLabel = (id: string) => {
+    for (const g of resolvedGroups) {
+      const child = g.children.find(c => c.id === id)
+      if (child) return child.label
+    }
+    return categoryLabelZh(id)
+  }
+
+  const parentGroupForId = (id: string): CategoryGroup | undefined => {
+    return resolvedGroups.find(g => g.children.some(c => c.id === id))
+  }
 
   // ── Trigger label ──────────────────────────────────────────────────────
   const triggerLabel = (() => {
@@ -80,15 +108,15 @@ export default function CategoryFilterMenu({
 
     // Single subcategory selected — show "GroupLabel / SubLabel"
     if (selectedIds.length === 1) {
-      const parent = parentGroupForChild(selectedIds[0])
+      const parent = parentGroupForId(selectedIds[0])
       if (parent) {
-        return `主题：${parent.label} / ${categoryLabelZh(selectedIds[0])}`
+        return `主题：${parent.label} / ${childLabel(selectedIds[0])}`
       }
-      return `主题：${categoryLabelZh(selectedIds[0])}`
+      return `主题：${childLabel(selectedIds[0])}`
     }
 
     // Check if all selected belong to the same group
-    const parentSet = new Set(selectedIds.map(id => parentGroupForChild(id)?.label).filter(Boolean))
+    const parentSet = new Set(selectedIds.map(id => parentGroupForId(id)?.label).filter(Boolean))
     if (parentSet.size === 1) {
       const groupLabel = parentSet.values().next().value
       return `主题：${groupLabel} (${selectedIds.length})`
@@ -134,7 +162,7 @@ export default function CategoryFilterMenu({
           <div className="hidden lg:flex bg-white/90 backdrop-blur-sm border border-[var(--line)] rounded-xl overflow-hidden min-w-[320px] shadow-sm">
             {/* Left: groups */}
             <div className="w-[140px] border-r border-[var(--line)] py-1">
-              {PAPER_CATEGORY_GROUPS.map(group => {
+              {resolvedGroups.map(group => {
                 const allSelected = group.children.every(c => selectedIds.includes(c.id))
                 const someSelected = group.children.some(c => selectedIds.includes(c.id))
                 return (
@@ -185,7 +213,7 @@ export default function CategoryFilterMenu({
 
           {/* Mobile: accordion layout */}
           <div className="lg:hidden bg-white/95 backdrop-blur-sm border border-[var(--line)] rounded-xl min-w-[240px] shadow-sm overflow-hidden">
-            {PAPER_CATEGORY_GROUPS.map(group => {
+            {resolvedGroups.map(group => {
               const allSelected = group.children.every(c => selectedIds.includes(c.id))
               const someSelected = group.children.some(c => selectedIds.includes(c.id))
               const isExpanded = hoveredGroup?.id === group.id

@@ -45,7 +45,7 @@ export default function FavoriteButton({ itemId, initialFavorited, size = 'sm', 
       aria-label={favorited ? '取消收藏' : '收藏'}
       title={favorited ? '取消收藏' : '收藏'}
       className={`${textSize} leading-none transition-colors disabled:opacity-50 cursor-pointer ${
-        favorited ? 'text-amber-500 hover:text-amber-600' : 'text-gray-300 hover:text-amber-500'
+        favorited ? 'text-amber-500 hover:text-amber-600' : 'text-[var(--muted)] hover:text-amber-500'
       }`}
     >
       {favorited ? '★' : '☆'}

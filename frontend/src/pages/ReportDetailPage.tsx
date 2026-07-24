@@ -6,6 +6,7 @@ import LoadingSkeleton from '../components/LoadingSkeleton'
 import EmptyState from '../components/EmptyState'
 import BackLink from '../components/BackLink'
 import FavoriteButton from '../components/FavoriteButton'
+import CardHeading from '../components/CardHeading'
 
 export default function ReportDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -40,8 +41,10 @@ export default function ReportDetailPage() {
           <FavoriteButton itemId={report.id} initialFavorited={report.is_favorited ?? false} type="report" size="md" />
         </div>
 
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-[var(--muted)] mb-3">
-          <span>{report.institution}</span>
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-[var(--muted)] mb-3">
+          {(report.institutions ?? [report.institution]).map(inst => (
+            <span key={inst} className="text-xs px-2 py-0.5 rounded-full bg-black/[.03] text-[var(--muted)]">{inst}</span>
+          ))}
           {report.published_at && <span>· {report.published_at.slice(0, 10)}</span>}
           {report.view_count != null && <span>· {report.view_count}次浏览</span>}
           {report.download_count != null && <span>· {report.download_count}次下载</span>}
@@ -51,12 +54,18 @@ export default function ReportDetailPage() {
           {report.pdf_urls.map(pdf => (
             <a
               key={pdf.url}
-              href={pdf.url}
+              href={pdf.local_path ?? pdf.url}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1 font-medium text-[var(--accent)] hover:opacity-80 transition-colors"
             >
-              查看PDF文件 <ExternalLink className="w-3.5 h-3.5" strokeWidth={2} />
+              查看PDF文件
+              {pdf.local_path && (
+                <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded-full bg-[var(--accent)]/10 text-[var(--accent)]">
+                  本地
+                </span>
+              )}
+              <ExternalLink className="w-3.5 h-3.5" strokeWidth={2} />
             </a>
           ))}
         </div>
@@ -78,9 +87,7 @@ export default function ReportDetailPage() {
       {/* ── Summary ── */}
       {report.summary && (
         <section className="glass rounded-[22px] p-6">
-          <h2 className="text-[11px] font-bold tracking-[.14em] text-[#8ea0b6] mb-3">
-            摘要
-          </h2>
+          <CardHeading>摘要</CardHeading>
           <p className="text-[17px] leading-[1.85] text-[var(--ink)] whitespace-pre-line">
             {report.summary}
           </p>

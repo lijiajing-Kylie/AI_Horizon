@@ -1,6 +1,7 @@
-import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useCallback } from 'react'
+import { Link, useSearchParams, useLocation } from 'react-router-dom'
 import { useApi } from '../hooks/useApi'
+import { useScrollRestoration } from '../hooks/useScrollRestoration'
 import { getDailyDetail, getTopics } from '../api/client'
 import { todayStr, formatDate, timeAgo } from '../utils/date'
 import { SECTION_NAMES, groupBySection } from '../utils/sections'
@@ -9,16 +10,35 @@ import ScoreBadge from '../components/ScoreBadge'
 import TopicCard from '../components/TopicCard'
 import LoadingSkeleton from '../components/LoadingSkeleton'
 import EmptyState from '../components/EmptyState'
+import PageEyebrow from '../components/PageEyebrow'
 import type { BackTarget } from '../utils/backTo'
 
-const BACK_TO_DAILY: BackTarget = { path: '/daily', label: '返回日报' }
 const TOPICS_PREVIEW_COUNT = 6
 
 export default function DailyListPage() {
   const today = todayStr()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const location = useLocation()
+
+  // ── Derive selected date from URL params ───────────────────────────────
+  const selectedDate = searchParams.get('date') || today
+
+  const setSelectedDate = useCallback(
+    (date: string) => {
+      setSearchParams(
+        prev => {
+          const next = new URLSearchParams(prev)
+          next.set('date', date)
+          return next
+        },
+        { replace: true },
+      )
+    },
+    [setSearchParams],
+  )
+
   const { data: todayData, loading: todayLoading } = useApi(() => getDailyDetail(today), [today])
 
-  const [selectedDate, setSelectedDate] = useState<string | null>(today)
   const { data: selectedData, loading: selectedLoading } = useApi(
     () => (selectedDate ? getDailyDetail(selectedDate) : Promise.resolve(null)),
     [selectedDate],
@@ -31,18 +51,31 @@ export default function DailyListPage() {
   }
   const displayTopics = featuredTopics.slice(0, TOPICS_PREVIEW_COUNT)
 
+  // 右侧面板优先显示 todayData（选中的日期是今天时复用已有的请求）
+  const displayData = selectedDate === today ? todayData : selectedData
+  const displayLoading = selectedDate === today ? todayLoading : selectedLoading
+
   const todaySections = todayData ? groupBySection(todayData.items) : new Map()
   const todayCards = SECTION_NAMES
     .map(name => ({ name, top: todaySections.get(name)?.[0] }))
     .filter((c): c is { name: string; top: NonNullable<typeof c.top> } => !!c.top)
 
+  // ── Dynamic backTo ─────────────────────────────────────────────────────
+  const BACK_TO_DAILY: BackTarget = {
+    path: '/daily' + location.search,
+    label: '返回日报',
+  }
+
+  // ── Scroll restoration ─────────────────────────────────────────────────
+  useScrollRestoration(location.pathname + location.search)
+
   return (
     <div>
       {/* ===== Today ===== */}
       <section className="mb-14">
-        <div className="flex items-end justify-between gap-6 mb-7">
+        <div className="flex items-end justify-between gap-6 mb-6">
           <div>
-            <p className="text-[11px] font-bold tracking-[.21em] text-[#8ea0b6] mb-2">DAILY BRIEF</p>
+            <PageEyebrow>DAILY BRIEF</PageEyebrow>
             <h1 className="text-[28px] font-normal text-[var(--ink)] tracking-wide">
               <Link to={`/daily/${today}`} state={{ backTo: BACK_TO_DAILY }} className="hover:text-[var(--accent)] transition-colors">
                 今日日报
@@ -108,12 +141,12 @@ export default function DailyListPage() {
       {/* ===== Archive ===== */}
       <section>
         <div className="mb-6">
-          <p className="text-[11px] font-bold tracking-[.21em] text-[#8ea0b6] mb-2">PAST DAILY</p>
+          <PageEyebrow>PAST DAILY</PageEyebrow>
           <h2 className="text-[22px] font-normal text-[var(--ink)] tracking-wide">往日日报</h2>
         </div>
 
-        <div className="flex flex-col lg:flex-row gap-6 items-stretch">
-          <div className="w-full lg:w-[30%] shrink-0 flex flex-col">
+        <div className="flex flex-col md:flex-row lg:flex-row gap-6 items-stretch">
+          <div className="w-full md:w-[40%] lg:w-[30%] shrink-0 flex flex-col">
             <DailyCalendar selectedDate={selectedDate} onSelectDate={setSelectedDate} />
           </div>
 
@@ -124,9 +157,9 @@ export default function DailyListPage() {
               </div>
             )}
 
-            {selectedDate && selectedLoading && !selectedData && <LoadingSkeleton />}
+            {selectedDate && displayLoading && !displayData && <LoadingSkeleton />}
 
-            {selectedDate && selectedData && (
+            {selectedDate && displayData && (
               <div className="flex flex-col flex-1 min-h-0">
                 <div className="mb-3 shrink-0">
                   <Link
@@ -138,11 +171,11 @@ export default function DailyListPage() {
                   </Link>
                 </div>
 
-                {selectedData.items.length === 0 ? (
+                {displayData.items.length === 0 ? (
                   <EmptyState title="该日暂无内容" />
                 ) : (
                   <div className="space-y-1 flex-1 overflow-y-auto min-h-0 pr-1">
-                    {selectedData.items.map(item => (
+                    {displayData.items.map(item => (
                       <Link
                         key={item.id}
                         to={`/items/${item.id}`}
@@ -166,7 +199,7 @@ export default function DailyListPage() {
       {/* ===== Topics ===== */}
       <section className="mt-14">
         <div className="mb-6">
-          <p className="text-[11px] font-bold tracking-[.21em] text-[#8ea0b6] mb-2">TOPICS</p>
+          <PageEyebrow>TOPICS</PageEyebrow>
           <h2 className="text-[22px] font-normal text-[var(--ink)] tracking-wide">
             <Link to="/topics" className="text-[var(--ink)] hover:text-[var(--accent)] transition-colors">
               主题分类

@@ -41,6 +41,7 @@ function ComingSoon({ label }: { label: string }) {
 
 export default function HomePage() {
   const today = todayStr()
+  const isOrganic = document.documentElement.getAttribute('data-theme') === 'organic'
   const { data: dailyData, loading, error } = useApi(() => getDailyDetail(today), [today])
   const { data: reportsData } = useApi(() => getReports({ per_page: 3 }), [])
   const { data: papersData } = useApi(() => getPapers({ sort: 'published_at', order: 'desc', per_page: 3 }), [])
@@ -130,7 +131,7 @@ export default function HomePage() {
       {/* Right half: hero image — absolute-fill so it's cropped from top if taller than left column */}
       <div className="hidden lg:relative lg:block overflow-hidden rounded-[26px]">
         <img
-          src="/pexels-cottonbro-3951353.jpg"
+          src={isOrganic ? '/pexels-markus-winkler-1430818-19813735.jpg' : '/pexels-cottonbro-3951353.jpg'}
           alt=""
           className="absolute inset-0 w-full h-full object-cover object-bottom"
         />

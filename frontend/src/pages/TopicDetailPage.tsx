@@ -1,6 +1,7 @@
-import { useState, useCallback } from 'react'
-import { useParams } from 'react-router-dom'
+import { useCallback } from 'react'
+import { useParams, useSearchParams, useLocation } from 'react-router-dom'
 import { useApi } from '../hooks/useApi'
+import { useScrollRestoration } from '../hooks/useScrollRestoration'
 import { useTopicPrefsState } from '../hooks/useTopicPrefs'
 import { getTopicNews } from '../api/client'
 import ItemCard from '../components/ItemCard'
@@ -13,31 +14,61 @@ import { ArrowDown } from 'lucide-react'
 
 export default function TopicDetailPage() {
   const { slug } = useParams<{ slug: string }>()
-  // TODO: sort/order/page aren't synced to the URL, so returning here via
-  // backTo always lands on page 1 / default sort rather than where the user
-  // left off. Worth revisiting alongside URL query state for this page.
-  const [sort, setSort] = useState('ai_score')
-  const [order, setOrder] = useState('desc')
-  const [page, setPage] = useState(1)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const location = useLocation()
+
+  // ── Derive state from URL params ───────────────────────────────────────
+  const sort = searchParams.get('sort') ?? 'ai_score'
+  const order = searchParams.get('order') ?? 'desc'
+  const page = Number(searchParams.get('page') ?? '1')
+
+  // ── URL param helper ───────────────────────────────────────────────────
+  const updateParams = useCallback(
+    (updates: Record<string, string | null | undefined>) => {
+      setSearchParams(prev => {
+        const next = new URLSearchParams(prev)
+        for (const [key, value] of Object.entries(updates)) {
+          if (value === null || value === undefined || value === '') {
+            next.delete(key)
+          } else {
+            next.set(key, value)
+          }
+        }
+        return next
+      }, { replace: true })
+    },
+    [setSearchParams],
+  )
 
   const { data, loading, error } = useApi(
     () => getTopicNews(slug!, { page, per_page: 20, sort, order }),
-    [slug, page, sort, order]
+    [slug, page, sort, order],
   )
   const { prefs, setPref } = useTopicPrefsState()
 
-  const handleSortChange = useCallback((newSort: string, newOrder: string) => {
-    setSort(newSort)
-    setOrder(newOrder)
-    setPage(1)
-  }, [])
+  // ── Scroll restoration ─────────────────────────────────────────────────
+  useScrollRestoration(location.pathname + location.search)
+
+  const handleSortChange = useCallback(
+    (newSort: string, newOrder: string) => {
+      updateParams({
+        sort: newSort === 'ai_score' ? null : newSort,
+        order: newOrder === 'desc' ? null : newOrder,
+        page: null,
+      })
+    },
+    [updateParams],
+  )
 
   if (loading && !data) return <LoadingSkeleton />
   if (error) return <EmptyState title="加载失败" description={error} />
   if (!data || !data.topic) return <EmptyState title="主题不存在" />
 
   const { topic, items, total, pages } = data
-  const backTo = { path: `/topics/${slug}`, label: `返回主题：${topic.name}` }
+  const backTo = {
+    path: `/topics/${slug}` + location.search,
+    label: `返回主题：${topic.name}`,
+  }
   const prefState = prefs?.[slug!] ?? null
 
   return (
@@ -91,7 +122,7 @@ export default function TopicDetailPage() {
                   <ItemCard key={item.id} item={item} backTo={backTo} />
                 ))}
               </div>
-              <Pagination page={page} pages={pages} onPageChange={setPage} />
+              <Pagination page={page} pages={pages} onPageChange={p => updateParams({ page: p === 1 ? null : String(p) })} />
             </>
           ) : (
             <EmptyState title="该主题下暂无新闻" />
