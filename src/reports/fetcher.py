@@ -20,6 +20,7 @@ import httpx
 from ..models import ReportsConfig
 from .filter import ReportFilter
 from .models import Report
+from .pdf_downloader import download_report_pdfs
 from .sources.aliresearch import AliResearchFetcher
 from .sources.aliyunreports import AliyunReportsFetcher
 from .sources.base import ReportSourceFetcher
@@ -49,13 +50,19 @@ async def fetch_all_reports(
 
     report_filter = ReportFilter(ai_client) if ai_client and config.ai_filter_enabled else None
 
-    for source_name in config.sources:
+    for source_item in config.sources:
+        source_name = source_item.name
         fetcher_cls = _SOURCE_REGISTRY.get(source_name)
         if fetcher_cls is None:
             logger.warning("Unknown report source %r; skipping", source_name)
             continue
 
-        fetcher = fetcher_cls()
+        # Pass source-specific config where available.
+        if source_name == "aliyunreports":
+            from .sources.aliyunreports import AliyunReportsConfig
+            fetcher = fetcher_cls(AliyunReportsConfig(year=config.aliyunreports_year))
+        else:
+            fetcher = fetcher_cls()
 
         native_ids = await fetcher.fetch_native_ids(client)
         for native_id in native_ids:
@@ -63,10 +70,14 @@ async def fetch_all_reports(
             if report is None:
                 continue
 
-            # ── AI relevance filter ──
-            if report_filter is not None:
+            # ── AI relevance filter (per-source via ai_filter) ──
+            if report_filter is not None and source_item.ai_filter:
                 if not await report_filter.is_tech_relevant(report):
                     continue
+
+            # ── Download PDFs (skip if already local) ──
+            if config.download_pdfs and config.pdf_output_dir:
+                report = await download_report_pdfs(report, config, client)
 
             reports[report.id] = report
 

@@ -63,6 +63,7 @@ class FxBaoGaoConfig(BaseModel):
     organizations: List[str] = Field(
         default_factory=lambda: [
             "腾讯研究院",
+            "腾讯",
             "阿里研究院",
             "字节跳动",
             "美团",
@@ -72,9 +73,9 @@ class FxBaoGaoConfig(BaseModel):
     )
     max_pages: int = 5
     max_per_org: int = 9999  # effectively unlimited (was 10)
-    max_age_days: Optional[int] = 940  # only reports from 2024 onwards
+    max_age_days: Optional[int] = 568  # only reports from 2025-01-01 onwards
     request_delay: float = 1.0  # seconds between page fetches
-    try_view_page: bool = False  # attempt /view page extraction (needs Playwright)
+    try_view_page: bool = True  # 尝试从 /view 阅读器页面提取真实 PDF（需要 Playwright）
 
 
 class FxBaoGaoFetcher(ReportSourceFetcher):
@@ -372,7 +373,12 @@ class FxBaoGaoFetcher(ReportSourceFetcher):
                 if view_extra.get("pdf_urls"):
                     existing = {p["url"] for p in pdf_urls}
                     for p in view_extra["pdf_urls"]:
-                        if p["url"] not in existing:
+                        if p.get("local_path"):
+                            # Successfully downloaded — replace any reader
+                            # entry sharing the same URL.
+                            pdf_urls = [e for e in pdf_urls if e["url"] != p["url"]]
+                            pdf_urls.append(p)
+                        elif p["url"] not in existing:
                             pdf_urls.append(p)
                 if view_extra.get("content"):
                     if len(view_extra["content"]) > len(content_text):
@@ -670,10 +676,10 @@ class FxBaoGaoFetcher(ReportSourceFetcher):
                 pdfs.append({"name": name, "url": href})
                 seen.add(href)
 
-        # The /view?id= link (link to the full reader; useful as fallback)
+        # The /view?id= link (link to the full reader; useful as fallback, not a PDF)
         view_url = f"{BASE_URL}/view?id={native_id}"
         if view_url not in seen:
-            pdfs.append({"name": "在线阅读", "url": view_url})
+            pdfs.append({"name": "在线阅读", "url": view_url, "type": "reader"})
             seen.add(view_url)
 
         return pdfs
@@ -719,7 +725,13 @@ class FxBaoGaoFetcher(ReportSourceFetcher):
                         const text = article ? article.innerText : document.body.innerText;
                         return {pdf_urls: pdfs, content: text};
                     }
-                """)
+                """) or {}
+
+                # ── Attempt to download via button click ──
+                dl_entry = await self._try_download_via_button(page, native_id)
+                if dl_entry:
+                    result.setdefault("pdf_urls", []).append(dl_entry)
+
                 return result
             finally:
                 await page.close()
@@ -728,6 +740,67 @@ class FxBaoGaoFetcher(ReportSourceFetcher):
                 "fxbaogao: /view extraction failed for %s: %s", native_id, exc
             )
             return None
+
+    async def _try_download_via_button(self, page, native_id: str) -> Optional[dict]:
+        """Click a download button on the ``/view`` page and save the PDF.
+
+        Uses Playwright's ``expect_download`` to intercept the browser's
+        native download event, which works for JavaScript-triggered downloads
+        that don't have a direct ``href``.
+
+        Returns a ``{name, url, local_path}`` dict on success, ``None`` if
+        no download button is found or the download fails.
+        """
+        from ..pdf import sanitize_filename
+
+        output_dir = Path("data/reports_pdfs") / self.source_name / native_id
+        output_dir.mkdir(parents=True, exist_ok=True)
+        safe_name = sanitize_filename(native_id)
+        output_path = output_dir / f"{safe_name}.pdf"
+
+        # Already on disk.
+        if output_path.exists():
+            return {
+                "name": native_id,
+                "url": page.url,
+                "type": "pdf",
+                "local_path": f"/api/reports/pdfs/{self.source_name}/{native_id}/{safe_name}.pdf",
+            }
+
+        selectors = [
+            'button:has-text("下载报告")',
+            'button:has-text("下载")',
+            'button:has-text("免费下载")',
+            'a:has-text("下载报告")',
+            'a:has-text("下载")',
+            '[class*="download"] button',
+            '[class*="down"] a',
+        ]
+
+        for selector in selectors:
+            try:
+                btn = page.locator(selector).first
+                if await btn.is_visible(timeout=2000):
+                    async with page.expect_download(timeout=30000) as dl_info:
+                        await btn.click()
+                    download = await dl_info.value
+                    await download.save_as(str(output_path))
+                    logger.info(
+                        "fxbaogao: downloaded PDF via %r -> %s",
+                        selector,
+                        output_path,
+                    )
+                    return {
+                        "name": native_id,
+                        "url": page.url,
+                        "type": "pdf",
+                        "local_path": f"/api/reports/pdfs/{self.source_name}/{native_id}/{safe_name}.pdf",
+                    }
+            except Exception:
+                continue
+
+        logger.debug("fxbaogao: no download button found for %s", native_id)
+        return None
 
     async def close(self) -> None:
         """Clean up Playwright resources."""

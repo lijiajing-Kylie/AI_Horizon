@@ -55,9 +55,9 @@ class AliyunReportsConfig(BaseModel):
     tech_category: str = "人工智能"
     pdf_output_dir: str = "data/reports_pdfs"
     browser_profile_dir: str = "data/aliyun_profile"
-    headless: bool = False
+    headless: bool = True
     max_retries: int = 3
-    timeout_ms: int = 30000
+    timeout_ms: int = 60000
     download_pdfs: bool = True
     delay_between_requests: float = 0.5
 
@@ -97,7 +97,7 @@ class AliyunReportsFetcher(ReportSourceFetcher):
                 try:
                     await page.goto(
                         _LIST_PAGE_URL,
-                        wait_until="networkidle",
+                        wait_until="domcontentloaded",
                         timeout=self.cfg.timeout_ms,
                     )
                     break
@@ -109,7 +109,7 @@ class AliyunReportsFetcher(ReportSourceFetcher):
             await page.wait_for_timeout(3000)
 
             # ── Apply filters (client-side, no API re-fetch) ──
-            for label in ["报告", "2026年", "人工智能"]:
+            for label in ["报告", self.cfg.year, "人工智能"]:
                 clicked = await self._click_filter(page, label)
                 if clicked:
                     await page.wait_for_timeout(1500)
@@ -182,7 +182,7 @@ class AliyunReportsFetcher(ReportSourceFetcher):
                 try:
                     await page.goto(
                         detail_url,
-                        wait_until="networkidle",
+                        wait_until="domcontentloaded",
                         timeout=self.cfg.timeout_ms,
                     )
                     break
@@ -355,6 +355,11 @@ class AliyunReportsFetcher(ReportSourceFetcher):
     # Base URL pattern for direct PDF downloads (no auth required).
     _PDF_BASE = "https://merak.alicdn.com/aliyundotcom-report"
 
+    @staticmethod
+    def _serveable_path(native_id: str, filename: str) -> str:
+        """URL path for a PDF served behind the ``/api/reports/pdfs`` mount."""
+        return f"/api/reports/pdfs/aliyunreports/{native_id}/{filename}"
+
     async def _download_pdfs_for_report(
         self, page, native_id: str, client: httpx.AsyncClient
     ) -> List[dict]:
@@ -378,7 +383,7 @@ class AliyunReportsFetcher(ReportSourceFetcher):
             pdf_urls.append({
                 "name": native_id,
                 "url": f"{self._PDF_BASE}/{native_id}.pdf",
-                "local_path": str(output_path),
+                "local_path": self._serveable_path(native_id, f"{safe_name}.pdf"),
             })
             return pdf_urls
 
@@ -392,7 +397,7 @@ class AliyunReportsFetcher(ReportSourceFetcher):
                 pdf_urls.append({
                     "name": native_id,
                     "url": pdf_url,
-                    "local_path": str(output_path),
+                    "local_path": self._serveable_path(native_id, f"{safe_name}.pdf"),
                 })
                 return pdf_urls
             else:
@@ -430,7 +435,7 @@ class AliyunReportsFetcher(ReportSourceFetcher):
                     pdf_urls.append({
                         "name": native_id,
                         "url": pdf_captured,
-                        "local_path": str(output_path),
+                        "local_path": self._serveable_path(native_id, f"{safe_name}.pdf"),
                     })
                     return pdf_urls
             except Exception as exc:
@@ -450,7 +455,7 @@ class AliyunReportsFetcher(ReportSourceFetcher):
                 pdf_urls.append({
                     "name": native_id,
                     "url": page.url,
-                    "local_path": str(out),
+                    "local_path": self._serveable_path(native_id, f"{safe_name}.pdf"),
                 })
         except Exception as exc:
             logger.warning("All PDF download methods failed for %s: %s", native_id, exc)
