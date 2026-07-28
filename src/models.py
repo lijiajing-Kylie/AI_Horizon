@@ -21,6 +21,7 @@ class SourceType(str, Enum):
     GOOGLE_NEWS = "google_news"
     HUAWEI_NEWS = "huawei_news"
     BYTEDANCE_NEWS = "bytedance_news"
+    WECHAT = "wechat"
 
 
 class SourceRole(str, Enum):
@@ -593,10 +594,16 @@ class ReportSourceItem(BaseModel):
     """A single report source with per-source settings.
 
     In config.json this maps to e.g. ``{"name": "fxbaogao", "ai_filter": true}``.
+    For "wxmp", set ``account_names`` to the list of WeChat accounts to treat
+    as report sources.
     """
 
     name: str
     ai_filter: bool = True
+    account_names: List[str] = Field(
+        default_factory=list,
+        description="For wxmp source: which WeChat accounts to fetch as reports",
+    )
 
 
 class ReportsConfig(BaseModel):
@@ -645,6 +652,42 @@ class ReportsConfig(BaseModel):
         return any(s.ai_filter for s in self.sources)
 
 
+class WxMpSourceConfig(BaseModel):
+    """A single WeChat MP account subscribed via we-mp-rss."""
+
+    name: str  # Display name, e.g. "机器之心"
+    feed_id: Optional[str] = None  # we-mp-rss mp_id, auto-resolved at startup if empty
+    enabled: bool = True
+    category: Optional[str] = None
+
+
+class WxMpConfig(BaseModel):
+    """we-mp-rss source configuration.
+
+    Feeds from a local we-mp-rss Docker instance.  The ``/feed/{feed_id}.json``
+    endpoint returns structured JSON with full article HTML body and requires
+    no authentication when accessed from localhost.
+
+    When ``auth_username`` and ``auth_password_env`` are set, the scraper
+    logs into we-mp-rss to auto-discover new subscriptions — any account
+    subscribed in the we-mp-rss admin panel is fetched automatically without
+    needing to add it to ``feeds[]`` in the config.
+    """
+
+    enabled: bool = True
+    base_url: str = "http://localhost:8001"
+    feeds: List[WxMpSourceConfig] = Field(default_factory=list)
+    fetch_limit: int = 50  # Articles per page fetched from we-mp-rss
+    # Optional auth for auto-discovery
+    auth_username: Optional[str] = None
+    auth_password_env: Optional[str] = None  # env var name, e.g. "WXMP_PASSWORD"
+
+    @property
+    def auth_enabled(self) -> bool:
+        """Whether auto-discovery auth is configured."""
+        return bool(self.auth_username and self.auth_password_env)
+
+
 class SourcesConfig(BaseModel):
     """All sources configuration."""
 
@@ -660,6 +703,7 @@ class SourcesConfig(BaseModel):
     google_news: Optional[GoogleNewsConfig] = None
     huawei_news: Optional[HuaweiNewsConfig] = None
     bytedance_news: Optional[ByteDanceNewsConfig] = None
+    wxmp: Optional[WxMpConfig] = None
 
 
 class WebhookConfig(BaseModel):

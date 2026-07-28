@@ -28,6 +28,7 @@ from .scrapers.gdelt import GDELTScraper
 from .scrapers.google_news import GoogleNewsScraper
 from .scrapers.huawei_news import HuaweiNewsScraper
 from .scrapers.seed_bytedance import ByteDanceSeedScraper
+from .scrapers.wxmp import WxMpScraper
 from .ai.client import create_ai_client
 from .ai.analyzer import ContentAnalyzer
 from .ai.summarizer import DailySummarizer
@@ -424,6 +425,11 @@ class HorizonOrchestrator:
             if self.config.sources.bytedance_news and self.config.sources.bytedance_news.enabled:
                 bt_scraper = ByteDanceSeedScraper(self.config.sources.bytedance_news, client)
                 tasks.append(self._fetch_with_progress("ByteDance Seed", bt_scraper, since))
+
+            # WeChat MP accounts (via local we-mp-rss)
+            if self.config.sources.wxmp and self.config.sources.wxmp.enabled:
+                wxmp_scraper = WxMpScraper(self.config.sources.wxmp, client)
+                tasks.append(self._fetch_with_progress("WeChat MP", wxmp_scraper, since))
 
             # Fetch all concurrently
             results = await asyncio.gather(*tasks, return_exceptions=True)

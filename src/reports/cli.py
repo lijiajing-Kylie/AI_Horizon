@@ -45,7 +45,7 @@ console = Console()
 # ────────────────────────────────────────────────────────────
 
 
-async def run(config: Config) -> int:
+async def run(config: Config, wxmp_max_age: int | None = None) -> int:
     """Fetch configured report sources and persist results. Returns count saved."""
     if not config.reports or not config.reports.enabled:
         console.print("[yellow]Reports library not enabled in config; nothing to do.[/yellow]")
@@ -57,8 +57,27 @@ async def run(config: Config) -> int:
         ai_client = create_ai_client(config.ai)
         console.print("[dim]AI filter enabled — non-tech reports will be skipped.[/dim]")
 
+    source_names = [s.name if hasattr(s, 'name') else str(s) for s in config.reports.sources]
+    if wxmp_max_age:
+        console.print(f"[dim]wxmp max_age_days overridden to {wxmp_max_age}[/dim]")
+    console.print(f"[dim]Fetching {len(config.reports.sources)} source(s): {', '.join(source_names)}[/dim]")
+
     async with httpx.AsyncClient() as client:
-        reports = await fetch_all_reports(config.reports, client, ai_client=ai_client)
+        reports = await fetch_all_reports(
+            config.reports, client,
+            ai_client=ai_client,
+            wxmp_config=config.sources.wxmp,
+            wxmp_max_age=wxmp_max_age,
+        )
+
+    console.print(f"[dim]Fetched {len(reports)} reports total.[/dim]")
+
+    if reports:
+        console.print("\n[bold]保存的报告：[/bold]")
+        for i, r in enumerate(reports, 1):
+            inst = r.institution or ""
+            title = r.title or "(无标题)"
+            console.print(f"  {i}. [{inst}] {title}")
 
     # Fallback: uncategorized reports → "其他"
     for r in reports:
@@ -340,6 +359,12 @@ def _build_parser() -> argparse.ArgumentParser:
         "--source",
         help="Only fetch from this source (e.g. 'aliyunreports', 'fxbaogao')",
     )
+    parser.add_argument(
+        "--max-age",
+        type=int,
+        default=None,
+        help="Max age in days for wxmp articles (default: 7)",
+    )
     sub = parser.add_subparsers(dest="command")
     sub.add_parser("help", add_help=False, help="Show this help message")
 
@@ -364,6 +389,12 @@ def main() -> None:
     """Main CLI entry point."""
     load_dotenv()
 
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(message)s",
+        stream=sys.stdout,
+    )
+
     parser = _build_parser()
     args = parser.parse_args()
 
@@ -386,8 +417,15 @@ def main() -> None:
         asyncio.run(backfill_pdfs(config, source=args.source, limit=args.limit))
     else:
         if args.source and config.reports and config.reports.sources:
-            config.reports.sources = [type(config.reports.sources[0])(name=args.source)]
-        asyncio.run(run(config))
+            matched = [s for s in config.reports.sources if s.name == args.source]
+            if matched:
+                config.reports.sources = matched
+            else:
+                console.print(
+                    "[yellow]No source named %r found in config; using all sources.[/yellow]"
+                    % args.source
+                )
+        asyncio.run(run(config, wxmp_max_age=args.max_age))
 
 
 if __name__ == "__main__":

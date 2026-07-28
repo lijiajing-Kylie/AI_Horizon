@@ -226,222 +226,6 @@
         "category": "foreign-blogger"
       },
       {
-        "name": "机器之心",
-        "url": "https://wechat2rss.xlab.app/feed/51e92aad2728acdd1fda7314be32b16639353001.xml",
-        "enabled": true,
-        "category": "wechat-account"
-      },
-      {
-        "name": "深科技",
-        "url": "https://decemberpei.cyou/rssbox/wechat-shenkeji.xml",
-        "enabled": true,
-        "category": "wechat-account"
-      },
-      {
-        "name": "PaperWeekly",
-        "url": "https://decemberpei.cyou/rssbox/wechat-paperweekly.xml",
-        "enabled": true,
-        "category": "wechat-account"
-      },
-      {
-        "name": "计算机视觉life",
-        "url": "https://decemberpei.cyou/rssbox/wechat-jisuanjishijuelife.xml",
-        "enabled": true,
-        "category": "wechat-account"
-      },
-      {
-        "name": "AI前线",
-        "url": "https://wechatrss.waytomaster.com/api/rss/MzU1NDA4NjU2MA==?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxODEwIiwidHlwZSI6InJzcyJ9.DQmf_sjp3y_iQV78XZN3iF3qnn6VSrrp_d3GW3dmcVo",
-        "enabled": true,
-        "category": "wechat-account"
-      },
-      {
-        "name": "夕小瑶科技说",
-        "url": "https://decemberpei.cyou/rssbox/wechat-xixiaoyaokejishuo.xml",
-        "enabled": true,
-        "category": "wechat-account"
-      },
-      {
-        "name": "海外独角兽",
-        "url": "https://decemberpei.cyou/rssbox/wechat-haiwaidujiaoshou.xml",
-        "enabled": true,
-        "category": "wechat-account"
-      },
-      {
-        "name": "甲子光年",
-        "url": "https://wechatrss.waytomaster.com/api/rss/MzU5OTI0NTc3Mg==?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxODEwIiwidHlwZSI6InJzcyJ9.DQmf_sjp3y_iQV78XZN3iF3qnn6VSrrp_d3GW3dmcVo",
-        "enabled": true,
-        "category": "wechat-account"
-      },
-      {
-        "name": "极智俱乐部",
-        "url": "https://decemberpei.cyou/rssbox/wechat-jizhijvlebu.xml",
-        "enabled": true,
-        "category": "wechat-account"
-      },
-      {
-        "name": "量子位",
-        "url": "https://wechat2rss.xlab.app/feed/7131b577c61365cb47e81000738c10d872685908.xml",
-        "enabled": true,
-        "category": "wechat-account"
-      },
-      {
-        "name": "新智元",
-        "url": "https://wechat2rss.xlab.app/feed/ede30346413ea70dbef5d485ea5cbb95cca446e7.xml",
-        "enabled": true,
-        "category": "wechat-account"
-      },
-      {
-        "name": "晚点 LatePost",
-        "url": "https://decemberpei.cyou/rssbox/wechat-wandian.xml",
-        "enabled": true,
-        "category": "wechat-account"
-      },
-      {
-        "name": "36氪Pro",
-        "url": "https://wechatrss.waytomaster.com/api/rss/MzUxOTA3MzMzOQ==?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxODEwIiwidHlwZSI6InJzcyJ9.DQmf_sjp3y_iQV78XZN3iF3qnn6VSrrp_d3GW3dmcVo",
-        "enabled": true,
-        "category": "wechat-account"
-      },
-      {
-        "name": "虎嗅APP",
-        "url": "https://decemberpei.cyou/rssbox/wechat-huxiuapp.xml",
-        "enabled": true,
-        "category": "wechat-account"
-      },
-      {
-        "name": "极客公园",
-        "url": "https://wechat2rss.xlab.app/feed/1a5aec98e71c707c8ca092bc2c255b9d4bac477d.xml",
-        "enabled": true,
-        "category": "wechat-account"
-      },
-      {
-        "name": "APPSO",
-        "url": "https://decemberpei.cyou/rssbox/wechat-appso.xml",
-        "enabled": true,
-        "category": "wechat-account"
-      },
-      {
-        "name": "爱范儿",
-        "url": "https://decemberpei.cyou/rssbox/wechat-anfaner.xml",
-        "enabled": true,
-        "category": "wechat-account"
-      },
-      {
-        "name": "差评",
-        "url": "https://decemberpei.cyou/rssbox/wechat-chaping.xml",
-        "enabled": true,
-        "category": "wechat-account"
-      },
-      {
-        "name": "钛媒体",
-        "url": "https://decemberpei.cyou/rssbox/wechat-taimeiti.xml",
-        "enabled": true,
-        "category": "wechat-account"
-      },
-      {
-        "name": "腾讯玄武实验室",
-        "url": "https://wechat2rss.xlab.app/feed/923c0e2f33b6d39c8a826a90f185725f0edb10e8.xml",
-        "enabled": true,
-        "category": "wechat-account"
-      },
-      {
-        "name": "腾讯安全智能",
-        "url": "https://wechat2rss.xlab.app/feed/88c9f7cfba0f4f60415eedf32cc5958b131c7065.xml",
-        "enabled": true,
-        "category": "wechat-account"
-      },
-      {
-        "name": "vivo千镜安全实验室",
-        "url": "https://wechat2rss.xlab.app/feed/6f07fe5af57e7a13c75b12bd0718840bdf4dc3f2.xml",
-        "enabled": true,
-        "category": "wechat-account"
-      },
-      {
-        "name": "阿里云开发者",
-        "url": "https://wechat2rss.xlab.app/feed/c74ed6db00cfbf16f2a048a165b4453f982681f0.xml",
-        "enabled": true,
-        "category": "wechat-account"
-      },
-      {
-        "name": "阿里技术",
-        "url": "https://wechat2rss.xlab.app/feed/6e1f9b775f7a5841ac1a94310f0478b45a02ec01.xml",
-        "enabled": true,
-        "category": "wechat-account"
-      },
-      {
-        "name": "通义实验室",
-        "url": "https://wechatrss.waytomaster.com/api/rss/MzkxMTYyMTAzNA==?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxODEwIiwidHlwZSI6InJzcyJ9.DQmf_sjp3y_iQV78XZN3iF3qnn6VSrrp_d3GW3dmcVo",
-        "enabled": true,
-        "category": "wechat-account"
-      },
-      {
-        "name": "腾讯技术工程",
-        "url": "https://wechat2rss.xlab.app/feed/9685937b45fe9c7a526dbc32e4f24ba879a65b9a.xml",
-        "enabled": true,
-        "category": "wechat-account"
-      },
-      {
-        "name": "字节跳动安全中心",
-        "url": "https://wechat2rss.xlab.app/feed/f4087ff02b808a1a995e2ba930219ada5b82425d.xml",
-        "enabled": true,
-        "category": "wechat-account"
-      },
-      {
-        "name": "小米技术",
-        "url": "https://wechat2rss.xlab.app/feed/20bc9c3251b3c4f73d3b53aa1f1ab853d05d4cbc.xml",
-        "enabled": true,
-        "category": "wechat-account"
-      },
-      {
-        "name": "前端之巅",
-        "url": "https://decemberpei.cyou/rssbox/wechat-qianduanzhidian.xml",
-        "enabled": true,
-        "category": "wechat-account"
-      },
-      {
-        "name": "架构师之路",
-        "url": "https://decemberpei.cyou/rssbox/wechat-jiagoushizhilu.xml",
-        "enabled": true,
-        "category": "wechat-account"
-      },
-      {
-        "name": "GitHubDaily",
-        "url": "https://decemberpei.cyou/rssbox/wechat-githubdaily.xml",
-        "enabled": true,
-        "category": "wechat-account"
-      },
-      {
-        "name": "经纬创投",
-        "url": "https://decemberpei.cyou/rssbox/wechat-jingweichuangtou.xml",
-        "enabled": true,
-        "category": "wechat-account"
-      },
-      {
-        "name": "我爱计算机视觉",
-        "url": "https://wechat2rss.xlab.app/feed/b81ffcfff1107b5265cd7e39de610dc7ca72caf4.xml",
-        "enabled": true,
-        "category": "wechat-account"
-      },
-      {
-        "name": "红杉汇",
-        "url": "https://decemberpei.cyou/rssbox/wechat-hongshanhui.xml",
-        "enabled": true,
-        "category": "wechat-account"
-      },
-      {
-        "name": "乱翻书",
-        "url": "https://decemberpei.cyou/rssbox/wechat-luanfanshu.xml",
-        "enabled": true,
-        "category": "wechat-account"
-      },
-      {
-        "name": "Founder Park",
-        "url": "https://decemberpei.cyou/rssbox/wechat-founderpark.xml",
-        "enabled": true,
-        "category": "wechat-account"
-      },
-      {
         "name": "AI Hot",
         "url": "https://aihot.virxact.com/feed.xml",
         "enabled": true,
@@ -640,6 +424,175 @@
       "fetch_limit": 50,
       "fetch_details": false,
       "category": "chinese-official"
+    },
+    "wxmp": {
+      "enabled": true,
+      "base_url": "http://localhost:8001",
+      "feeds": [
+        {
+          "name": "36氪Pro",
+          "feed_id": "MP_WXS_3519073339",
+          "category": "wechat-account"
+        },
+        {
+          "name": "AI前线",
+          "feed_id": "MP_WXS_3554086560",
+          "category": "wechat-account"
+        },
+        {
+          "name": "APPSO",
+          "feed_id": "MP_WXS_2392024520",
+          "category": "wechat-account"
+        },
+        {
+          "name": "Founder Park",
+          "feed_id": "MP_WXS_3895742803",
+          "category": "wechat-account"
+        },
+        {
+          "name": "GitHubDaily",
+          "feed_id": "MP_WXS_3019715205",
+          "category": "wechat-account"
+        },
+        {
+          "name": "PaperWeekly",
+          "feed_id": "MP_WXS_3201788143",
+          "category": "wechat-account"
+        },
+        {
+          "name": "中国信通院CAICT",
+          "feed_id": "MP_WXS_2393546305",
+          "category": "wechat-account"
+        },
+        {
+          "name": "乱翻书",
+          "feed_id": "MP_WXS_2390738373",
+          "category": "wechat-account"
+        },
+        {
+          "name": "前端之巅",
+          "feed_id": "MP_WXS_3513713196",
+          "category": "wechat-account"
+        },
+        {
+          "name": "夕小瑶科技说",
+          "feed_id": "MP_WXS_3207765945",
+          "category": "wechat-account"
+        },
+        {
+          "name": "字节跳动",
+          "feed_id": "MP_WXS_3550827996",
+          "category": "wechat-account"
+        },
+        {
+          "name": "字节跳动技术团队",
+          "feed_id": "MP_WXS_3253632141",
+          "category": "wechat-account"
+        },
+        {
+          "name": "小米技术",
+          "feed_id": "MP_WXS_3510410326",
+          "category": "wechat-account"
+        },
+        {
+          "name": "我爱计算机视觉",
+          "feed_id": "MP_WXS_3201156411",
+          "category": "wechat-account"
+        },
+        {
+          "name": "新智元",
+          "feed_id": "MP_WXS_3271041950",
+          "category": "wechat-account"
+        },
+        {
+          "name": "晚点LatePost",
+          "feed_id": "MP_WXS_3572959446",
+          "category": "wechat-account"
+        },
+        {
+          "name": "机器之心",
+          "feed_id": "MP_WXS_3073282833",
+          "category": "wechat-account"
+        },
+        {
+          "name": "极客公园",
+          "feed_id": "MP_WXS_1304308441",
+          "category": "wechat-account"
+        },
+        {
+          "name": "架构师之路",
+          "feed_id": "MP_WXS_2398610099",
+          "category": "wechat-account"
+        },
+        {
+          "name": "海外独角兽",
+          "feed_id": "MP_WXS_3869640945",
+          "category": "wechat-account"
+        },
+        {
+          "name": "深科技",
+          "feed_id": "MP_WXS_3218265689",
+          "category": "wechat-account"
+        },
+        {
+          "name": "甲子光年",
+          "feed_id": "MP_WXS_3599245772",
+          "category": "wechat-account"
+        },
+        {
+          "name": "腾讯技术工程",
+          "feed_id": "MP_WXS_2398602260",
+          "category": "wechat-account"
+        },
+        {
+          "name": "腾讯玄武实验室",
+          "feed_id": "MP_WXS_3094624240",
+          "category": "wechat-account"
+        },
+        {
+          "name": "腾讯研究院",
+          "feed_id": "MP_WXS_2399148061",
+          "category": "wechat-account"
+        },
+        {
+          "name": "计算机视觉life",
+          "feed_id": "MP_WXS_3219739384",
+          "category": "wechat-account"
+        },
+        {
+          "name": "通义实验室",
+          "feed_id": "MP_WXS_3911621034",
+          "category": "wechat-account"
+        },
+        {
+          "name": "量子位",
+          "feed_id": "MP_WXS_3236757533",
+          "category": "wechat-account"
+        },
+        {
+          "name": "钛媒体",
+          "feed_id": "MP_WXS_2398235760",
+          "category": "wechat-account"
+        },
+        {
+          "name": "阿里云",
+          "feed_id": "MP_WXS_3086283381",
+          "category": "wechat-account"
+        },
+        {
+          "name": "阿里技术",
+          "feed_id": "MP_WXS_3885737868",
+          "category": "wechat-account"
+        },
+        {
+          "name": "阿里研究院",
+          "feed_id": "MP_WXS_2395844153",
+          "category": "wechat-account"
+        }
+      ],
+      "fetch_limit": 50,
+      "auth_username": "admin",
+      "auth_password_env": "admin@123"
     }
   },
   "filtering": {
@@ -687,7 +640,16 @@
     "enabled": true,
     "sources": [
       "fxbaogao",
-      "aliyunreports"
+      "aliyunreports",
+      {
+        "name": "wxmp",
+        "ai_filter": true,
+        "account_names": [
+          "腾讯研究院",
+          "阿里研究院",
+          "__featured__"
+        ]
+      }
     ],
     "ai_filter_enabled": true,
     "aliyunreports_year": "2025年"

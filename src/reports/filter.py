@@ -10,6 +10,7 @@ Uses the same AI client abstraction as the main news pipeline
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import TYPE_CHECKING
 
@@ -23,16 +24,23 @@ logger = logging.getLogger(__name__)
 # ── Prompt templates ────────────────────────────────────────────────────────
 
 _SYSTEM_PROMPT = (
-    "你是一个科技报告过滤器。判断一份报告是否与科技、AI、前沿技术、"
-    "产业数字化、硬科技相关。只返回一个JSON对象。"
+    "你是一个科技报告过滤器。判断一份内容是否值得作为研究报告收录。"
+    "只返回一个JSON对象。"
 )
 
 _USER_TEMPLATE = """\
 标题：{title}
 机构：{institution}
 摘要：{summary}
+正文（节选）：{content}
 
-这份报告是否与科技、AI、前沿技术、数字化相关？
+这份内容是否值得作为研究报告收录？
+
+必须同时满足以下条件才算「是」：
+1. 正文或标题明确说明这是一份「报告」「白皮书」「深度研究」「行业洞察」等，而非普通新闻快讯、推文、产品介绍
+2. 阅读后能有很大收获——包含深度分析、数据支撑、前瞻判断，而非浅层信息汇总
+3. 受众不限于技术人员，对管理者、投资者、行业从业者同样有价值
+4. 优先收录万字长文或同等深度的报告（篇幅越长越好）
 
 以下类型必须拒绝（答「否」）：
 - 营销推广、品牌白皮书、消费者洞察、购物指南
@@ -44,8 +52,11 @@ _USER_TEMPLATE = """\
 - 纯政策/法规解读（不含科技政策）
 - 娱乐/游戏/直播行业报告（不含底层技术）
 - 某个具体产品/平台的介绍白皮书（如鸿蒙白皮书、某产品安全白皮书、某平台运营报告、某型号技术手册）
+- 某一项具体技术或某个使用功能的白皮书（如FastLane详解、Sparse Attention技术报告、某工具使用指南）
 - 单一技术点的窄范围白皮书（如某个协议标准、某种特定算法介绍）
 - 企业内部流程/管理体系介绍（如流程体系最佳实践、代理商规则）
+- 普通新闻资讯、日报周报汇总、活动预告、会议速记
+- 纯观点评论、个人博客式文章（缺乏系统研究）
 
 以下类型应该接受（答「是」）：
 - AI、大模型、机器学习、深度学习、自动驾驶、机器人等行业的趋势分析
@@ -54,8 +65,9 @@ _USER_TEMPLATE = """\
 - 生物医药、基因编辑、航天航空、量子计算等领域报告
 - 产业数字化、智能制造、工业互联网、金融科技等宏观分析
 - 数字经济发展、数实融合、技术社会影响等综合性报告
+- 万字以上的行业深度报告、年度观察、产业全景图
 
-只返回一个JSON对象：{{\"r\": \"是\"}} 或 {{\"r\": \"否\"}}"""
+只返回一个JSON对象：{{"r": "是"}} 或 {{"r": "否"}}"""
 
 
 class ReportFilter:
@@ -101,10 +113,12 @@ class ReportFilter:
     @staticmethod
     def _build_user_prompt(report: Report) -> str:
         summary = (report.summary or "")[:300]
+        content = (report.content_text or "")[:2000]
         return _USER_TEMPLATE.format(
             title=report.title,
             institution=report.institution,
             summary=summary,
+            content=content,
         )
 
     @staticmethod
@@ -116,7 +130,6 @@ class ReportFilter:
             if not t.endswith("}"):
                 t += '"}'
             try:
-                import json
                 obj = json.loads(t)
                 val = obj.get("r") or obj.get("relevant") or ""
                 return val == "是"
