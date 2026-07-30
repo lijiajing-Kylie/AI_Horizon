@@ -49,6 +49,7 @@ data/debug/
 data/reports_pdfs/
 frontend/data/
 data/aliyun_profile/
+data/wxmp_browser_profile/
 
 docs/_posts/*.md
 docs/app/
