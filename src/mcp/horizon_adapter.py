@@ -153,13 +153,11 @@ def load_runtime(horizon_path: Path) -> HorizonRuntime:
 
 
 def load_config(runtime: HorizonRuntime, config_path: Path) -> Any:
-    """Load Horizon config using native pydantic model."""
+    """Load Horizon config via StorageManager（支持多文件合并）。"""
 
+    storage = make_storage(runtime, config_path)
     try:
-        payload = runtime.expand_env_vars(
-            json.loads(config_path.read_text(encoding="utf-8"))
-        )
-        return runtime.Config.model_validate(payload)
+        return storage.load_config()
     except Exception as exc:
         raise HorizonMcpError(
             code="HZ_CONFIG_INVALID",

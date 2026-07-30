@@ -21,8 +21,9 @@ from zoneinfo import ZoneInfo
 
 import httpx
 from bs4 import BeautifulSoup
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
+from ...config.constants import ALIYUNREPORTS_DEFAULTS
 from ..models import Report
 from .base import ReportSourceFetcher
 
@@ -43,23 +44,23 @@ except ImportError:
 
 
 class AliyunReportsConfig(BaseModel):
-    """Source-local config for aliyun.com/reports filtering.
+    """阿里云报告源 (aliyun.com/reports) 的浏览器配置。
 
-    PDF download requires an Aliyun account login.  On first run, set
-    ``headless=False`` and log in when the browser window opens — the
-    session is persisted to ``browser_profile_dir`` and reused.
+    默认值定义在 src/config/constants.py 的 ALIYUNREPORTS_DEFAULTS 中。
+    PDF 下载需要阿里云账号登录，首次运行时设 headless=False 登录一次，
+    会话会持久化到 browser_profile_dir，后续运行自动复用。
     """
 
-    content_category: str = "报告"
-    year: str = "2026年"
-    tech_category: str = "人工智能"
-    pdf_output_dir: str = "data/reports_pdfs"
-    browser_profile_dir: str = "data/aliyun_profile"
-    headless: bool = True
-    max_retries: int = 3
-    timeout_ms: int = 60000
-    download_pdfs: bool = True
-    delay_between_requests: float = 0.5
+    content_category: str = Field(default=ALIYUNREPORTS_DEFAULTS["content_category"], description="内容分类过滤（中文），只拉取该分类下的报告")
+    year: str = Field(default="2026年", description="筛选年份，例如 2025年、2026年")
+    tech_category: str = Field(default=ALIYUNREPORTS_DEFAULTS["tech_category"], description="技术分类过滤（中文），只拉取该技术领域的报告")
+    pdf_output_dir: str = Field(default="data/reports_pdfs", description="PDF 文件下载后存放的目录")
+    browser_profile_dir: str = Field(default=ALIYUNREPORTS_DEFAULTS["browser_profile_dir"], description="Playwright 浏览器持久化会话目录（登录态存这里，首次需登录后复用）")
+    headless: bool = Field(default=ALIYUNREPORTS_DEFAULTS["headless"], description="无头模式。True=不显示浏览器窗口，False=显示窗口方便调试登录")
+    max_retries: int = Field(default=ALIYUNREPORTS_DEFAULTS["max_retries"], description="页面抓取失败时的重试次数")
+    timeout_ms: int = Field(default=ALIYUNREPORTS_DEFAULTS["timeout_ms"], description="每次浏览器请求的超时时间（毫秒）")
+    download_pdfs: bool = Field(default=True, description="是否自动下载 PDF 报告")
+    delay_between_requests: float = Field(default=ALIYUNREPORTS_DEFAULTS["delay_between_requests"], description="两次请求之间的间隔（秒），避免被反爬")
 
 
 class AliyunReportsFetcher(ReportSourceFetcher):

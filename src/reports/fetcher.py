@@ -54,6 +54,7 @@ async def fetch_all_reports(
     """
     reports: Dict[str, Report] = {}
     browser_fetchers: list = []
+    wxmp_reports: List[Report] = []  # batch-processed via Playwright later
 
     report_filter = ReportFilter(ai_client) if ai_client and config.ai_filter_enabled else None
 
@@ -96,7 +97,8 @@ async def fetch_all_reports(
                 continue
 
             # ── AI relevance filter (per-source via ai_filter) ──
-            if report_filter is not None and source_item.ai_filter:
+            skip = getattr(report, "skip_ai_filter", False)
+            if report_filter is not None and source_item.ai_filter and not skip:
                 if not await report_filter.is_tech_relevant(report):
                     filter_skipped += 1
                     continue
@@ -105,7 +107,11 @@ async def fetch_all_reports(
             if config.download_pdfs and config.pdf_output_dir:
                 report = await download_report_pdfs(report, config, client)
 
-            reports[report.id] = report
+            # ── Collect wxmp reports for browser-based PDF resolution ──
+            if source_name == "wxmp" and config.download_pdfs and config.pdf_output_dir:
+                wxmp_reports.append(report)
+            else:
+                reports[report.id] = report
             source_kept += 1
 
             # Log AI filter progress periodically.
@@ -123,18 +129,36 @@ async def fetch_all_reports(
 
         logger.info(
             "[%d/%d] %s: %d native ids, %d kept (running total: %d)",
-            idx, total_sources, source_name, len(native_ids), source_kept, len(reports),
+            idx, total_sources, source_name, len(native_ids), source_kept, len(reports) + len(wxmp_reports),
         )
 
         # Collect fetchers that need browser cleanup.
         if hasattr(fetcher, "close"):
             browser_fetchers.append(fetcher)
 
-    # Close any self-managed browser instances.
+    # Close any self-managed browser instances (aliyunreports, etc.).
     for f in browser_fetchers:
         try:
             await f.close()
         except Exception as exc:
             logger.debug("Error closing browser for %s: %s", type(f).__name__, exc)
+
+    # ── Batch-process wxmp reports through Playwright browser resolver ──
+    if wxmp_reports and config.download_pdfs and config.pdf_output_dir:
+        logger.info(
+            "Launching browser resolver for %d wxmp reports …", len(wxmp_reports)
+        )
+        from .wxmp_browser_resolver import WxMpBrowserResolver
+
+        resolver = WxMpBrowserResolver(
+                pdf_output_dir=config.pdf_output_dir,
+                headless=config.browser_headless,
+            )
+        try:
+            resolved = await resolver.resolve_batch(wxmp_reports)
+            for r in resolved:
+                reports[r.id] = r
+        finally:
+            await resolver.close()
 
     return sorted(reports.values(), key=lambda r: r.published_at, reverse=True)

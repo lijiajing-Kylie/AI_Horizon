@@ -1,9 +1,11 @@
 """Storage manager for configuration and state persistence."""
 
+import importlib.util
 import json
 import os
 import re
 import shutil
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -53,6 +55,9 @@ class ConfigError(ValueError):
 class StorageManager:
     """Manages file-based storage for configuration and state."""
 
+    # 多文件合并顺序 — 越后面的文件优先级越高
+    _MERGE_FILES = ["app.json", "sources.json", "scoring.json"]
+
     def __init__(self, data_dir: str = "data"):
         self.data_dir = Path(data_dir)
         self.config_path = self.data_dir / "config.json"
@@ -61,31 +66,113 @@ class StorageManager:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.summaries_dir.mkdir(parents=True, exist_ok=True)
 
+    @staticmethod
+    def _deep_merge(base: dict, overlay: dict) -> dict:
+        """递归合并两个 dict。dict 值递归合并，list/其他值直接替换。"""
+        result = dict(base)
+        for key, val in overlay.items():
+            if key in result and isinstance(result[key], dict) and isinstance(val, dict):
+                result[key] = StorageManager._deep_merge(result[key], val)
+            else:
+                result[key] = val
+        return result
+
     def load_config(self) -> Config:
-        if not self.config_path.exists():
-            raise FileNotFoundError(
-                f"Configuration file not found: {self.config_path}\n"
-                f"Please create it based on the template in README.md"
+        # 1. 尝试 Python 配置文件（data/config.py），支持注释和动态值
+        py_config = self.data_dir / "config.py"
+        if py_config.exists():
+            return self._load_config_py(py_config)
+
+        # 2. JSON 多文件合并（备选）
+        return self._load_config_json()
+
+    def _load_config_py(self, path: Path) -> Config:
+        """加载 Python 配置文件并执行，提取 dict 变量作为配置数据。"""
+        # 用唯一模块名加载，避免 sys.modules 缓存干扰
+        module_name = f"_horizon_config_{hash(path)}"
+        spec = importlib.util.spec_from_file_location(module_name, path)
+        if spec is None or spec.loader is None:
+            raise ConfigError(f"Could not load Python config: {path}")
+        mod = importlib.util.module_from_spec(spec)
+        # 注入 os 模块，方便用户在 config.py 中用 os.getenv()
+        mod.os = os
+        try:
+            spec.loader.exec_module(mod)
+        except Exception as exc:
+            raise ConfigError(f"Error executing {path}: {exc}") from exc
+        finally:
+            sys.modules.pop(module_name, None)
+
+        # 提取模块中公开的 dict/list 变量作为配置
+        merged: dict = {}
+        for key in dir(mod):
+            if key.startswith("_"):
+                continue
+            val = getattr(mod, key, None)
+            if isinstance(val, (dict, list, str, int, float, bool)):
+                # list 类型的变量（如 sources.rss）需要包在对应的父 key 下
+                # 顶层变量直接作为 Config 模型的字段
+                if val is not None:
+                    merged[key] = val
+
+        if not merged:
+            raise ConfigError(
+                f"Python config {path} defines no configuration variables. "
+                "Define dicts like `ai = {...}`, `sources = {...}`, etc."
             )
 
-        try:
-            with open(self.config_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-        except json.JSONDecodeError as e:
-            raise ConfigError(
-                f"Invalid JSON in configuration file: {self.config_path}\n" f"Error: {e}"
-            ) from e
-
-        # Expand ${VAR} references in every string value before pydantic
-        # validation. Keeps credentials / private endpoints / tenant IDs
-        # out of the JSON file so it is safe to commit to a public repo.
-        data = _expand_env_vars(data)
+        # 展开 ${VAR} 引用
+        merged = _expand_env_vars(merged)
 
         try:
-            return Config.model_validate(data)
+            return Config.model_validate(merged)
         except ValidationError as e:
             raise ConfigError(
-                f"Configuration validation failed for {self.config_path}\n"
+                f"Configuration validation failed (source: {path})\n"
+                f"Details: {e}"
+            ) from e
+
+    def _load_config_json(self) -> Config:
+        # 1. 多文件合并：app.json + sources.json + scoring.json
+        merged: dict = {}
+        for name in self._MERGE_FILES:
+            path = self.data_dir / name
+            if path.exists():
+                try:
+                    with open(path, "r", encoding="utf-8") as f:
+                        merged = self._deep_merge(merged, json.load(f))
+                except json.JSONDecodeError as e:
+                    raise ConfigError(f"Invalid JSON in {path}: {e}") from e
+
+        # 2. config.json 作为覆盖层（向后兼容，优先级最高）
+        if self.config_path.exists():
+            try:
+                with open(self.config_path, "r", encoding="utf-8") as f:
+                    merged = self._deep_merge(merged, json.load(f))
+            except json.JSONDecodeError as e:
+                raise ConfigError(
+                    f"Invalid JSON in configuration file: {self.config_path}\n"
+                    f"Error: {e}"
+                ) from e
+            _source = str(self.config_path)
+        elif merged:
+            _source = "+".join(str(self.data_dir / n) for n in self._MERGE_FILES if (self.data_dir / n).exists())
+        else:
+            raise FileNotFoundError(
+                f"Configuration file not found: {self.config_path}\n"
+                f"Alternatively, place individual config files in {self.data_dir}/\n"
+                f"({', '.join(self._MERGE_FILES)}) based on config.example.json."
+            )
+
+        # 3. 展开 ${VAR} 引用
+        merged = _expand_env_vars(merged)
+
+        # 4. Pydantic 验证
+        try:
+            return Config.model_validate(merged)
+        except ValidationError as e:
+            raise ConfigError(
+                f"Configuration validation failed (source: {_source})\n"
                 f"Details: {e}"
             ) from e
 

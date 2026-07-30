@@ -10,7 +10,14 @@ from google import genai
 from google.genai import types
 
 
-from ..models import AIConfig, AIProvider
+from ..config.constants import (
+    DEFAULT_BASE_URLS,
+    BASE_URL_ENVS,
+    NO_RESPONSE_FORMAT,
+    TEMP_CLAMP,
+    MODELS_REQUIRING_MAX_COMPLETION_TOKENS,
+)
+from ..models import AIConfig, AIProvider, AI_PROVIDER_DEFAULTS
 from rich import print as rich_print
 from .tokens import record_usage
 
@@ -24,16 +31,6 @@ _SECRET_PREFIXES = (
     "gsk_",
     "hf_",
 )
-_DEFAULT_API_KEY_ENVS = {
-    AIProvider.ANTHROPIC: "ANTHROPIC_API_KEY",
-    AIProvider.OPENAI: "OPENAI_API_KEY",
-    AIProvider.AZURE: "AZURE_OPENAI_API_KEY",
-    AIProvider.ALI: "DASHSCOPE_API_KEY",
-    AIProvider.GEMINI: "GOOGLE_API_KEY",
-    AIProvider.DOUBAO: "DOUBAO_API_KEY",
-    AIProvider.MINIMAX: "MINIMAX_API_KEY",
-    AIProvider.DEEPSEEK: "DEEPSEEK_API_KEY",
-}
 
 
 def _resolve_api_key(config: AIConfig, *, fallback: Optional[str] = None) -> str:
@@ -46,7 +43,7 @@ def _resolve_api_key(config: AIConfig, *, fallback: Optional[str] = None) -> str
 
 
 def _missing_api_key_message(config: AIConfig) -> str:
-    expected_env = _DEFAULT_API_KEY_ENVS.get(config.provider)
+    expected_env = AI_PROVIDER_DEFAULTS.get(config.provider, {}).get("api_key_env")
     if expected_env:
         setup_hint = (
             f"Set {expected_env}=your_api_key in .env or your shell, then set "
@@ -174,29 +171,6 @@ class AnthropicClient(AIClient):
 class OpenAIClient(AIClient):
     """Client for OpenAI-compatible APIs."""
 
-    # Default base URLs per provider
-    _DEFAULT_BASE_URLS = {
-        "ali": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-        "deepseek": "https://api.deepseek.com",
-        "doubao": "https://ark.cn-beijing.volces.com/api/v3",
-        "minimax": "https://api.minimax.io/v1",
-        "ollama": "http://localhost:11434/v1",
-    }
-
-    _BASE_URL_ENVS = {
-        "ollama": (
-            "HORIZON_OLLAMA_BASE_URL",
-            "OLLAMA_BASE_URL",
-            "OLLAMA_HOST",
-        ),
-    }
-
-    # Providers that don't support response_format
-    _NO_RESPONSE_FORMAT = {"minimax"}
-
-    # Providers that need temperature clamped to (0, 1]
-    _TEMP_CLAMP = {"minimax"}
-
     def __init__(self, config: AIConfig):
         """Initialize OpenAI-compatible client.
 
@@ -226,12 +200,12 @@ class OpenAIClient(AIClient):
     def _resolve_base_url(cls, config: AIConfig) -> Optional[str]:
         base_url = (config.base_url or "").strip()
         if not base_url:
-            for env_name in cls._BASE_URL_ENVS.get(config.provider.value, ()):
+            for env_name in BASE_URL_ENVS.get(config.provider.value, ()):
                 base_url = os.getenv(env_name, "").strip()
                 if base_url:
                     break
         if not base_url:
-            base_url = cls._DEFAULT_BASE_URLS.get(config.provider.value, "")
+            base_url = DEFAULT_BASE_URLS.get(config.provider.value, "")
 
         if config.provider == AIProvider.OLLAMA and base_url:
             return _normalize_ollama_base_url(base_url)
@@ -259,7 +233,7 @@ class OpenAIClient(AIClient):
         max_tokens = self.max_tokens if max_tokens is None else max_tokens
 
         # Clamp temperature for providers that require it
-        if self.provider in self._TEMP_CLAMP and temperature <= 0:
+        if self.provider in TEMP_CLAMP and temperature <= 0:
             temperature = 0.01
 
         try:
@@ -312,7 +286,7 @@ class OpenAIClient(AIClient):
         }
         if include_temperature:
             request_kwargs["temperature"] = temperature
-        if self.provider not in self._NO_RESPONSE_FORMAT:
+        if self.provider not in NO_RESPONSE_FORMAT:
             request_kwargs["response_format"] = {"type": "json_object"}
         return await self.client.chat.completions.create(**request_kwargs)
 
@@ -333,11 +307,6 @@ class AzureOpenAIClient(AIClient):
     name (passed as `model`), azure_endpoint (resource base URL), and
     api_version. The deployment path is assembled internally by the SDK.
     """
-
-    # Newer reasoning-series models reject legacy `max_tokens` and require
-    # `max_completion_tokens` instead. Azure uses deployment names as `model`,
-    # so a best-effort guess can be wrong for custom deployment aliases.
-    _MODELS_REQUIRING_MAX_COMPLETION_TOKENS = ("o1", "o3", "o4", "gpt-5")
 
     def __init__(self, config: AIConfig):
         """Initialize Azure OpenAI client.
@@ -366,7 +335,7 @@ class AzureOpenAIClient(AIClient):
         self.max_tokens = config.max_tokens
         self._use_max_completion_tokens = any(
             config.model.startswith(prefix)
-            for prefix in self._MODELS_REQUIRING_MAX_COMPLETION_TOKENS
+            for prefix in MODELS_REQUIRING_MAX_COMPLETION_TOKENS
         )
 
     async def complete(
@@ -608,8 +577,6 @@ class ChainedAIClient(AIClient):
 
 def _create_chained_client(config: AIConfig) -> ChainedAIClient:
     """Build a ChainedAIClient from a comma-separated provider chain."""
-    from ..models import AI_PROVIDER_DEFAULTS
-
     provider_names = [p.strip() for p in config.provider_chain.split(",") if p.strip()]
     if not provider_names:
         raise ValueError("provider_chain is empty")

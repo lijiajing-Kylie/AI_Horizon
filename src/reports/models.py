@@ -31,3 +31,4 @@ class Report(BaseModel):
     view_count: Optional[int] = None
     download_count: Optional[int] = None
     fetched_at: datetime
+    skip_ai_filter: bool = False  # set True for already-curated sources (e.g. featured articles)

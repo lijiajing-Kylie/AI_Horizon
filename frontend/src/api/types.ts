@@ -291,6 +291,19 @@ export interface ReportPdf {
   name: string
   url: string
   local_path?: string
+  /**
+   * Entry type.  ``"direct"`` (default) is a regular PDF link; any entry
+   * without a ``type`` field is treated as direct for backward compatibility.
+   *
+   * ``"wechat_keyword"`` means the PDF is gated behind following a WeChat
+   * Official Account and replying with a specific keyword — there is no
+   * direct download URL available.
+   */
+  type?: 'direct' | 'wechat_keyword'
+  /** WeChat Official Account name (present on ``wechat_keyword`` entries). */
+  account?: string
+  /** Reply keyword (present on ``wechat_keyword`` entries). */
+  keyword?: string
 }
 
 export interface Report {

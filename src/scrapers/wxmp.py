@@ -203,7 +203,9 @@ class WxMpScraper(BaseScraper):
                 )
                 return await self._fetch_via_socket(url, method=method, data=data, headers=headers)
             response.raise_for_status()
-            return response.json()
+            # Use strict=False because we-mp-rss sometimes embeds control
+            # characters in article content that strict json.loads rejects.
+            return json_mod.loads(response.text, strict=False)
         except httpx.HTTPError as exc:
             logger.warning(
                 "Error fetching %s via httpx: %s — trying raw socket fallback",
@@ -285,7 +287,7 @@ class WxMpScraper(BaseScraper):
             if "200" not in status_line:
                 logger.warning("Socket fallback got %s for %s", status_line, url)
                 return None
-            return json_mod.loads(body_bytes)
+            return json_mod.loads(body_bytes, strict=False)
         except asyncio.TimeoutError:
             logger.warning("Socket fallback timeout for %s", url)
             return None

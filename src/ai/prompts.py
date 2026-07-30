@@ -133,9 +133,9 @@ relevant = false，如果内容主要是：
 
 如果 relevant = true，请分别判断以下维度：
 
-1. source_authority 来源权威性，0-2 分
-- 2：一手权威来源，或非常可靠的权威报道，例如官方博客、论文、技术报告、权威机构、知名科技媒体
-- 1：来源可信但不是一手，或信息可靠性一般
+1. source_authority 来源权威性，0-1 分
+- 1：一手权威来源（官方博客、论文、技术报告、权威机构）
+- 0.5：知名科技媒体报道、或较可靠的非一手来源
 - 0：来源不明、聚合站、转载站、个人随笔，或无法确认可信度
 
 注意：来源权威性只代表可信度，不代表重要性。不要因为是大公司或官方公告就自动给高分。
@@ -145,9 +145,10 @@ relevant = false，如果内容主要是：
 - 1：有一定新信息，但不是特别独家或重大
 - 0：基本是旧闻、重复信息、常规更新或缺少新内容
 
-3. technical_substance 技术实质，0-2 分
-- 2：包含明确技术细节，如架构、训练/推理方法、性能数据、评测结果、参数规模、部署方式、系统设计
-- 1：有一些技术信息，但不够深入
+3. technical_substance 技术实质，0-3 分
+- 3：包含非常深入的技术细节（完整架构、详细性能数据、训练/推理方法、参数规模、系统设计、代码或公式级别）
+- 2：包含明确技术细节（架构、性能数据、评测结果、方法说明），但不够全面
+- 1：有一些技术信息，不够深入
 - 0：几乎没有技术实质，主要是概念、宣传或泛泛描述
 
 4. real_world_impact 现实影响，0-2 分
@@ -228,9 +229,9 @@ relevant = false，如果内容主要是：
 
 字段包括：
 - relevant: boolean
-- source_authority: 0 到 2
+- source_authority: 0 到 1
 - novelty: 0 到 2
-- technical_substance: 0 到 2
+- technical_substance: 0 到 3
 - real_world_impact: 0 到 2
 - community_validation: 0 到 1
 - content_completeness: 0 到 1
@@ -263,9 +264,9 @@ URL：{url}
 仅返回合法 JSON：
 {{
   "relevant": true 或 false,
-  "source_authority": <0 到 2，仅在 relevant 为 true 时有意义>,
+  "source_authority": <0 到 1，仅在 relevant 为 true 时有意义>,
   "novelty": <0 到 2，仅在 relevant 为 true 时有意义>,
-  "technical_substance": <0 到 2，仅在 relevant 为 true 时有意义>,
+  "technical_substance": <0 到 3，仅在 relevant 为 true 时有意义>,
   "real_world_impact": <0 到 2，仅在 relevant 为 true 时有意义>,
   "community_validation": <0 到 1，仅在 relevant 为 true 时有意义>,
   "content_completeness": <0 到 1，仅在 relevant 为 true 时有意义>,

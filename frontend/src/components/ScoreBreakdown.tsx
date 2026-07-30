@@ -1,9 +1,9 @@
 import type { ScoreBreakdown as ScoreBreakdownData } from '../api/types'
 
 const POSITIVE_DIMENSIONS: { key: keyof ScoreBreakdownData; label: string; max: number }[] = [
-  { key: 'source_authority', label: '来源权威性', max: 2 },
+  { key: 'source_authority', label: '来源权威性', max: 1 },
   { key: 'novelty', label: '新颖性', max: 2 },
-  { key: 'technical_substance', label: '技术实质', max: 2 },
+  { key: 'technical_substance', label: '技术实质', max: 3 },
   { key: 'real_world_impact', label: '现实影响', max: 2 },
   { key: 'community_validation', label: '社区验证', max: 1 },
   { key: 'content_completeness', label: '内容完整度', max: 1 },

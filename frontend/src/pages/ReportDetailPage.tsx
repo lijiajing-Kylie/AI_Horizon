@@ -50,24 +50,34 @@ export default function ReportDetailPage() {
           {report.download_count != null && <span>· {report.download_count}次下载</span>}
         </div>
 
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm mb-3">
-          {report.pdf_urls.map(pdf => (
-            <a
-              key={pdf.url}
-              href={pdf.local_path ?? pdf.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 font-medium text-[var(--accent)] hover:opacity-80 transition-colors"
-            >
-              查看PDF文件
-              {pdf.local_path && (
-                <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded-full bg-[var(--accent)]/10 text-[var(--accent)]">
-                  本地
-                </span>
-              )}
-              <ExternalLink className="w-3.5 h-3.5" strokeWidth={2} />
-            </a>
-          ))}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm mb-3">
+          {report.pdf_urls.map(pdf =>
+            pdf.type === 'wechat_keyword' ? (
+              <div
+                key={pdf.keyword ?? pdf.url}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--line)] px-3 py-1.5 text-sm text-[var(--muted)]"
+              >
+                关注 <strong className="font-semibold text-[var(--ink)]">{pdf.account || report.institution}</strong> 公众号
+                回复 <strong className="font-semibold text-[var(--accent)]">「{pdf.keyword ?? pdf.name}」</strong> 获取 PDF
+              </div>
+            ) : (
+              <a
+                key={pdf.url}
+                href={pdf.local_path ?? pdf.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 font-medium text-[var(--accent)] hover:opacity-80 transition-colors"
+              >
+                查看PDF文件
+                {pdf.local_path && (
+                  <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded-full bg-[var(--accent)]/10 text-[var(--accent)]">
+                    本地
+                  </span>
+                )}
+                <ExternalLink className="w-3.5 h-3.5" strokeWidth={2} />
+              </a>
+            )
+          )}
         </div>
 
         {report.categories.length > 0 && (
@@ -86,11 +96,23 @@ export default function ReportDetailPage() {
 
       {/* ── Summary ── */}
       {report.summary && (
-        <section className="glass rounded-[22px] p-6">
+        <section className="glass rounded-[22px] p-6 mb-6">
           <CardHeading>摘要</CardHeading>
           <p className="text-[17px] leading-[1.85] text-[var(--ink)] whitespace-pre-line">
             {report.summary}
           </p>
+        </section>
+      )}
+
+      {/* ── Full text ── */}
+      {report.content_text && report.content_text.length > 0 && (
+        <section className="glass rounded-[22px] p-6">
+          <CardHeading>全文</CardHeading>
+          <div className="text-[17px] leading-[1.85] text-[var(--ink)] whitespace-pre-line space-y-4">
+            {report.content_text.split('\n').map((para, i) =>
+              para.trim() ? <p key={i}>{para}</p> : null
+            )}
+          </div>
         </section>
       )}
 

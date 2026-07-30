@@ -203,6 +203,7 @@ class ByteDanceSeedScraper(BaseScraper):
             cover_image=cover,
             metadata={
                 "language": "zh",
+                "category": self.bt_config.category or "",
                 "categories": categories,
                 "is_pinned": meta.get("IsPinned", False),
                 "source_url": _BLOG_LIST_URL,

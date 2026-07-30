@@ -563,6 +563,48 @@ def _extract_structured_html(html: str, url: str) -> tuple[Optional[str], Option
     return raw_html, sanitize_article_html(raw_html)
 
 
+def _extract_from_html(html: str, url: str) -> Optional[ExtractedArticle]:
+    """Run trafilatura extraction + image/structured-HTML extraction on
+    already-available HTML, without making an HTTP request.
+
+    Returns ``None`` when the HTML isn't article-like (plain text, too
+    short, trafilatura can't find structured content, etc.) — callers fall
+    back to their original skip/fetch logic.
+    """
+    if not html or len(html) < 500:
+        return None
+
+    html = _strip_boilerplate_containers(html)
+
+    try:
+        text = trafilatura.extract(
+            html,
+            include_comments=False,
+            include_tables=False,
+            output_format="txt",
+            favor_precision=True,
+        )
+    except Exception as exc:
+        logger.debug("trafilatura extraction error on inline HTML for %s: %s", url, exc)
+        return None
+
+    if not text or len(text.strip()) < _MIN_CONTENT_LENGTH:
+        return None
+
+    cover_image, images = _extract_images(html, url)
+    raw_html, display_html = _extract_structured_html(html, url)
+
+    return ExtractedArticle(
+        text=text.strip(),
+        cover_image=cover_image,
+        images=images,
+        raw_html=raw_html,
+        display_html=display_html,
+        http_status=200,
+        final_url=url,
+    )
+
+
 async def extract_full_content(
     url: str,
     http_client: httpx.AsyncClient,
@@ -599,9 +641,25 @@ async def extract_full_content(
     debug["skip_reason"] = None
     debug["http_status"] = None
 
-    # If the RSS feed already provided high-quality full-text content,
-    # skip the URL fetch + extraction entirely.
+    # When the RSS feed already provided high-quality content, try to
+    # extract clean text + structured HTML from the existing content
+    # (which may be full article HTML, e.g. from we-mp-rss). Only skip
+    # URL fetching when the inline content isn't article-like HTML — in
+    # that case the existing content is already clean text (standard RSS
+    # feeds) and needs no further processing.
     if item is not None and item.rss_content_quality == "high":
+        html = item.content or ""
+        if html.strip():
+            extracted = _extract_from_html(html, str(item.url))
+            if extracted is not None:
+                debug["skip_reason"] = None
+                debug["http_status"] = 200
+                logger.debug(
+                    "extracted from inline HTML for %s (len=%d → %d chars)",
+                    url, len(html), len(extracted.text),
+                )
+                return extracted
+
         debug["skip_reason"] = "rss_content_high_quality"
         logger.debug("skip url=%s reason=rss_content_high_quality (rss_len=%d)", url, len(item.rss_summary or ""))
         return None
