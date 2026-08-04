@@ -15,7 +15,9 @@ from src.papers import weekly
 from src.papers.models import Paper
 from src.papers.prompts import (
     ARXIV_CONCEPT_SYSTEM,
-    ARXIV_DETAIL_SYSTEM,
+    ARXIV_DETAIL_SYSTEM_SEG1,
+    ARXIV_DETAIL_SYSTEM_SEG2,
+    ARXIV_DETAIL_SYSTEM_SEG3,
     ARXIV_SCORE_SYSTEM,
 )
 from src.storage.db import HorizonDB
@@ -68,6 +70,20 @@ _DETAIL_JSON = {
     "innovation_level": {"level": "significant_improvement", "reason": "相比已有方法明显提升"},
 }
 
+# 分段生成后，每段请求只返回本段字段的 JSON 子集。
+_DETAIL_SEG1_JSON = {k: _DETAIL_JSON[k] for k in
+    ("one_sentence_summary", "why_it_matters", "background", "previous_problem")}
+_DETAIL_SEG2_JSON = {k: _DETAIL_JSON[k] for k in
+    ("core_idea", "how_it_works", "technical_details")}
+_DETAIL_SEG3_JSON = {k: _DETAIL_JSON[k] for k in
+    ("experimental_evidence", "real_world_impact", "limitations", "innovation_level", "keywords")}
+
+_DETAIL_SYSTEM_TO_SEG = {
+    ARXIV_DETAIL_SYSTEM_SEG1: ("overview", _DETAIL_SEG1_JSON),
+    ARXIV_DETAIL_SYSTEM_SEG2: ("method", _DETAIL_SEG2_JSON),
+    ARXIV_DETAIL_SYSTEM_SEG3: ("evaluation", _DETAIL_SEG3_JSON),
+}
+
 
 def _score_json(overall: int, reason: str) -> str:
     """New multi-dimension score JSON, derived so breakdown is predictable."""
@@ -82,15 +98,30 @@ def _score_json(overall: int, reason: str) -> str:
 
 
 class _FakeAI:
-    """AIClient stand-in that dispatches on the system prompt and counts calls."""
+    """AIClient stand-in that dispatches on the system prompt and counts calls.
 
-    def __init__(self, score_map: dict[str, int] | None = None, fail_detail: bool = False):
+    Detail enrichment now fans out into 3 segmented requests (overview /
+    method / evaluation), dispatched by the per-segment system constant.
+    *fail_segments* makes those segments raise; *malformed_segments* makes
+    them return non-JSON (parse → None). Both accept segment names.
+    """
+
+    def __init__(
+        self,
+        score_map: dict[str, int] | None = None,
+        fail_detail: bool = False,
+        fail_segments: frozenset[str] = frozenset(),
+        malformed_segments: frozenset[str] = frozenset(),
+    ):
         self.config = SimpleNamespace(analysis_concurrency=2)
         self.score_map = score_map or {}
         self.fail_detail = fail_detail
+        self.fail_segments = fail_segments
+        self.malformed_segments = malformed_segments
         self.score_calls = 0
         self.detail_calls = 0
         self.translation_calls = 0
+        self.detail_users: list[str] = []
         self.last_detail_user = ""
 
     async def complete(self, system: str, user: str, **kwargs):
@@ -106,12 +137,16 @@ class _FakeAI:
             return _score_json(5, "default")
         if system == ARXIV_CONCEPT_SYSTEM:
             return json.dumps({"queries": []})
-        if system == ARXIV_DETAIL_SYSTEM:
+        if system in _DETAIL_SYSTEM_TO_SEG:
+            seg_name, payload = _DETAIL_SYSTEM_TO_SEG[system]
             self.detail_calls += 1
+            self.detail_users.append(user)
             self.last_detail_user = user
-            if self.fail_detail:
+            if self.fail_detail or seg_name in self.fail_segments:
                 raise RuntimeError("detail failed")
-            return json.dumps(_DETAIL_JSON)
+            if seg_name in self.malformed_segments:
+                return "not json, sorry"
+            return json.dumps(payload)
         raise AssertionError(f"unexpected system: {system[:40]}")
 
 
@@ -672,8 +707,14 @@ async def test_enrich_injects_full_text_into_user_prompt() -> None:
         )
 
     ft.assert_awaited_once()
+    # 三个分段 user 共享元数据 header，每段都含论文全文。
+    assert len(ai.detail_users) == 3
+    assert full_text in ai.detail_users[0]
+    assert "**论文全文（节选）：**" in ai.detail_users[1]
     assert full_text in ai.last_detail_user
-    assert "**论文全文（节选）：**" in ai.last_detail_user
+    # 一致性锚点：段 2 的 user 带段 1 的 one_sentence_summary，段 3 带段 2 的 core_idea。
+    assert "一句话总结" in ai.detail_users[1]
+    assert "核心创新" in ai.detail_users[2]
     top = result.featured[0]
     assert top.ai_summary["how_it_works"] == "如何实现"
 
@@ -728,3 +769,77 @@ async def test_run_weekly_arxiv_counts_translate_failure() -> None:
     assert result.translated_new == 0
     assert result.translate_failed == 0
     assert result.featured[0].title_zh is None
+
+
+# ── Segmented detail enrichment: partial failure keeps successful segments ──
+
+@pytest.mark.anyio
+async def test_detail_partial_failure_keeps_successful_segments() -> None:
+    """A segment returning unparseable JSON only drops that segment's fields."""
+    papers = [_paper(id="arxiv:a", title="Paper A")]
+    ai = _FakeAI(score_map={"Paper A": 9}, malformed_segments={"method"})
+    # complete_with_retry retries with real sleeps; neutralize them for speed.
+    with (
+        patch("src.papers.weekly._arxiv_fetch_recent", AsyncMock(return_value=papers)),
+        patch("src.papers.weekly.asyncio.sleep", AsyncMock()),
+    ):
+        result = await weekly.run_weekly_arxiv(ai, http_client=None, cfg=_config(), db=None)
+
+    assert result.enriched_new == 1
+    assert result.enrich_failed == 0
+    p = result.featured[0]
+    # 段 1 + 段 3 字段保留。
+    assert p.ai_summary["one_sentence_summary"] == "一句话总结"
+    assert p.ai_summary["background"] == "背景"
+    assert p.ai_summary["experimental_evidence"] == "实验证据"
+    assert p.ai_summary["limitations"] == "局限"
+    assert p.ai_summary["innovation_level"] == {
+        "level": "significant_improvement", "reason": "相比已有方法明显提升",
+    }
+    assert p.keywords == ["transformer", "attention"]
+    # 段 2 字段缺失。
+    assert "core_idea" not in p.ai_summary
+    assert "how_it_works" not in p.ai_summary
+    # 一次性、可读的部分失败标记。
+    assert "[enrich detail failed: partial: method]" in p.ai_reason
+
+
+@pytest.mark.anyio
+async def test_detail_segment_exception_preserves_prior() -> None:
+    """A segment raising an exception is caught; prior segments are kept."""
+    papers = [_paper(id="arxiv:a", title="Paper A")]
+    ai = _FakeAI(score_map={"Paper A": 9}, fail_segments={"method"})
+    with (
+        patch("src.papers.weekly._arxiv_fetch_recent", AsyncMock(return_value=papers)),
+        patch("src.papers.weekly.asyncio.sleep", AsyncMock()),
+    ):
+        result = await weekly.run_weekly_arxiv(ai, http_client=None, cfg=_config(), db=None)
+
+    assert result.enriched_new == 1
+    assert result.enrich_failed == 0
+    p = result.featured[0]
+    assert p.ai_summary["one_sentence_summary"] == "一句话总结"
+    assert p.ai_summary["limitations"] == "局限"
+    assert "core_idea" not in p.ai_summary
+    assert "[enrich detail failed: partial: method]" in p.ai_reason
+
+
+@pytest.mark.anyio
+async def test_detail_all_segments_fail_leaves_summary_empty() -> None:
+    """When every segment is malformed, ai_summary stays empty and counts fail."""
+    papers = [_paper(id="arxiv:a", title="Paper A")]
+    ai = _FakeAI(
+        score_map={"Paper A": 9},
+        malformed_segments={"overview", "method", "evaluation"},
+    )
+    with (
+        patch("src.papers.weekly._arxiv_fetch_recent", AsyncMock(return_value=papers)),
+        patch("src.papers.weekly.asyncio.sleep", AsyncMock()),
+    ):
+        result = await weekly.run_weekly_arxiv(ai, http_client=None, cfg=_config(), db=None)
+
+    assert result.enriched_new == 0
+    assert result.enrich_failed == 1
+    p = result.featured[0]
+    assert p.ai_summary is None
+    assert "[enrich detail failed: segments failed: overview,method,evaluation]" in p.ai_reason

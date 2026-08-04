@@ -1062,9 +1062,14 @@ class HorizonDB:
 
         if search:
             escaped = _escape_like(search)
-            where.append("(p.title LIKE ? ESCAPE '\\' OR p.abstract LIKE ? ESCAPE '\\')")
+            # Match both the original-language fields and the Chinese
+            # translations (title_zh / abstract_zh) so searches work in EN and ZH.
+            where.append(
+                "(p.title LIKE ? ESCAPE '\\' OR p.abstract LIKE ? ESCAPE '\\' "
+                "OR p.title_zh LIKE ? ESCAPE '\\' OR p.abstract_zh LIKE ? ESCAPE '\\')"
+            )
             like_pattern = f"%{escaped}%"
-            params.extend([like_pattern, like_pattern])
+            params.extend([like_pattern] * 4)
 
         where_clause = " AND ".join(where) if where else "1=1"
         base_from = f"FROM papers p WHERE {where_clause}"
