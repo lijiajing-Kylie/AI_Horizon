@@ -75,7 +75,7 @@ But Horizon is not just another summarizer. AI is great at reducing noise, but n
 
 ## Features
 
-- **📡 Watch Your Own Sources** — Track Hacker News, RSS, Reddit, Telegram, Twitter/X, GitHub releases or user activity, and OpenBB financial news watchlists in one pipeline
+- **📡 Watch Your Own Sources** — Track Hacker News, RSS, Reddit, Telegram, Twitter/X, GitHub releases or user activity, **WeChat Official Accounts**, and OpenBB financial news watchlists in one pipeline
 - **🤖 Turn Noise Into a Reading List** — Score each item from 0-10 with Claude, GPT, Gemini, DeepSeek, Doubao, MiniMax, Ollama, or any OpenAI-compatible API
 - **🔗 Merge Repeated Stories** — Deduplicate the same story across platforms before it reaches your briefing
 - **🔍 Understand the Background** — Add web-researched context for unfamiliar concepts, companies, projects, and technical terms
@@ -319,6 +319,22 @@ uv run horizon           # Run with default 24h window
 uv run horizon --hours 48  # Fetch from last 48 hours
 ```
 
+#### WeChat Official Accounts (optional)
+
+WeChat MP articles are fetched by a **bundled** copy of the we-mp-rss core
+(`src/we_mp_rss/`) — no external Docker service needed. To enable it:
+
+```bash
+uv run playwright install chromium      # one-time browser install
+uv run horizon-wxmp login               # scan the QR code with WeChat
+uv run horizon-wxmp status              # verify the login is valid
+```
+
+Login state (token/cookies) is stored under `data/wxmp/`. Subscribe to
+accounts by adding their `MP_WXS_*` feed_id to `sources.wxmp.feeds` in
+`data/config.py`. If the login expires, the source is skipped with a hint to
+re-run `horizon-wxmp login`.
+
 #### With Docker
 
 ```bash
@@ -342,6 +358,7 @@ Horizon works great as a **GitHub Actions** cron job. See [`.github/workflows/da
 | **Telegram** | Public channel messages | — |
 | **Twitter / X** | Tweets from specific users | Yes (top N replies) |
 | **GitHub** | User events & repo releases | — |
+| **WeChat MP** | WeChat Official Account articles (bundled we-mp-rss core) | Requires `horizon-wxmp login` scan + Playwright |
 | **OpenBB** | Financial company news by watchlist/provider | — |
 
 ## Where Your Briefing Goes

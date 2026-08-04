@@ -27,6 +27,12 @@ dependencies = [
     "nh3>=0.3.6",
     "huggingface-hub>=0.27.0",
     "json5",
+    # Bundled we-mp-rss core (src/we_mp_rss) — WeChat MP scraping
+    "requests>=2.31",
+    "PyYAML>=6.0",
+    "playwright>=1.40",
+    "pillow>=10",
+    "colorama>=0.4",
 ]
 
 [project.optional-dependencies]
@@ -51,6 +57,7 @@ horizon-wizard = "src.setup.wizard:main"
 horizon-webhook = "src.services.webhook_cli:main"
 horizon-papers = "src.papers.cli:main"
 horizon-reports = "src.reports.cli:main"
+horizon-wxmp = "src.wxmp_cli:main"
 
 [build-system]
 requires = ["hatchling"]

@@ -438,27 +438,27 @@ class ReportsConfig(BaseModel):
 
 
 class WxMpSourceConfig(BaseModel):
-    """一个微信公众号的订阅配置（通过 we-mp-rss）。"""
+    """一个微信公众号的订阅配置（内置 we-mp-rss 核心抓取）。"""
 
     name: str = Field(description="公众号显示名称，例如 机器之心")
-    feed_id: Optional[str] = Field(default=None, description="we-mp-rss 的 mp_id。不填则启动时自动从服务端解析")
+    feed_id: Optional[str] = Field(default=None, description="公众号 mp_id（MP_WXS_ 开头）")
     enabled: bool = True
     category: Optional[str] = None
+    faker_id: Optional[str] = Field(default=None, description="微信侧 fakeid。留空则自动由 feed_id 推导")
 
 
 class WxMpConfig(BaseModel):
-    """微信公众号（we-mp-rss）源配置：通过本地 we-mp-rss 服务抓取。"""
+    """微信公众号源配置（内置 we-mp-rss 核心抓取，无需外部服务）。"""
 
     enabled: bool = True
-    base_url: str = Field(default="http://localhost:8001", description="we-mp-rss 服务地址（Docker 部署的本地服务）")
     feeds: List[WxMpSourceConfig] = Field(default_factory=list, description="订阅的公众号列表")
-    fetch_limit: int = Field(default=50, description="每次从 we-mp-rss 抓取的文章数")
-    auth_username: Optional[str] = Field(default=None, description="we-mp-rss 管理后台登录用户名（用于自动发现新订阅）")
-    auth_password_env: Optional[str] = Field(default=None, description="存放登录密码的环境变量名，例如 WXMP_PASSWORD")
-
-    @property
-    def auth_enabled(self) -> bool:
-        return bool(self.auth_username and self.auth_password_env)
+    gather_content: bool = Field(default=True, description="是否抓取文章完整正文（Playwright 无头浏览器）")
+    clean_html: bool = Field(default=False, description="是否对抓取的正文做 HTML 清洗")
+    proxy: Optional[str] = Field(default=None, description="HTTP 代理地址（可选）")
+    lic_key: Optional[str] = Field(default=None, description="cookie 加密密钥。默认取环境变量 WXMP_LIC_KEY")
+    data_dir: str = Field(default="data/wxmp", description="登录态 / 二维码文件存储目录")
+    max_page: int = Field(default=1, description="每个公众号抓取的页数（每页约 5 篇）")
+    gather_interval: int = Field(default=3, description="抓取间隔秒数（随机 0~N，用于反爬）")
 
 
 class SourcesConfig(BaseModel):
@@ -476,7 +476,7 @@ class SourcesConfig(BaseModel):
     google_news: Optional[GoogleNewsConfig] = Field(default=None, description="Google News 搜索源")
     huawei_news: Optional[HuaweiNewsConfig] = Field(default=None, description="华为新闻中心源")
     bytedance_news: Optional[ByteDanceNewsConfig] = Field(default=None, description="字节跳动 Seed 技术博客源")
-    wxmp: Optional[WxMpConfig] = Field(default=None, description="微信公众号源（通过本地 we-mp-rss 服务）")
+    wxmp: Optional[WxMpConfig] = Field(default=None, description="微信公众号源（内置 we-mp-rss 核心抓取）")
 
 
 class WebhookConfig(BaseModel):

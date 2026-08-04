@@ -1,382 +1,176 @@
-"""WeChat MP scraper via local we-mp-rss (https://github.com/rachelos/we-mp-rss).
+"""WeChat MP scraper via the bundled we-mp-rss core (process-internal).
 
-Fetches WeChat Official Account articles from a local we-mp-rss Docker instance
-running at ``localhost:8001``.  The ``/feed/{feed_id}.json`` endpoint returns
-structured JSON with full article HTML body and requires no authentication.
-
-When ``auth_username`` + ``auth_password_env`` are set in config, the scraper
-also auto-discovers all subscribed accounts from we-mp-rss — any account added
-in the we-mp-rss admin panel is fetched automatically.
+Fetches WeChat Official Account articles directly through the vendored
+``src.we_mp_rss`` package — no external we-mp-rss Docker service, no HTTP
+transport layer.  Requires a valid login token (see ``horizon-wxmp login``).
 """
 
 from __future__ import annotations
 
 import asyncio
-import json as json_mod
+import base64
 import logging
-import os
 from datetime import datetime, timezone
-from typing import Dict, List, Optional
+from typing import List, Optional
 
-import httpx
-
-from .base import BaseScraper
+from ..content_extractor import sanitize_article_html
 from ..models import ContentItem, SourceType, WxMpConfig, WxMpSourceConfig
+from .base import BaseScraper
 
 logger = logging.getLogger(__name__)
 
 
-class WxMpScraper(BaseScraper):
-    """Scraper for WeChat MP articles via a local we-mp-rss instance.
+def _html_to_text(html: str) -> str:
+    """Strip article HTML to plain text, keeping paragraph breaks.
 
-    Feed IDs are auto-resolved from account names.  When auth credentials are
-    configured, the scraper also auto-discovers all subscribed accounts from
-    we-mp-rss and adds them to the fetch list — no config changes needed.
+    we-mp-rss returns the full WeChat article body as HTML (``section``/
+    ``p``/``img``); the AI stages read plain text, so convert here once at
+    scrape time rather than in the extractor.
+    """
+    if not html or not html.strip():
+        return ""
+    from bs4 import BeautifulSoup
+
+    soup = BeautifulSoup(html, "html.parser")
+    lines = [ln.strip() for ln in soup.get_text("\n").split("\n")]
+    return "\n".join(ln for ln in lines if ln)
+
+# Special pseudo-feed (公众号精选文章) — not a real account, always skipped.
+_FEATURED_FEED_ID = "MP_WXS_FEATURED_ARTICLES"
+
+
+def faker_id_from_feed_id(feed_id: str) -> Optional[str]:
+    """Derive the WeChat ``fakeid`` from a ``MP_WXS_<base64>`` feed_id.
+
+    Round-trip verified against all configured Horizon feeds:
+    ``faker_id = base64.b64encode(feed_id.removeprefix("MP_WXS_"))``.
+    """
+    if not feed_id or feed_id == _FEATURED_FEED_ID:
+        return None
+    try:
+        b64 = feed_id.removeprefix("MP_WXS_")
+        return base64.b64encode(b64.encode()).decode()
+    except Exception:
+        return None
+
+
+def _enabled_faker_id(feed: WxMpSourceConfig) -> Optional[str]:
+    """Return the faker_id for an enabled feed, or None to skip it."""
+    if not feed.enabled:
+        return None
+    if feed.faker_id:
+        return feed.faker_id
+    return faker_id_from_feed_id(feed.feed_id or "")
+
+
+class WxMpScraper(BaseScraper):
+    """Scraper for WeChat MP articles via the bundled we-mp-rss core.
+
+    Keeps the ``BaseScraper`` signature for orchestrator compatibility;
+    ``http_client`` is unused (no network transport of our own).
     """
 
-    def __init__(self, config: WxMpConfig, http_client: httpx.AsyncClient):
-        """Initialise with a WxMpConfig object (not a raw dict)."""
+    def __init__(self, config: WxMpConfig, http_client=None):
         super().__init__({"wxmp": config}, http_client)
         self._cfg = config
-        self._base_url = config.base_url.rstrip("/")
-        self._resolved_feeds: Optional[List[WxMpSourceConfig]] = None
-        self._auth_token: Optional[str] = None
-
-    async def _login(self) -> Optional[str]:
-        """Authenticate with we-mp-rss and return a JWT token."""
-        if not self._cfg.auth_enabled:
-            return None
-        username = self._cfg.auth_username
-        password_env = self._cfg.auth_password_env
-        if not username or not password_env:
-            return None
-        password = os.environ.get(password_env, "")
-        if not password:
-            logger.warning(
-                "we-mp-rss auto-discovery: %r is empty or not set",
-                password_env,
-            )
-            return None
-
-        # Try httpx first, fall back to socket for Docker Desktop proxy.
-        body = await self._fetch_json(
-            "login",
-            f"{self._base_url}/api/v1/wx/auth/login",
-            method="POST",
-            data={"username": username, "password": password},
-        )
-        if body:
-            token = body.get("data", {}).get("access_token")
-            if token:
-                logger.info("Logged into we-mp-rss for auto-discovery")
-                return token
-        return None
-
-    async def _ensure_resolved(self) -> List[WxMpSourceConfig]:
-        """Resolve feed IDs, discover new accounts, return the feed list."""
-        if self._resolved_feeds is not None:
-            return self._resolved_feeds
-
-        # 1. Resolve feed_ids for configured feeds that don't have one yet.
-        feeds_needing_resolution = [
-            f for f in self._cfg.feeds if f.enabled and not f.feed_id
-        ]
-        if feeds_needing_resolution:
-            await self._resolve_feed_ids(feeds_needing_resolution)
-
-        # 2. Start with configured feeds that have feed_ids.
-        resolved: Dict[str, WxMpSourceConfig] = {}
-        for f in self._cfg.feeds:
-            if f.enabled and f.feed_id:
-                resolved[f.name] = f
-
-        # 3. Auto-discover any accounts from we-mp-rss not already in the list.
-        discovered = await self._discover_new_feeds(resolved)
-        for name, feed in discovered.items():
-            resolved[name] = feed
-            logger.info("Auto-discovered new WeChat account: %s (%s)", name, feed.feed_id)
-
-        self._resolved_feeds = list(resolved.values())
-        return self._resolved_feeds
-
-    async def _resolve_feed_ids(self, feeds: List[WxMpSourceConfig]) -> None:
-        """Query we-mp-rss API to find feed_id (mp_id) by account name."""
-        try:
-            name_to_id = await self._fetch_all_mp_names()
-            for feed in feeds:
-                resolved = name_to_id.get(feed.name)
-                if resolved:
-                    feed.feed_id = resolved
-                    logger.info("Resolved feed_id for %s: %s", feed.name, resolved)
-                else:
-                    logger.warning(
-                        "Could not resolve feed_id for WeChat account %r — "
-                        "is it subscribed in we-mp-rss?  Skipping.",
-                        feed.name,
-                    )
-        except Exception as exc:
-            logger.warning(
-                "Failed to resolve feed IDs from we-mp-rss API: %s. "
-                "Feeds without feed_id will be skipped.",
-                exc,
-            )
-
-    async def _discover_new_feeds(
-        self, existing: Dict[str, WxMpSourceConfig]
-    ) -> Dict[str, WxMpSourceConfig]:
-        """Auto-discover accounts from we-mp-rss that aren't in *existing*."""
-        if not self._cfg.auth_enabled:
-            return {}
-
-        if self._auth_token is None:
-            self._auth_token = await self._login()
-        if not self._auth_token:
-            return {}
-
-        try:
-            name_to_id = await self._fetch_all_mp_names(token=self._auth_token)
-            discovered: Dict[str, WxMpSourceConfig] = {}
-            for name, feed_id in name_to_id.items():
-                if name not in existing:
-                    discovered[name] = WxMpSourceConfig(
-                        name=name,
-                        feed_id=feed_id,
-                        category="wechat-account",
-                    )
-            return discovered
-        except Exception as exc:
-            logger.warning("Auto-discovery failed: %s", exc)
-            return {}
-
-    async def _fetch_all_mp_names(self, token: Optional[str] = None) -> Dict[str, str]:
-        """Fetch all subscribed MP names → feed_id from we-mp-rss."""
-        mps_url = f"{self._base_url}/api/v1/wx/mps"
-        params = {"limit": 100}
-        headers = {"Authorization": f"Bearer {token}"} if token else {}
-
-        body = await self._fetch_json("mps", mps_url, params=params, headers=headers)
-        if not body:
-            return {}
-
-        mps_list = body.get("data", {}).get("list", [])
-        if not mps_list and isinstance(body, list):
-            mps_list = body
-        elif not mps_list and isinstance(body, dict):
-            mps_list = body.get("list", body.get("data", []))
-        return {mp["mp_name"]: mp["id"] for mp in mps_list
-                if mp.get("id") and mp.get("mp_name")}
 
     async def fetch(self, since: datetime) -> List[ContentItem]:
-        """Fetch items from all configured WeChat MP feeds."""
-        feeds = await self._ensure_resolved()
+        import src.we_mp_rss
+        from src.we_mp_rss.driver.success import CanGetToken
+
+        src.we_mp_rss.init(self._cfg, self._cfg.data_dir)
+
+        if not CanGetToken():
+            logger.warning(
+                "WeChat MP 未登录或登录态已过期，跳过该源。运行 `horizon-wxmp login` 后重试。"
+            )
+            return []
+
         items: List[ContentItem] = []
-        for feed in feeds:
-            if not feed.feed_id:
+        for feed in self._cfg.feeds:
+            faker_id = _enabled_faker_id(feed)
+            if not faker_id:
                 continue
-            feed_items = await self._fetch_feed(feed, since)
-            items.extend(feed_items)
+            try:
+                feed_items = await asyncio.to_thread(
+                    self._fetch_feed_sync, feed, faker_id, since
+                )
+                items.extend(feed_items)
+            except Exception as exc:
+                logger.warning("抓取公众号 %r 失败: %s", feed.name, exc)
         return items
 
-    async def _fetch_json(
-        self,
-        feed_name: str,
-        url: str,
-        params: Optional[Dict[str, object]] = None,
-        method: str = "GET",
-        data: Optional[Dict[str, str]] = None,
-        headers: Optional[Dict[str, str]] = None,
-    ) -> Optional[dict]:
-        """Fetch JSON from we-mp-rss, falling back to raw socket if Docker
-        Desktop proxy interferes (known issue: Docker Desktop on macOS returns
-        503 for httpx/httpcore connections to localhost port-forwarding)."""
-        # Primary path: httpx shared client.
-        try:
-            req_headers = headers or {}
-            if method == "POST":
-                response = await self.client.post(url, data=data, headers=req_headers, timeout=10.0)
-            else:
-                response = await self.client.get(url, params=params, headers=req_headers, follow_redirects=True)
-            if response.status_code == 503:
-                logger.info(
-                    "httpx got 503 for %s — falling back to raw socket",
-                    feed_name,
-                )
-                return await self._fetch_via_socket(url, method=method, data=data, headers=headers)
-            response.raise_for_status()
-            # Use strict=False because we-mp-rss sometimes embeds control
-            # characters in article content that strict json.loads rejects.
-            return json_mod.loads(response.text, strict=False)
-        except httpx.HTTPError as exc:
-            logger.warning(
-                "Error fetching %s via httpx: %s — trying raw socket fallback",
-                feed_name,
-                exc,
-            )
-            return await self._fetch_via_socket(url, method=method, data=data, headers=headers)
-        except Exception as exc:
-            logger.warning("Error parsing response from %s: %s", feed_name, exc)
-            return None
-
-    @staticmethod
-    async def _fetch_via_socket(
-        url: str,
-        method: str = "GET",
-        data: Optional[Dict[str, str]] = None,
-        headers: Optional[Dict[str, str]] = None,
-    ) -> Optional[dict]:
-        """Fallback: fetch JSON via asyncio-native socket to bypass proxy."""
-        try:
-            from urllib.parse import urlencode, urlparse
-
-            parsed = urlparse(url)
-            host = parsed.hostname or "localhost"
-            port = parsed.port or 8001
-            path = parsed.path or "/"
-            if parsed.query:
-                path += "?" + parsed.query
-
-            extra_headers = ""
-            if headers:
-                for k, v in headers.items():
-                    extra_headers += f"{k}: {v}\r\n"
-
-            if method == "POST":
-                body_bytes = urlencode(data or {}).encode()
-                raw_request = (
-                    f"POST {path} HTTP/1.1\r\n"
-                    f"Host: {host}:{port}\r\n"
-                    f"User-Agent: Horizon/1.0\r\n"
-                    f"Accept: application/json\r\n"
-                    f"{extra_headers}"
-                    f"Content-Type: application/x-www-form-urlencoded\r\n"
-                    f"Content-Length: {len(body_bytes)}\r\n"
-                    f"Connection: close\r\n\r\n"
-                ).encode() + body_bytes
-            else:
-                raw_request = (
-                    f"GET {path} HTTP/1.1\r\n"
-                    f"Host: {host}:{port}\r\n"
-                    f"User-Agent: Horizon/1.0\r\n"
-                    f"Accept: application/json\r\n"
-                    f"{extra_headers}"
-                    f"Connection: close\r\n\r\n"
-                ).encode()
-
-            import socket as _socket
-            loop = asyncio.get_running_loop()
-            reader, writer = await asyncio.open_connection(host, port, family=_socket.AF_INET)
-            try:
-                writer.write(raw_request)
-                await writer.drain()
-                resp_data = await asyncio.wait_for(reader.readuntil(b"\r\n\r\n"), timeout=30.0)
-                content_length = 0
-                for line in resp_data.split(b"\r\n"):
-                    if line.lower().startswith(b"content-length:"):
-                        content_length = int(line.split(b":")[1].strip())
-                        break
-                if content_length > 0:
-                    body_bytes = await asyncio.wait_for(reader.readexactly(content_length), timeout=30.0)
-                else:
-                    body_bytes = await reader.read()
-            finally:
-                writer.close()
-                await writer.wait_closed()
-
-            raw_headers = resp_data.decode("utf-8", errors="replace")
-            status_line = raw_headers.split("\r\n")[0]
-            if "200" not in status_line:
-                logger.warning("Socket fallback got %s for %s", status_line, url)
-                return None
-            return json_mod.loads(body_bytes, strict=False)
-        except asyncio.TimeoutError:
-            logger.warning("Socket fallback timeout for %s", url)
-            return None
-        except Exception as exc:
-            logger.warning("Socket fallback failed for %s: %s", url, exc)
-            return None
-
-    async def _fetch_feed(
-        self, feed: WxMpSourceConfig, since: datetime
+    def _fetch_feed_sync(
+        self, feed: WxMpSourceConfig, faker_id: str, since: datetime
     ) -> List[ContentItem]:
-        """Fetch items from a single WeChat MP feed."""
-        items: List[ContentItem] = []
-        feed_url = f"{self._base_url}/feed/{feed.feed_id}.json"
-        params: Dict[str, object] = {"limit": self._cfg.fetch_limit}
+        from src.we_mp_rss.core.wx.base import WxGather
 
-        body = await self._fetch_json(feed.name, feed_url, params)
-        if body is None:
-            return items
-        raw_items: List[dict] = body.get("items", [])
+        def collect(_art: dict) -> bool:
+            return True
+
+        wx = WxGather().Model("web")
+        wx.get_Articles(
+            faker_id=faker_id,
+            Mps_id=feed.feed_id,
+            Mps_title=feed.name,
+            CallBack=collect,
+            MaxPage=self._cfg.max_page,
+            interval=self._cfg.gather_interval,
+            Gather_Content=self._cfg.gather_content,
+        )
 
         cutoff_ts = since.timestamp()
-
-        for raw in raw_items:
-            # Parse publish time.
-            published_at = self._parse_published(raw)
+        items: List[ContentItem] = []
+        for art in getattr(wx, "articles", []) or []:
+            published_at = self._parse_publish_time(art)
             if published_at is None or published_at.timestamp() < cutoff_ts:
                 continue
-
-            # Generate a stable, unique ID.
-            article_id: str = raw.get("id", "")
-            native_id = article_id or raw.get("link", "")
-
-            content_html = raw.get("content") or ""
-            description = raw.get("description") or ""
-
-            item = ContentItem(
-                id=self._generate_id("wechat", str(feed.feed_id), native_id),
-                source_type=SourceType.WECHAT,
-                title=raw.get("title", "Untitled"),
-                url=raw.get("link", feed_url),
-                content=content_html,
-                rss_summary=description,
-                rss_content_quality="high" if content_html else "low",
-                author=raw.get("channel_name") or feed.name,
-                published_at=published_at,
-                metadata={
-                    "feed_name": raw.get("channel_name") or feed.name,
-                    "feed_id": feed.feed_id,
-                    "category": feed.category,
-                    "pic_url": raw.get("image", ""),
-                },
-            )
-            items.append(item)
-
+            items.append(self._to_content_item(art, feed, published_at))
         return items
 
+    def _to_content_item(
+        self, art: dict, feed: WxMpSourceConfig, published_at: datetime
+    ) -> ContentItem:
+        content = art.get("content", "") or ""
+        native_id = str(art.get("id", "")) or art.get("url", "")
+        # we-mp-rss 返回的是微信文章的完整 HTML 正文（已修复图片懒加载、保留
+        # mmbiz.qpic.cn 图片）。这里直接由 scraper 产出 raw_content / raw_html /
+        # display_html，并标记 extraction_mode="skip"，让提取阶段跳过 trafilatura：
+        # trafilatura 会丢弃微信 CDN 无扩展名的图片 URL，重新提取会让详情页正文
+        # 丢失配图。display_html 经 nh3 白名单清洗，正文与图片都会保留。
+        raw_html = content
+        display_html = sanitize_article_html(raw_html)
+        return ContentItem(
+            id=self._generate_id("wechat", str(feed.feed_id), native_id),
+            source_type=SourceType.WECHAT,
+            title=art.get("title", "Untitled"),
+            url=art.get("url", ""),
+            content=content,
+            raw_content=_html_to_text(raw_html) or None,
+            raw_html=raw_html or None,
+            display_html=display_html or None,
+            cover_image=art.get("pic_url", "") or None,
+            rss_summary=art.get("description", ""),
+            rss_content_quality="high" if content else "low",
+            author=feed.name,
+            published_at=published_at,
+            metadata={
+                "feed_name": feed.name,
+                "feed_id": feed.feed_id,
+                "category": feed.category or "",
+                "pic_url": art.get("pic_url", ""),
+                "extraction_mode": "skip",
+            },
+        )
+
     @staticmethod
-    def _parse_published(raw: dict) -> Optional[datetime]:
-        """Parse the ``updated`` field from the feed JSON response.
-
-        The we-mp-rss JSON feed may return:
-        - ISO-8601 string (e.g. ``"2026-07-28T10:00:00+08:00"``)
-        - Unix timestamp (int)
-        - Already a number
-        """
-        updated = raw.get("updated")
-        if updated is None:
+    def _parse_publish_time(art: dict) -> Optional[datetime]:
+        """Parse ``publish_time`` (unix seconds, int/str/float) to UTC datetime."""
+        raw = art.get("publish_time", "")
+        if raw is None or raw == "":
             return None
-
-        # Already a datetime
-        if isinstance(updated, datetime):
-            return updated
-
-        # Unix timestamp (int or float)
-        if isinstance(updated, (int, float)):
-            return datetime.fromtimestamp(updated, tz=timezone.utc)
-
-        # ISO-8601 string
-        if isinstance(updated, str):
-            try:
-                return datetime.fromisoformat(updated)
-            except ValueError:
-                pass
-
-            try:
-                ts = float(updated)
-                return datetime.fromtimestamp(ts, tz=timezone.utc)
-            except (ValueError, OSError):
-                pass
-
-        logger.debug("Cannot parse publish time: %r", updated)
-        return None
+        try:
+            return datetime.fromtimestamp(float(raw), tz=timezone.utc)
+        except (ValueError, TypeError, OSError):
+            logger.debug("Cannot parse publish_time: %r", raw)
+            return None

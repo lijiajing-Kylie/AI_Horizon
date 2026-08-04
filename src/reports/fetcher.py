@@ -41,7 +41,7 @@ async def fetch_all_reports(
     config: ReportsConfig,
     client: httpx.AsyncClient,
     ai_client=None,  # Optional[AIClient] — created by the CLI when ai_filter_enabled
-    wxmp_config=None,  # Optional[WxMpConfig] — base_url/auth for we-mp-rss
+    wxmp_config=None,  # Optional[WxMpConfig] — feeds/params for bundled we-mp-rss
     wxmp_max_age: int | None = None,  # Override max_age_days for wxmp source
 ) -> List[Report]:
     """Fetch reports from every source named in `config.sources`, dedup by id.
@@ -50,7 +50,7 @@ async def fetch_all_reports(
     each report is judged for tech/AI relevance before inclusion.
 
     *wxmp_config* (a ``WxMpConfig`` from ``config.sources.wxmp``) is forwarded
-    to the we-mp-rss report fetcher for connection and auto-discovery settings.
+    to the bundled we-mp-rss report fetcher for feeds and gather settings.
     """
     reports: Dict[str, Report] = {}
     browser_fetchers: list = []
@@ -80,10 +80,10 @@ async def fetch_all_reports(
                 if f.feed_id
             } if hasattr(wc, "feeds") else {}
             fetcher = fetcher_cls(WxMpReportConfig(
-                base_url=wc.base_url,
                 account_names=source_item.account_names,
                 max_age_days=wxmp_max_age or 7,
                 known_feeds=known_feeds,
+                wxmp=wc,
             ))
         else:
             fetcher = fetcher_cls()

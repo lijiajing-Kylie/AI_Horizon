@@ -166,12 +166,13 @@ sources = {
         "fetch_reply_text": False,
     },
 
-    # ── 微信公众号（通过本地 we-mp-rss 服务）────────────────────────────────
+    # ── 微信公众号（内置 we-mp-rss 核心抓取，无需外部服务）────────────────
     "wxmp": {
-        "enabled": not _IN_CI,     # CI 中没有 we-mp-rss Docker 服务，自动关闭
-        "base_url": "http://localhost:8001",  # we-mp-rss Docker 服务地址
+        "enabled": not _IN_CI,     # CI 中无微信登录态，自动关闭
+        "gather_content": True,    # 抓取文章完整正文（需 Playwright chromium）
+        "data_dir": "data/wxmp",   # 登录态 / 二维码存放目录
         "feeds": [
-            # 加公众号就在这里加一条，feed_id 从 we-mp-rss 管理后台获取
+            # 加公众号就在这里加一条，feed_id 是公众号的 MP_WXS_ id
             {"name": "36氪Pro",       "feed_id": "MP_WXS_3519073339"},
             {"name": "AI前线",        "feed_id": "MP_WXS_3554086560"},
             {"name": "APPSO",         "feed_id": "MP_WXS_2392024520"},
