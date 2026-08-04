@@ -25,9 +25,14 @@ ai = {
     "api_key_env": "DEEPSEEK_API_KEY",
     # 自定义 API 地址。不填则用默认的（默认值在 constants.py 的 DEFAULT_BASE_URLS）
     "base_url": None,
+    # 单次输出 token 上限。富化输出是 en/zh 双语文案 + 背景 + 社区讨论的大 JSON，
+    # 默认 4096 容易被截断导致解析失败、退回轻量翻译；DeepSeek 上限 8192。
+    "max_tokens": 8192,
     # 内容分析和丰富的并发数
     "analysis_concurrency": 5,
     "enrichment_concurrency": 3,
+    # 日报生成语言（决定 GitHub Pages / 邮件 / webhook 输出哪种语言的日报）
+    "languages": ["zh"],
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════

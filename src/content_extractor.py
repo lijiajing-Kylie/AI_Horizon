@@ -1109,5 +1109,4 @@ def write_extraction_debug_file(
     debug_path.write_text(
         json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
     )
-    console.print(f"🐛 正文提取 debug 导出: {debug_path}\n")
     return debug_path

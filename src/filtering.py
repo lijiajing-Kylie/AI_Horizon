@@ -102,27 +102,8 @@ def apply_balanced_digest(
 
     if log and console:
         console.print(
-            f"⚖️ Balanced digest selected {len(selected)}/{len(items)} items"
+            f"⚖️ Balanced digest selected {len(selected)}/{len(items)} items\n"
         )
-        for group_key, group in groups.items():
-            label = group.name or group_key
-            console.print(
-                f"      • {label}: {final_counts.get(group_key, 0)}/{group.limit}"
-            )
-        if (
-            final_counts.get(default_group, 0)
-            or filtering.default_group_limit is not None
-        ):
-            limit_label = (
-                str(filtering.default_group_limit)
-                if filtering.default_group_limit is not None
-                else "unlimited"
-            )
-            console.print(
-                f"      • {default_group}: "
-                f"{final_counts.get(default_group, 0)}/{limit_label}"
-            )
-        console.print("")
 
     return BalancedDigestResult(
         items=[item for item, _ in selected],

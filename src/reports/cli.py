@@ -23,6 +23,7 @@ from dotenv import load_dotenv
 from rich.console import Console
 
 from ..ai.client import create_ai_client
+from ..logging_config import silence_http_loggers
 from ..models import Config
 from ..storage.db import HorizonDB
 from ..storage.manager import ConfigError, StorageManager
@@ -78,11 +79,6 @@ async def run(config: Config, wxmp_max_age: int | None = None) -> int:
             inst = r.institution or ""
             title = r.title or "(无标题)"
             console.print(f"  {i}. [{inst}] {title}")
-
-    # Fallback: uncategorized reports → "其他"
-    for r in reports:
-        if not r.categories:
-            r.categories = ["其他"]
 
     db = HorizonDB()
     count = db.save_reports(reports)
@@ -387,6 +383,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     """Main CLI entry point."""
+    silence_http_loggers()
     load_dotenv()
 
     logging.basicConfig(

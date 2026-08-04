@@ -16,10 +16,11 @@ interface ColumnProps {
   eyebrow: string
   title: string
   to: string
+  viewMoreTo: string
   children: ReactNode
 }
 
-function Column({ eyebrow, title, to, children }: ColumnProps) {
+function Column({ eyebrow, title, to, viewMoreTo, children }: ColumnProps) {
   return (
     <section className="glass news-card rounded-[22px] p-5">
       <div className="flex items-end justify-between gap-4 mb-4">
@@ -29,6 +30,12 @@ function Column({ eyebrow, title, to, children }: ColumnProps) {
             {title}
           </Link>
         </div>
+        <Link
+          to={viewMoreTo}
+          className="shrink-0 text-xs text-[var(--accent)] hover:opacity-80 font-medium"
+        >
+          查看更多
+        </Link>
       </div>
       {children}
     </section>
@@ -57,7 +64,7 @@ export default function HomePage() {
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-stretch">
       {/* Left half: 日报 / 论文 / 报告 columns */}
       <div className="space-y-6">
-        <Column eyebrow="TODAY" title="日报" to={`/daily/${today}`}>
+        <Column eyebrow="TODAY" title="日报" to={`/daily/${today}`} viewMoreTo="/daily">
           {topItems.length > 0 ? (
             <div className="space-y-3">
               {topItems.map(item => (
@@ -78,7 +85,7 @@ export default function HomePage() {
           )}
         </Column>
 
-        <Column eyebrow="PAPERS" title="论文" to="/papers">
+        <Column eyebrow="PAPERS" title="论文" to="/papers" viewMoreTo="/papers">
           {topPapers.length > 0 ? (
             <div className="space-y-3">
               {topPapers.map(paper => (
@@ -103,7 +110,7 @@ export default function HomePage() {
           )}
         </Column>
 
-        <Column eyebrow="REPORTS" title="报告" to="/reports">
+        <Column eyebrow="REPORTS" title="报告" to="/reports" viewMoreTo="/reports">
           {topReports.length > 0 ? (
             <div className="space-y-3">
               {topReports.map(report => (

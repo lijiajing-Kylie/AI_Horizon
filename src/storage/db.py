@@ -856,6 +856,30 @@ class HorizonDB:
         item["topics"] = self.get_news_topics(item_id)
         return item
 
+    def get_translation_state(
+        self, item_ids: Iterable[str]
+    ) -> dict[str, tuple[str | None, str | None]]:
+        """Return each item's persisted HTML-translation state.
+
+        Maps ``item_id`` to ``(display_html_zh, display_html_source_hash)``.
+        The orchestrator restores this onto freshly-fetched items before
+        enrichment so unchanged articles skip re-translation.
+        """
+        ids = list(dict.fromkeys(item_ids))
+        if not ids:
+            return {}
+        placeholders = ",".join("?" for _ in ids)
+        rows = self.conn.execute(
+            f"SELECT id, display_html_zh, metadata_json FROM items "
+            f"WHERE id IN ({placeholders})",
+            ids,
+        ).fetchall()
+        state: dict[str, tuple[str | None, str | None]] = {}
+        for row in rows:
+            meta = json.loads(row["metadata_json"]) if row["metadata_json"] else {}
+            state[row["id"]] = (row["display_html_zh"], meta.get("display_html_source_hash"))
+        return state
+
     # -- papers -----------------------------------------------------------
 
     def save_papers(self, papers: List[Paper]) -> int:

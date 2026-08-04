@@ -108,6 +108,11 @@ class ContentEnricher:
         """
         concurrency = self._get_concurrency()
         semaphore = asyncio.Semaphore(concurrency)
+        # HTML translation is independent of enrichment and must not occupy an
+        # enrichment slot (search + LLM latency would otherwise idle it), but
+        # it still consumes API capacity — bound it with its own semaphore so
+        # the two stages overlap without an unbounded request burst.
+        translation_semaphore = asyncio.Semaphore(max(concurrency, 3))
 
         async def _process(item: ContentItem, progress_task) -> None:
             async with semaphore:
@@ -116,6 +121,9 @@ class ContentEnricher:
                 except Exception as e:
                     print(f"Error enriching item {item.id}: {e}, falling back to translation")
                     await self._translate_item(item)
+            # Run outside the enrichment slot so translation overlaps with the
+            # next item's enrichment instead of blocking it.
+            async with translation_semaphore:
                 try:
                     await self._translate_html(item)
                 except Exception as e:
@@ -216,15 +224,18 @@ class ContentEnricher:
         # Step 1: AI identifies concepts to explain
         queries = await self._extract_concepts(item, content_text, source_note)
 
-        # Step 2: Search web for each concept
+        # Step 2: Search web for each concept in parallel — DDG lookups are
+        # slow and independent, so running them concurrently removes the
+        # serial latency from the per-item critical path.
         all_results = []
         web_sections = []
-        for query in queries:
-            results = await self._web_search(query)
-            all_results.extend(results)
-            if results:
-                lines = [f"- [{r['title']}]({r['url']}): {r['body']}" for r in results]
-                web_sections.append(f"**{query}:**\n" + "\n".join(lines))
+        if queries:
+            results_list = await asyncio.gather(*(self._web_search(q) for q in queries))
+            for query, results in zip(queries, results_list):
+                all_results.extend(results)
+                if results:
+                    lines = [f"- [{r['title']}]({r['url']}): {r['body']}" for r in results]
+                    web_sections.append(f"**{query}:**\n" + "\n".join(lines))
         web_context = "\n\n".join(web_sections) if web_sections else ""
 
         # Index of available URLs for citation validation
@@ -350,8 +361,14 @@ class ContentEnricher:
         if _detect_original_language(item) == "zh":
             item.display_html_zh = item.display_html
             return
+        current_hash = content_hash(item.display_html)
+        # Skip when this exact HTML was already translated in a prior run
+        # (state restored by the orchestrator before enrichment).
+        if item.display_html_zh and item.metadata.get("display_html_source_hash") == current_hash:
+            return
+        # A restored translation that doesn't match the current HTML is stale —
+        # drop it rather than persist a translation paired with the wrong body.
+        item.display_html_zh = None
         item.display_html_zh = await translate_display_html(self.client, item.display_html)
         if item.display_html_zh:
-            # Record only, per content_hash()'s docstring — no skip logic
-            # reads this back; every run still re-translates unconditionally.
-            item.metadata["display_html_source_hash"] = content_hash(item.display_html)
+            item.metadata["display_html_source_hash"] = current_hash

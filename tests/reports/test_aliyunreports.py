@@ -39,7 +39,7 @@ def test_default_config_values():
     assert config.tech_category == "人工智能"
     assert config.pdf_output_dir == "data/reports_pdfs"
     assert config.browser_profile_dir == "data/aliyun_profile"
-    assert config.headless is False
+    assert config.headless is True
     assert config.download_pdfs is True
     assert config.max_retries == 3
 

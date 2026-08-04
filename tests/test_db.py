@@ -960,3 +960,25 @@ class TestRawContentAndExtractionMetadata:
         assert result["display_html"] == "<p>full article text</p>"
         assert result["ai_summary"] == "updated by enrichment"
         db.close()
+
+    def test_get_translation_state(self, tmp_path):
+        db = HorizonDB(db_path=str(tmp_path / "test.db"))
+
+        translated = _make_item(id="rss:blog:1", url="https://example.com/translated")
+        translated.display_html = "<p>hello</p>"
+        translated.display_html_zh = "<p>你好</p>"
+        translated.metadata["display_html_source_hash"] = "abc123"
+        untranslated = _make_item(id="hn:top:2", url="https://example.com/plain")
+        db.save_items([translated, untranslated], run_date="2026-07-06", total_fetched=2)
+
+        state = db.get_translation_state(["rss:blog:1", "hn:top:2", "missing:id"])
+        assert state["rss:blog:1"] == ("<p>你好</p>", "abc123")
+        assert state["hn:top:2"] == (None, None)
+        assert "missing:id" not in state
+
+        # Empty / duplicate inputs are safe and de-duplicated.
+        assert db.get_translation_state([]) == {}
+        assert db.get_translation_state(["rss:blog:1", "rss:blog:1"]) == {
+            "rss:blog:1": ("<p>你好</p>", "abc123"),
+        }
+        db.close()

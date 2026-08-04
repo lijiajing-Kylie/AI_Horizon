@@ -2,7 +2,6 @@
 
 import asyncio
 import logging
-from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Optional
 import httpx
@@ -10,7 +9,7 @@ from rich.console import Console
 
 logger = logging.getLogger(__name__)
 
-from .models import Config, ContentItem, sub_source_label
+from .models import Config, ContentItem
 from .storage.manager import StorageManager
 from .storage.db import HorizonDB
 from .services.email import EmailManager
@@ -136,6 +135,10 @@ class HorizonOrchestrator:
                     f"→ {len(merged_items)} unique items\n"
                 )
 
+            # 3.5 Restore prior HTML translations so the enricher skips
+            #     unchanged articles instead of re-translating them every run.
+            self._restore_prior_translations(merged_items)
+
             # 4. Analyze with AI
             analyzed_items = await self._analyze_content(merged_items)
             self.console.print(f"🤖 Analyzed {len(analyzed_items)} items with AI\n")
@@ -245,15 +248,6 @@ class HorizonOrchestrator:
                     f"topic_dup: {sum(1 for v in drop_reason_map.values() if v == 'topic_duplicate')}, "
                     f"quota: {sum(1 for v in drop_reason_map.values() if v == 'category_quota')})\n"
                 )
-
-            # Show per-sub-source selection breakdown
-            selected_counts: Dict[str, int] = defaultdict(int)
-            for item in important_items:
-                key = f"{item.source_type.value}/{sub_source_label(item)}"
-                selected_counts[key] += 1
-            for source_key, count in sorted(selected_counts.items()):
-                self.console.print(f"      • {source_key}: {count}")
-            self.console.print("")
 
             # 6. Search related stories + enrich with background knowledge (2nd AI pass)
             await self._enrich_important_items(important_items)
@@ -426,7 +420,7 @@ class HorizonOrchestrator:
                 bt_scraper = ByteDanceSeedScraper(self.config.sources.bytedance_news, client)
                 tasks.append(self._fetch_with_progress("ByteDance Seed", bt_scraper, since))
 
-            # WeChat MP accounts (via local we-mp-rss)
+            # WeChat MP accounts (bundled we-mp-rss core, process-internal)
             if self.config.sources.wxmp and self.config.sources.wxmp.enabled:
                 wxmp_scraper = WxMpScraper(self.config.sources.wxmp, client)
                 tasks.append(self._fetch_with_progress("WeChat MP", wxmp_scraper, since))
@@ -458,17 +452,8 @@ class HorizonOrchestrator:
         Returns:
             List[ContentItem]: Fetched items
         """
-        self.console.print(f"🔍 Fetching from {name}...")
         items = await scraper.fetch(since)
         self.console.print(f"   Found {len(items)} items from {name}")
-
-        # Show per-sub-source breakdown when there are multiple sub-sources
-        sub_counts: Dict[str, int] = defaultdict(int)
-        for item in items:
-            sub_counts[sub_source_label(item)] += 1
-        if len(sub_counts) > 1:
-            for sub, count in sorted(sub_counts.items()):
-                self.console.print(f"      • {sub}: {count}")
 
         return items
 
@@ -483,6 +468,28 @@ class HorizonOrchestrator:
     def merge_cross_source_duplicates(self, items: List[ContentItem]) -> List[ContentItem]:
         """Stable stage entry point for integrations such as MCP."""
         return merge_cross_source_duplicates(items)
+
+    def _restore_prior_translations(self, items: List[ContentItem]) -> None:
+        """Restore each item's previously-translated HTML before enrichment.
+
+        Freshly-fetched items carry no prior state, so the enricher's
+        hash-based skip in ``_translate_html`` would never fire. Copy the
+        persisted ``display_html_zh`` and ``display_html_source_hash`` back
+        onto the items — this runs before the 4.1 snapshot write so the
+        restored values survive into SQLite, and the enricher skips unchanged
+        articles instead of re-translating them every run.
+        """
+        if not items:
+            return
+        state = self.db.get_translation_state(item.id for item in items)
+        for item in items:
+            if not item.display_html:
+                continue
+            zh, source_hash = state.get(item.id, (None, None))
+            if not item.display_html_zh and zh:
+                item.display_html_zh = zh
+            if source_hash:
+                item.metadata.setdefault("display_html_source_hash", source_hash)
 
     async def merge_topic_duplicates(self, items: List[ContentItem]) -> List[ContentItem]:
         """Stable stage entry point for integrations such as MCP."""

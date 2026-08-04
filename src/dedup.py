@@ -485,11 +485,6 @@ async def merge_topic_duplicates(
             # Rich provenance entry for duplicate
             dup_entry = _build_topic_source_entry(dup)
             group_provenance.append(dup_entry)
-            if console:
-                console.print(
-                    f"   [dim]dedup: keep [{primary_idx}] {primary.title}[/dim]\n"
-                    f"   [dim]       drop [{dup_idx}] {dup.title}[/dim]"
-                )
             drop_indices.add(dup_idx)
 
         # --- Ensure primary_source is correctly identified by priority ---

@@ -33,7 +33,7 @@ def _fake_enrichment_response() -> str:
     })
 
 
-def test_translate_html_records_display_html_source_hash(monkeypatch):
+def test_translate_html_records_hash_and_skips_unchanged(monkeypatch):
     enricher = ContentEnricher(SimpleNamespace())
     item = _make_item(display_html="<p>hello</p>", raw_content="hello world", extraction_status="success")
 
@@ -50,9 +50,23 @@ def test_translate_html_records_display_html_source_hash(monkeypatch):
     assert item.display_html_zh == "<p>你好</p>"
     assert item.metadata["display_html_source_hash"] == content_hash("<p>hello</p>")
 
-    # Recorded, but never used to skip — calling again re-translates.
+    # Same HTML again — hash matches, so no re-translation.
+    asyncio.run(enricher._translate_html(item))
+    assert call_count["n"] == 1
+
+    # Restored-state skip path: a pre-existing translation with a matching
+    # hash (as the orchestrator restores before enrichment) is also skipped.
+    restored = _make_item(display_html="<p>hello</p>", raw_content="hello world", extraction_status="success")
+    restored.display_html_zh = "<p>你好</p>"
+    restored.metadata["display_html_source_hash"] = content_hash("<p>hello</p>")
+    asyncio.run(enricher._translate_html(restored))
+    assert call_count["n"] == 1
+
+    # HTML changed → stale translation is dropped and retranslated.
+    item.display_html = "<p>hello world</p>"
     asyncio.run(enricher._translate_html(item))
     assert call_count["n"] == 2
+    assert item.metadata["display_html_source_hash"] == content_hash("<p>hello world</p>")
 
 
 def test_enrich_item_records_enrichment_source_hash(monkeypatch):

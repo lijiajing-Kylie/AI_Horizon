@@ -1,6 +1,11 @@
 """Tests for parse_json_response's multi-strategy JSON extraction."""
 
-from src.ai.utils import parse_json_response
+import asyncio
+from unittest.mock import AsyncMock
+
+import pytest
+
+from src.ai.utils import complete_with_retry, parse_json_response
 
 
 def test_parses_direct_valid_json():
@@ -56,3 +61,24 @@ def test_recovers_via_regex_fallback_when_naive_brace_counting_miscounts_string_
     """
     text = '{"note": "uses only { without a matching close brace"}'
     assert parse_json_response(text) == {"note": "uses only { without a matching close brace"}
+
+
+# ---------------------------------------------------------------------------
+# complete_with_retry
+# ---------------------------------------------------------------------------
+
+
+def test_complete_with_retry_succeeds_after_transient_failures() -> None:
+    client = AsyncMock()
+    client.complete.side_effect = [RuntimeError("rate limited"), RuntimeError("timeout"), "ok"]
+    result = asyncio.run(complete_with_retry(client, system="s", user="u", backoff=0))
+    assert result == "ok"
+    assert client.complete.await_count == 3
+
+
+def test_complete_with_retry_raises_last_exception_when_exhausted() -> None:
+    client = AsyncMock()
+    client.complete.side_effect = RuntimeError("boom")
+    with pytest.raises(RuntimeError, match="boom"):
+        asyncio.run(complete_with_retry(client, system="s", user="u", retries=2, backoff=0))
+    assert client.complete.await_count == 3  # initial + 2 retries
