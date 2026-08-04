@@ -543,7 +543,7 @@ def list_topics(
     entirely (not just filtered out of item lists) — groups that end up
     with zero remaining topics are dropped too.
     """
-    result = db.get_topics(grouped=True)
+    result = db.get_topics(grouped=True, scope="news")
     if include_blocked:
         return result
     blocked_topic_ids = db.get_blocked_topic_ids(user_id) if user_id else None
@@ -756,7 +756,9 @@ def daily_detail(date: str, user_id: Optional[str] = Depends(_get_user_id_option
     result = db.get_items(run_date=run_date, per_page=200, blocked_topic_ids=blocked_topic_ids)
     stats = db.get_stats(run_date=run_date)
     tags = db.get_tags(run_date=run_date)
-    topics = _filter_blocked_topics(db.get_topics(grouped=True), blocked_topic_ids)
+    topics = _filter_blocked_topics(
+        db.get_topics(grouped=True, scope="news"), blocked_topic_ids
+    )
     _attach_favorited(result["items"], user_id)
     return {
         "date": run_date,
@@ -832,7 +834,7 @@ def get_paper(
 def list_paper_topics() -> dict:
     """Return paper-specific topics grouped by ``group_name`` with paper counts."""
     from ..papers.topics import build_paper_topics
-    all_topics = db.get_topics(grouped=True)
+    all_topics = db.get_topics(grouped=True, scope="paper")
     paper_topic_slugs = {t["slug"] for t in build_paper_topics()}
     counts = db.get_paper_topic_counts()
 
@@ -1068,7 +1070,7 @@ def web_index(
     tags = db.get_tags(run_date=date)
     categories = db.get_category_counts(run_date=date)
     dates = db.get_run_dates(limit=30)
-    topics_summary = db.get_topics(grouped=True)
+    topics_summary = db.get_topics(grouped=True, scope="news")
 
     # Compute average score
     scores = [item["ai_score"] for item in result["items"] if item["ai_score"]]
@@ -1097,7 +1099,7 @@ def web_index(
 @app.get("/topics", response_class=HTMLResponse)
 def web_topics(request: Request) -> HTMLResponse:
     """Topic overview page: groups × topic cards with news counts."""
-    topics_data = db.get_topics(grouped=True)
+    topics_data = db.get_topics(grouped=True, scope="news")
     dates = db.get_run_dates(limit=7)
     return templates.TemplateResponse(
         "topics.html",

@@ -85,8 +85,9 @@ CREATE TABLE IF NOT EXISTS daily_runs (
 
 CREATE TABLE IF NOT EXISTS topics (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    scope           TEXT NOT NULL DEFAULT 'news',
     name            TEXT NOT NULL,
-    slug            TEXT NOT NULL UNIQUE,
+    slug            TEXT NOT NULL,
     group_name      TEXT NOT NULL,
     description     TEXT NOT NULL DEFAULT '',
     keywords        TEXT NOT NULL DEFAULT '[]',
@@ -94,10 +95,10 @@ CREATE TABLE IF NOT EXISTS topics (
     sort_order      INTEGER NOT NULL DEFAULT 0,
     is_active       INTEGER NOT NULL DEFAULT 1,
     created_at      TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(scope, slug)
 );
 
-CREATE INDEX IF NOT EXISTS idx_topics_slug ON topics(slug);
 CREATE INDEX IF NOT EXISTS idx_topics_group_name ON topics(group_name);
 
 CREATE TABLE IF NOT EXISTS news_topics (
@@ -310,6 +311,183 @@ def _migrate_items_table(conn: sqlite3.Connection) -> None:
     # this migration, so an index referencing a not-yet-added column would
     # fail. Safe to run unconditionally here since the column now always exists.
     conn.execute("CREATE INDEX IF NOT EXISTS idx_items_category ON items(category)")
+    conn.commit()
+
+
+# Topic groups that live in the shared `topics` table under scope='paper'.
+_PAPER_SCOPE_GROUPS = {
+    "基础与模型",
+    "语言与视觉",
+    "生成与智能体",
+    "系统与机器人",
+    "其他",
+    "研究方向",
+}
+
+
+def _upsert_topic(conn: sqlite3.Connection, data: dict[str, Any], scope: str) -> None:
+    """Insert or update a single topic row, keyed by (scope, slug).
+
+    *scope* is either 'news' (src/seed_topics.py taxonomy) or 'paper'
+    (src/papers/topics.py taxonomy) — the two live side by side in the same
+    table without overwriting each other.
+    """
+    conn.execute(
+        """INSERT INTO topics (scope, name, slug, group_name, description,
+               keywords, aliases, sort_order, is_active, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(scope, slug) DO UPDATE SET
+               name = excluded.name,
+               group_name = excluded.group_name,
+               description = excluded.description,
+               keywords = excluded.keywords,
+               aliases = excluded.aliases,
+               sort_order = excluded.sort_order,
+               is_active = excluded.is_active,
+               updated_at = excluded.updated_at""",
+        (
+            scope,
+            data["name"],
+            data["slug"],
+            data["group_name"],
+            data.get("description", ""),
+            json.dumps(data.get("keywords", []), ensure_ascii=False),
+            json.dumps(data.get("aliases", []), ensure_ascii=False),
+            data.get("sort_order", 0),
+            data.get("is_active", 1),
+            _now_iso(),
+        ),
+    )
+
+
+def _redirect_news_topics(conn: sqlite3.Connection, slug: str) -> None:
+    """Point news_topics rows at the news-scope row when they still reference
+    the paper-scope twin.
+
+    Only relevant for slugs shared by both taxonomies (multimodal,
+    speech-audio): before the scope migration there was a single row per slug,
+    and news classifications pointed at it; after the rebuild that row belongs
+    to the paper scope, so its news associations must move to the new
+    news-scope row.
+    """
+    news_row = conn.execute(
+        "SELECT id FROM topics WHERE scope = 'news' AND slug = ? AND is_active = 1",
+        (slug,),
+    ).fetchone()
+    paper_row = conn.execute(
+        "SELECT id FROM topics WHERE scope = 'paper' AND slug = ? AND is_active = 1",
+        (slug,),
+    ).fetchone()
+    if news_row is None or paper_row is None:
+        return
+    news_id, paper_id = news_row["id"], paper_row["id"]
+    # Move associations, skipping any that would collide with an existing
+    # news-scope link for the same news item.
+    conn.execute(
+        """UPDATE news_topics SET topic_id = ?
+           WHERE topic_id = ?
+             AND NOT EXISTS (SELECT 1 FROM news_topics n2
+                             WHERE n2.news_id = news_topics.news_id
+                               AND n2.topic_id = ?)""",
+        (news_id, paper_id, news_id),
+    )
+    # Drop paper-scope leftovers that now duplicate a news-scope link.
+    conn.execute(
+        """DELETE FROM news_topics
+           WHERE topic_id = ?
+             AND EXISTS (SELECT 1 FROM news_topics n2
+                         WHERE n2.news_id = news_topics.news_id
+                           AND n2.topic_id = ?)""",
+        (paper_id, news_id),
+    )
+
+
+def _migrate_topics_table(conn: sqlite3.Connection) -> None:
+    """Add the ``scope`` column to topics and move the uniqueness key from
+    ``slug`` to ``(scope, slug)`` so the news and paper topic taxonomies can
+    coexist without overwriting each other.
+
+    SQLite can't alter a UNIQUE constraint, so this rebuilds the table while
+    preserving ids — news_topics/paper_topics/user_topic_prefs reference
+    topics by integer id, so they're untouched. Foreign keys aren't enabled
+    in this codebase, so the rebuild runs safely inside a transaction.
+    Idempotent: returns immediately when the scope column already exists.
+    """
+    existing = {row["name"] for row in conn.execute("PRAGMA table_info(topics)")}
+    if "scope" in existing:
+        return
+
+    placeholders = ",".join("?" for _ in sorted(_PAPER_SCOPE_GROUPS))
+    conn.execute("BEGIN")
+    try:
+        conn.execute(
+            """CREATE TABLE topics_new (
+                   id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                   scope           TEXT NOT NULL DEFAULT 'news',
+                   name            TEXT NOT NULL,
+                   slug            TEXT NOT NULL,
+                   group_name      TEXT NOT NULL,
+                   description     TEXT NOT NULL DEFAULT '',
+                   keywords        TEXT NOT NULL DEFAULT '[]',
+                   aliases         TEXT NOT NULL DEFAULT '[]',
+                   sort_order      INTEGER NOT NULL DEFAULT 0,
+                   is_active       INTEGER NOT NULL DEFAULT 1,
+                   created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+                   updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
+                   UNIQUE(scope, slug)
+               )"""
+        )
+        conn.execute(
+            f"""INSERT INTO topics_new
+                (id, scope, name, slug, group_name, description, keywords,
+                 aliases, sort_order, is_active, created_at, updated_at)
+                SELECT id,
+                       CASE WHEN group_name IN ({placeholders})
+                            THEN 'paper' ELSE 'news' END,
+                       name, slug, group_name, description, keywords,
+                       aliases, sort_order, is_active, created_at, updated_at
+                FROM topics""",
+            tuple(sorted(_PAPER_SCOPE_GROUPS)),
+        )
+        conn.execute("DROP TABLE topics")
+        conn.execute("ALTER TABLE topics_new RENAME TO topics")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_topics_group_name ON topics(group_name)"
+        )
+    except Exception:
+        conn.rollback()
+        raise
+
+    # Re-seed both taxonomies so every slug exists under its own scope. This
+    # restores the news-scope multimodal / speech-audio rows that the paper
+    # seed used to overwrite, and guarantees the paper rows are complete.
+    from ..seed_topics import build_seed_topics
+    from ..papers.topics import build_paper_topics
+
+    for data in build_seed_topics():
+        _upsert_topic(conn, data, "news")
+    for data in build_paper_topics():
+        _upsert_topic(conn, data, "paper")
+
+    # Hide the legacy "研究方向" group — rows from an old news seed that no
+    # longer exists anywhere; hiding keeps their news_topics associations.
+    conn.execute("UPDATE topics SET is_active = 0 WHERE group_name = '研究方向'")
+
+    # News items were classified against the shared slug rows, which after the
+    # rebuild belong to the paper scope. Point those associations at the
+    # news-scope twins so news items don't carry paper-grouped tags.
+    for slug in ("multimodal", "speech-audio"):
+        _redirect_news_topics(conn, slug)
+
+    # Drop any remaining news associations that point at paper-scope topics —
+    # the old classifier used every row (including paper taxonomy) as a
+    # candidate, so news items carry spurious tags like `llm` or
+    # `computer-vision`. News items should only carry news-scope tags.
+    conn.execute(
+        """DELETE FROM news_topics
+           WHERE topic_id IN (SELECT id FROM topics WHERE scope = 'paper')"""
+    )
+
     conn.commit()
 
 
@@ -531,6 +709,7 @@ class HorizonDB:
             conn.commit()
             _migrate_items_table(conn)
             _migrate_papers_table(conn)
+            _migrate_topics_table(conn)
             _migrate_fts_tokenizer(conn)
             self._local.conn = conn
         return conn
@@ -1030,7 +1209,7 @@ class HorizonDB:
                 placeholders = ", ".join("?" for _ in slugs)
                 where.append(
                     "EXISTS (SELECT 1 FROM paper_topics ptf JOIN topics tf ON ptf.topic_id = tf.id "
-                    f"WHERE ptf.paper_id = p.id AND tf.slug IN ({placeholders}))"
+                    f"WHERE ptf.paper_id = p.id AND tf.scope = 'paper' AND tf.slug IN ({placeholders}))"
                 )
                 params.extend(slugs)
 
@@ -1469,8 +1648,15 @@ class HorizonDB:
 
     # -- topics ----------------------------------------------------------------
 
-    def seed_topics(self, topics_data: list[dict[str, Any]]) -> int:
-        """Insert or update topics from a seed data list (idempotent by slug).
+    def seed_topics(
+        self, topics_data: list[dict[str, Any]], scope: str = "news"
+    ) -> int:
+        """Insert or update topics from a seed data list (idempotent by (scope, slug)).
+
+        *scope* is ``'news'`` (``src/seed_topics.py``) or ``'paper'``
+        (``src/papers/topics.py``); the two taxonomies live side by side in
+        the same table under different scopes, so a shared slug like
+        ``multimodal`` no longer overwrites the other pipeline's row.
 
         Each entry should have: name, slug, group_name, description,
         keywords (list), aliases (list), sort_order, is_active.
@@ -1478,37 +1664,17 @@ class HorizonDB:
         """
         count = 0
         for t in topics_data:
-            self.conn.execute(
-                """INSERT INTO topics (name, slug, group_name, description,
-                       keywords, aliases, sort_order, is_active, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                   ON CONFLICT(slug) DO UPDATE SET
-                       name = excluded.name,
-                       group_name = excluded.group_name,
-                       description = excluded.description,
-                       keywords = excluded.keywords,
-                       aliases = excluded.aliases,
-                       sort_order = excluded.sort_order,
-                       is_active = excluded.is_active,
-                       updated_at = excluded.updated_at""",
-                (
-                    t["name"],
-                    t["slug"],
-                    t["group_name"],
-                    t.get("description", ""),
-                    json.dumps(t.get("keywords", []), ensure_ascii=False),
-                    json.dumps(t.get("aliases", []), ensure_ascii=False),
-                    t.get("sort_order", 0),
-                    t.get("is_active", 1),
-                    _now_iso(),
-                ),
-            )
+            _upsert_topic(self.conn, t, scope)
             count += 1
         self.conn.commit()
         return count
 
-    def get_topics(self, *, grouped: bool = True) -> dict[str, Any]:
+    def get_topics(
+        self, *, grouped: bool = True, scope: str = "news"
+    ) -> dict[str, Any]:
         """Get all active topics, optionally grouped by group_name.
+
+        *scope* filters to one taxonomy: ``'news'`` (default) or ``'paper'``.
 
         When grouped=True, returns:
             {"groups": [{"group_name": "...", "topics": [...]}, ...]}
@@ -1525,14 +1691,16 @@ class HorizonDB:
                FROM topics t
                LEFT JOIN news_topics nt ON t.id = nt.topic_id
                LEFT JOIN items i ON nt.news_id = i.id AND i.selected = 1
-               WHERE t.is_active = 1
+               WHERE t.is_active = 1 AND t.scope = ?
                GROUP BY t.id
                ORDER BY t.group_name, t.sort_order, t.name""",
+            (scope,),
         ).fetchall()
 
         topics = [
             {
                 "id": r["id"],
+                "scope": r["scope"],
                 "name": r["name"],
                 "slug": r["slug"],
                 "group_name": r["group_name"],
@@ -1557,15 +1725,19 @@ class HorizonDB:
         group_names = list(groups.keys())
         return {"groups": [{"group_name": gn, "topics": groups[gn]} for gn in group_names]}
 
-    def get_topic_by_slug(self, slug: str) -> Optional[dict[str, Any]]:
-        """Get a single topic by its slug."""
+    def get_topic_by_slug(
+        self, slug: str, scope: str = "news"
+    ) -> Optional[dict[str, Any]]:
+        """Get a single topic by its slug within a taxonomy scope."""
         row = self.conn.execute(
-            "SELECT * FROM topics WHERE slug = ? AND is_active = 1", (slug,)
+            "SELECT * FROM topics WHERE slug = ? AND scope = ? AND is_active = 1",
+            (slug, scope),
         ).fetchone()
         if row is None:
             return None
         return {
             "id": row["id"],
+            "scope": row["scope"],
             "name": row["name"],
             "slug": row["slug"],
             "group_name": row["group_name"],
@@ -1594,7 +1766,8 @@ class HorizonDB:
                 continue
 
             topic = self.conn.execute(
-                "SELECT id FROM topics WHERE slug = ? AND is_active = 1", (slug,)
+                "SELECT id FROM topics WHERE slug = ? AND scope = 'news' AND is_active = 1",
+                (slug,),
             ).fetchone()
 
             if topic is None:
@@ -1685,10 +1858,10 @@ class HorizonDB:
     def seed_paper_topics(self, topics_data: list[dict[str, Any]]) -> int:
         """Idempotent upsert of paper topic seed rows into ``topics``.
 
-        Delegates to ``seed_topics()`` — paper topics live in the same table
-        as news topics, distinguished by ``group_name``.
+        Delegates to ``seed_topics()`` under scope='paper' — paper topics
+        live in the same table as news topics, isolated by scope.
         """
-        return self.seed_topics(topics_data)
+        return self.seed_topics(topics_data, scope="paper")
 
     def save_paper_topics(
         self, paper_id: str, topics_data: list[dict[str, Any]]
@@ -1705,7 +1878,8 @@ class HorizonDB:
                 continue
 
             topic = self.conn.execute(
-                "SELECT id FROM topics WHERE slug = ? AND is_active = 1", (slug,)
+                "SELECT id FROM topics WHERE slug = ? AND scope = 'paper' AND is_active = 1",
+                (slug,),
             ).fetchone()
 
             if topic is None:
@@ -1804,7 +1978,8 @@ class HorizonDB:
     ) -> dict[str, Any]:
         """Get paginated papers for a specific topic by slug."""
         topic = self.conn.execute(
-            "SELECT id, name, slug, group_name, description FROM topics WHERE slug = ?",
+            "SELECT id, name, slug, group_name, description FROM topics "
+            "WHERE slug = ? AND scope = 'paper'",
             (slug,),
         ).fetchone()
 
@@ -1881,7 +2056,8 @@ class HorizonDB:
             """SELECT t.slug, COUNT(pt.paper_id) AS cnt
                FROM topics t
                LEFT JOIN paper_topics pt ON t.id = pt.topic_id
-               WHERE t.group_name IN (?, ?, ?, ?, ?) AND t.is_active = 1
+               WHERE t.group_name IN (?, ?, ?, ?, ?)
+                 AND t.scope = 'paper' AND t.is_active = 1
                GROUP BY t.slug
                ORDER BY t.sort_order""",
             ("基础与模型", "语言与视觉", "生成与智能体", "系统与机器人", "其他"),
@@ -1914,7 +2090,8 @@ class HorizonDB:
                 empty item list — the caller blocked this exact topic.
         """
         topic = self.conn.execute(
-            "SELECT id, name, slug, group_name, description FROM topics WHERE slug = ?",
+            "SELECT id, name, slug, group_name, description FROM topics "
+            "WHERE slug = ? AND scope = 'news'",
             (slug,),
         ).fetchone()
 

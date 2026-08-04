@@ -342,7 +342,7 @@ def export(db_path: str, out_dir: str) -> int:
            FROM topics t
            LEFT JOIN news_topics nt ON t.id = nt.topic_id
            LEFT JOIN items i ON nt.news_id = i.id AND i.selected = 1
-           WHERE t.is_active = 1
+           WHERE t.is_active = 1 AND t.scope = 'news'
            GROUP BY t.id
            ORDER BY t.group_name, t.sort_order, t.name"""
     ).fetchall()
@@ -492,7 +492,7 @@ def export(db_path: str, out_dir: str) -> int:
         """SELECT t.*, COUNT(pt.paper_id) AS paper_count
            FROM topics t
            JOIN paper_topics pt ON t.id = pt.topic_id
-           WHERE t.is_active = 1
+           WHERE t.is_active = 1 AND t.scope = 'paper'
            GROUP BY t.id
            ORDER BY t.group_name, t.sort_order, t.name"""
     ).fetchall()

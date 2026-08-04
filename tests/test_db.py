@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from datetime import datetime, timezone
 
 import pytest
 
 from src.models import ContentItem, SourceType
-from src.storage.db import HorizonDB, _row_to_item
+from src.storage.db import HorizonDB, _migrate_topics_table, _row_to_item
 
 
 # ---------------------------------------------------------------------------
@@ -584,6 +585,130 @@ class TestTopics:
         assert db.get_topic_by_slug("hidden") is None
         assert len(db.get_topics(grouped=False)["topics"]) == 0
         db.close()
+
+    def test_migrate_topics_scope(self, tmp_path):
+        """Pre-scope topics table rebuilds with news/paper isolation.
+
+        Covers the two slug collisions (multimodal / speech-audio), the
+        news_topics redirect to the news-scope row, the legacy "研究方向"
+        group being hidden, and idempotency.
+        """
+        db_path = tmp_path / "legacy.db"
+        conn = sqlite3.connect(str(db_path))
+        conn.row_factory = sqlite3.Row
+        conn.executescript(
+            """CREATE TABLE topics (
+                   id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                   name            TEXT NOT NULL,
+                   slug            TEXT NOT NULL UNIQUE,
+                   group_name      TEXT NOT NULL,
+                   description     TEXT NOT NULL DEFAULT '',
+                   keywords        TEXT NOT NULL DEFAULT '[]',
+                   aliases         TEXT NOT NULL DEFAULT '[]',
+                   sort_order      INTEGER NOT NULL DEFAULT 0,
+                   is_active       INTEGER NOT NULL DEFAULT 1,
+                   created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+                   updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+               );
+               CREATE TABLE news_topics (
+                   news_id     TEXT NOT NULL,
+                   topic_id    INTEGER NOT NULL,
+                   confidence  REAL NOT NULL DEFAULT 0.0,
+                   reason      TEXT NOT NULL DEFAULT '',
+                   UNIQUE(news_id, topic_id)
+               );
+               CREATE TABLE paper_topics (
+                   paper_id    TEXT NOT NULL,
+                   topic_id    INTEGER NOT NULL,
+                   confidence  REAL NOT NULL DEFAULT 0.0,
+                   reason      TEXT NOT NULL DEFAULT '',
+                   UNIQUE(paper_id, topic_id)
+               );"""
+        )
+        # A news topic whose group the paper seed later overwrote, plus a
+        # legacy "研究方向" row — both common in real pre-migration DBs.
+        conn.execute(
+            "INSERT INTO topics (name, slug, group_name) VALUES ('多模态', 'multimodal', '语言与视觉')"
+        )
+        conn.execute(
+            "INSERT INTO topics (name, slug, group_name) VALUES ('语音与音频', 'speech-audio', '语言与视觉')"
+        )
+        # 'robotics' is a legacy "研究方向" row with no counterpart in any
+        # current seed — nlp-llm would instead be re-seeded as a proper paper
+        # topic, which is exactly the intended isolation.
+        conn.execute(
+            "INSERT INTO topics (name, slug, group_name) VALUES ('机器人学', 'robotics', '研究方向')"
+        )
+        # A purely paper-scope topic that news items were mis-classified under
+        # by the old (unscoped) classifier.
+        conn.execute(
+            "INSERT INTO topics (name, slug, group_name) VALUES ('机器学习', 'machine-learning', '基础与模型')"
+        )
+        multimodal_id = conn.execute(
+            "SELECT id FROM topics WHERE slug = 'multimodal'"
+        ).fetchone()["id"]
+        machine_learning_id = conn.execute(
+            "SELECT id FROM topics WHERE slug = 'machine-learning'"
+        ).fetchone()["id"]
+        conn.execute(
+            "INSERT INTO news_topics (news_id, topic_id) VALUES ('item1', ?)",
+            (multimodal_id,),
+        )
+        conn.execute(
+            "INSERT INTO news_topics (news_id, topic_id) VALUES ('item1', ?)",
+            (machine_learning_id,),
+        )
+        conn.commit()
+
+        _migrate_topics_table(conn)
+
+        def get(slug: str, scope: str):
+            return conn.execute(
+                "SELECT * FROM topics WHERE slug = ? AND scope = ?", (slug, scope)
+            ).fetchone()
+
+        # Both scopes get their own row for the colliding slugs.
+        news_mm, paper_mm = get("multimodal", "news"), get("multimodal", "paper")
+        assert news_mm is not None and paper_mm is not None
+        assert news_mm["group_name"] == "技术方向"
+        assert paper_mm["group_name"] == "语言与视觉"
+        assert get("speech-audio", "news") is not None
+        assert get("speech-audio", "paper") is not None
+
+        # The news association now points at the news-scope row, and the
+        # mis-classified paper-scope association (machine-learning) is gone.
+        nt = conn.execute(
+            "SELECT topic_id FROM news_topics WHERE news_id = 'item1'"
+        ).fetchall()
+        assert [r["topic_id"] for r in nt] == [news_mm["id"]]
+        leftovers = conn.execute(
+            """SELECT COUNT(*) FROM news_topics nt
+               JOIN topics t ON nt.topic_id = t.id WHERE t.scope = 'paper'"""
+        ).fetchone()[0]
+        assert leftovers == 0
+
+        # Legacy "研究方向" rows are hidden but preserved.
+        robotics = conn.execute(
+            "SELECT is_active FROM topics WHERE slug = 'robotics'"
+        ).fetchone()
+        assert robotics["is_active"] == 0
+
+        # News listing contains exactly the three news groups.
+        row_counts = conn.execute(
+            "SELECT scope, group_name, COUNT(*) AS n FROM topics "
+            "WHERE is_active = 1 GROUP BY scope, group_name"
+        ).fetchall()
+        news_groups = {
+            r["group_name"] for r in row_counts if r["scope"] == "news"
+        }
+        assert news_groups == {"公司与模型", "技术方向", "内容形态"}
+
+        # Idempotent — running again changes nothing.
+        before = conn.execute("SELECT COUNT(*) FROM topics").fetchone()[0]
+        _migrate_topics_table(conn)
+        after = conn.execute("SELECT COUNT(*) FROM topics").fetchone()[0]
+        assert before == after
+        conn.close()
 
 
 # ---------------------------------------------------------------------------

@@ -608,8 +608,9 @@ class HorizonOrchestrator:
 
         self.console.print("🏷️ Classifying topics...")
 
-        # Load active topics from DB
-        topics_result = self.db.get_topics(grouped=False)
+        # Load active news topics from DB (paper-scope topics are excluded so
+        # the LLM can't classify news items under paper-only slugs).
+        topics_result = self.db.get_topics(grouped=False, scope="news")
         all_topics = topics_result.get("topics", [])
 
         if not all_topics:
