@@ -155,3 +155,113 @@ def test_get_papers_filter_by_month(tmp_path):
     # No filter returns all
     result = db.get_papers()
     assert result["total"] == 3
+
+
+def test_arxiv_featured_fields_round_trip(tmp_path):
+    db = HorizonDB(db_path=str(tmp_path / "test.db"))
+    db.save_papers([
+        _paper(
+            id="arxiv:2501.1",
+            source="arxiv",
+            native_id="2501.1",
+            categories=["cs.LG"],
+            keywords=["transformer", "attention"],
+            ai_summary={"background": "背景", "core_idea": "核心创新"},
+            github_url="https://github.com/foo/bar",
+            venue="NeurIPS 2025",
+            is_featured=True,
+            featured_date=datetime(2026, 8, 1, tzinfo=timezone.utc),
+            ai_relevance_score=8.5,
+            ai_score_breakdown={
+                "innovation": 9.0, "technical_quality": 8.0,
+                "impact_potential": 7.0, "relevance": 8.0,
+            },
+            ai_reason="novel",
+        ),
+    ])
+
+    got = db.get_paper("arxiv:2501.1")
+    assert got is not None
+    assert got["source"] == "arxiv"
+    assert got["keywords"] == ["transformer", "attention"]
+    assert got["ai_summary"] == {"background": "背景", "core_idea": "核心创新"}
+    assert got["github_url"] == "https://github.com/foo/bar"
+    assert got["venue"] == "NeurIPS 2025"
+    assert got["is_featured"] is True
+    assert got["ai_relevance_score"] == 8.5
+    assert got["ai_score_breakdown"] == {
+        "innovation": 9.0, "technical_quality": 8.0,
+        "impact_potential": 7.0, "relevance": 8.0,
+    }
+    assert got["ai_reason"] == "novel"
+
+
+def test_legacy_bilingual_ai_fields_round_trip(tmp_path):
+    """Pre-monolingual {en,zh} rows still save/load without validation errors."""
+    db = HorizonDB(db_path=str(tmp_path / "test.db"))
+    db.save_papers([
+        _paper(
+            id="arxiv:2501.2",
+            source="arxiv",
+            native_id="2501.2",
+            categories=["cs.LG"],
+            ai_summary={"en": {"background": "bg"}, "zh": {"background": "背景"}},
+            is_featured=True,
+        ),
+    ])
+    got = db.get_paper("arxiv:2501.2")
+    assert got["ai_summary"] == {"en": {"background": "bg"}, "zh": {"background": "背景"}}
+
+
+def test_get_papers_featured_filter(tmp_path):
+    db = HorizonDB(db_path=str(tmp_path / "test.db"))
+    db.save_papers([
+        _paper(
+            id="arxiv:a", source="arxiv", native_id="a",
+            is_featured=True,
+            featured_date=datetime(2026, 8, 2, tzinfo=timezone.utc),
+            ai_relevance_score=9.0,
+        ),
+        _paper(
+            id="arxiv:b", source="arxiv", native_id="b",
+            is_featured=False,
+        ),
+    ])
+
+    featured = db.get_papers(source="arxiv", featured=True)
+    assert featured["total"] == 1
+    assert featured["items"][0]["id"] == "arxiv:a"
+
+    all_arxiv = db.get_papers(source="arxiv")
+    assert all_arxiv["total"] == 2
+
+
+def test_get_papers_featured_date_filter_and_sort(tmp_path):
+    db = HorizonDB(db_path=str(tmp_path / "test.db"))
+    db.save_papers([
+        _paper(
+            id="arxiv:a", source="arxiv", native_id="a",
+            is_featured=True,
+            featured_date=datetime(2026, 8, 1, tzinfo=timezone.utc),
+            ai_relevance_score=7.0,
+        ),
+        _paper(
+            id="arxiv:b", source="arxiv", native_id="b",
+            is_featured=True,
+            featured_date=datetime(2026, 8, 3, tzinfo=timezone.utc),
+            ai_relevance_score=9.0,
+        ),
+    ])
+
+    # Date filter matches the calendar day via strftime (timezone suffix tolerant).
+    by_day = db.get_papers(source="arxiv", featured=True, featured_date="2026-08-03")
+    assert by_day["total"] == 1
+    assert by_day["items"][0]["id"] == "arxiv:b"
+
+    # Sort by featured_date desc puts the later one first.
+    sorted_desc = db.get_papers(source="arxiv", featured=True, sort="featured_date", order="desc")
+    assert [p["id"] for p in sorted_desc["items"]] == ["arxiv:b", "arxiv:a"]
+
+    # Sort by ai_relevance_score desc.
+    by_score = db.get_papers(source="arxiv", featured=True, sort="ai_relevance_score", order="desc")
+    assert by_score["items"][0]["id"] == "arxiv:b"

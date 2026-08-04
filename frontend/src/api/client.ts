@@ -219,7 +219,8 @@ export function getReportFavorites(params?: { page?: number; per_page?: number }
 
 export function getPapers(params?: {
   category?: string; source?: string; search?: string;
-  topic_slug?: string; month?: string; sort?: string; order?: string;
+  topic_slug?: string; month?: string; featured?: boolean;
+  featured_date?: string; sort?: string; order?: string;
   page?: number; per_page?: number;
 }): Promise<PaginatedResponse<Paper>> {
   return STATIC_MODE

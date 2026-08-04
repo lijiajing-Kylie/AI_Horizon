@@ -10,10 +10,12 @@ import EmptyState from '../components/EmptyState'
 import PageEyebrow from '../components/PageEyebrow'
 import CategoryFilterMenu from '../components/CategoryFilterMenu'
 import { ArrowDown } from 'lucide-react'
-import { UNIFIED_TO_SEED_CATEGORY, unifiedCategoryIds } from '../utils/paperCategoryMap'
 import type { Paper } from '../api/types'
 
-type PaperSource = 'openalex' | 'huggingface'
+type PaperSource = 'openalex' | 'arxiv' | 'arxiv_fin'
+
+// 板块顺序：AI+金融 → 最新论文(arXiv 每周精选) → 经典论文
+const PAPER_SOURCES: PaperSource[] = ['arxiv_fin', 'arxiv', 'openalex']
 
 // Months for the cascading time filter
 const _CUR_D = new Date()
@@ -64,8 +66,13 @@ export default function PapersListPage() {
 
   // ── Derive state from URL search params ────────────────────────────────
   const page = Number(searchParams.get('page') ?? '1')
-  const source = (searchParams.get('source') ?? 'openalex') as PaperSource
-  const selectedCategories = searchParams.get('cat')?.split(',').filter(Boolean) ?? []
+  // 默认进入第一个板块（AI+金融）；陈旧链接里的未知 source 也回退到默认。
+  const rawSource = searchParams.get('source') as PaperSource | null
+  const source: PaperSource =
+    rawSource !== null && PAPER_SOURCES.includes(rawSource)
+      ? rawSource
+      : PAPER_SOURCES[0]
+  const selectedCategories = searchParams.get('topic')?.split(',').filter(Boolean) ?? []
   const monthFilter = searchParams.get('month') ?? null
   const favoritesOnly = searchParams.has('fav')
   const sortField = searchParams.get('sort') ?? 'published_at'
@@ -76,10 +83,8 @@ export default function PapersListPage() {
   const [hoveredYearIndex, setHoveredYearIndex] = useState(0)
   const [monthCounts, setMonthCounts] = useState<Record<string, number>>({})
   const menuRef = useRef<HTMLDivElement>(null)
-  const isHuggingFace = source === 'huggingface'
-
-  // For HF, the first selected category IS the topic slug (single-select via menu)
-  const topicSlug = isHuggingFace ? (selectedCategories[0] ?? null) : null
+  // Featured sources（AI+金融 / arXiv 最新论文）：固定 featured 视图。
+  const isFeaturedSource = source === 'arxiv' || source === 'arxiv_fin'
 
   // Fetch month counts when menu opens
   useEffect(() => {
@@ -111,22 +116,12 @@ export default function PapersListPage() {
     return () => document.removeEventListener('mousedown', handleClick)
   }, [menuOpen])
 
-  // ── Category → seed param for OpenAlex API ─────────────────────────────
-  const categoryParam = (() => {
-    if (isHuggingFace || selectedCategories.length === 0) return undefined
-    const seeds = [...new Set(
-      selectedCategories
-        .map(id => UNIFIED_TO_SEED_CATEGORY[id as keyof typeof UNIFIED_TO_SEED_CATEGORY])
-        .filter(Boolean),
-    )] as string[]
-    return seeds.length > 0 ? seeds.join(',') : undefined
-  })()
-
-  // Whether client-side filtering is needed (for categories without seed mapping).
-  // Not applicable in HF mode — the server handles everything via topic_slug.
-  const needsClientFilter = !isHuggingFace && selectedCategories.some(
-    id => !UNIFIED_TO_SEED_CATEGORY[id as keyof typeof UNIFIED_TO_SEED_CATEGORY],
-  )
+  // ── Topic filter → API param ────────────────────────────────────────────
+  // 主题过滤直接走后端 paper_topics 表：unified category id 与 paper_topic
+  // slug 一一对应（见 utils/paperCategories.ts），选中的主题 id 逗号拼接后
+  // 作为 topic_slug 传给 /api/papers（服务端多值 OR 精确过滤、分页准确）。
+  // nlp-llm 与 llm 是两个独立主题，互不合并。
+  const topicSlug = selectedCategories.length > 0 ? selectedCategories.join(',') : undefined
 
   // ── API call ────────────────────────────────────────────────────────────
   const hfPerPage = 15
@@ -136,10 +131,19 @@ export default function PapersListPage() {
       if (favoritesOnly) {
         return getPaperFavorites({ page, per_page: hfPerPage, source })
       }
+      if (isFeaturedSource) {
+        return getPapers({
+          source,
+          featured: true,
+          sort: 'featured_date',
+          order: 'desc',
+          page,
+          per_page: hfPerPage,
+        })
+      }
       return getPapers({
         source,
-        category: categoryParam,
-        topic_slug: topicSlug ?? undefined,
+        topic_slug: topicSlug,
         month: monthFilter ?? undefined,
         page,
         per_page: hfPerPage,
@@ -148,32 +152,25 @@ export default function PapersListPage() {
       })
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [page, categoryParam, topicSlug, monthFilter, source, sortField, sortOrder, favoritesOnly],
+    [page, topicSlug, monthFilter, source, sortField, sortOrder, favoritesOnly, isFeaturedSource],
   )
 
-  // ── Client-side filtering ───────────────────────────────────────────────
-  // HF mode: server handles all filtering via topic_slug — skip client-side.
-  // Classic mode: apply unified-category mapping for categories without a seed.
-  let filteredItems: Paper[] = data?.items ?? []
-  if (selectedCategories.length > 0 && data && !isHuggingFace) {
-    filteredItems = data.items.filter(paper =>
-      unifiedCategoryIds(paper.categories).some(c => selectedCategories.includes(c)),
-    )
-  }
+  // 服务端已按 topic_slug（paper_topics）精确过滤并正确分页，无需客户端二次过滤。
+  const filteredItems: Paper[] = data?.items ?? []
 
   // ── Handlers ────────────────────────────────────────────────────────────
   const handleCategoryChange = (ids: string[]) => {
-    updateParams({ cat: ids.length > 0 ? ids.join(',') : null, page: null })
+    updateParams({ topic: ids.length > 0 ? ids.join(',') : null, page: null })
   }
 
   const clearAllFilters = () => {
-    updateParams({ cat: null, month: null, fav: null, page: null })
+    updateParams({ topic: null, month: null, fav: null, page: null })
   }
 
   const handleSourceChange = (s: PaperSource) => {
     updateParams({
-      source: s === 'openalex' ? null : s,
-      cat: null,
+      source: s,
+      topic: null,
       month: null,
       fav: null,
       sort: null,
@@ -194,16 +191,11 @@ export default function PapersListPage() {
     })
   }
 
-  // Sort options per source
-  const sortOptions = isHuggingFace
-    ? [
-        { sort: 'published_at', order: 'desc', label: '时间' },
-        { sort: 'upvote_count', order: 'desc', label: '赞数' },
-      ]
-    : [
-        { sort: 'published_at', order: 'desc', label: '时间' },
-        { sort: 'citation_count', order: 'desc', label: '被引' },
-      ]
+  // Sort options（经典论文库）
+  const sortOptions = [
+    { sort: 'published_at', order: 'desc', label: '时间' },
+    { sort: 'citation_count', order: 'desc', label: '被引' },
+  ]
 
   const cycleSort = () => {
     const current = sortOptions.findIndex(o => o.sort === sortField && o.order === sortOrder)
@@ -234,20 +226,43 @@ export default function PapersListPage() {
 
   const title = favoritesOnly
     ? '收藏论文'
-    : isHuggingFace
-      ? 'HuggingFace 趋势论文'
-      : '经典论文库'
+    : source === 'arxiv_fin'
+      ? 'AI+金融'
+      : source === 'arxiv'
+        ? '最新论文'
+        : '经典论文库'
+
+  // 精选板块最近一次更新时间（featured 列表按 featured_date 降序，第一条即最近）。
+  // 后端返回 UTC ISO 时间戳（如 2026-08-03T00:00:00+00:00），取前 10 位即为 YYYY-MM-DD。
+  const latestFeaturedDate = isFeaturedSource
+    ? ((data?.items?.[0]?.featured_date ?? null)?.slice(0, 10) ?? null)
+    : null
 
   return (
     <div>
       <PageEyebrow>PAPERS</PageEyebrow>
-      <h1 className="text-[28px] font-normal text-[var(--ink)] tracking-wide mb-6">{title}</h1>
+      <h1
+        className={`text-[28px] font-normal text-[var(--ink)] tracking-wide ${
+          isFeaturedSource ? 'mb-2' : 'mb-6'
+        }`}
+      >
+        {title}
+      </h1>
+
+      {/* 精选板块更新说明（AI+金融 / 最新论文） */}
+      {isFeaturedSource && (
+        <p className="text-sm text-[var(--muted)] mb-6">
+          每周一更新
+          {latestFeaturedDate ? ` 最近更新时间：${latestFeaturedDate}` : ''}
+        </p>
+      )}
 
       {/* Source tabs */}
       <div className="relative mb-4">
         <div className="flex gap-6 border-b border-[var(--line)]/30">
-          {(['openalex', 'huggingface'] as PaperSource[]).map(s => {
+          {PAPER_SOURCES.map(s => {
             const active = source === s
+            const label = s === 'openalex' ? '经典论文' : s === 'arxiv' ? '最新论文' : 'AI+金融'
             return (
               <button
                 key={s}
@@ -256,7 +271,7 @@ export default function PapersListPage() {
                   active ? 'text-[var(--accent)]' : 'text-[var(--muted)] hover:text-[var(--ink)]'
                 }`}
               >
-                {s === 'openalex' ? '经典论文' : 'Hugging Face 趋势'}
+                {label}
                 {active && (
                   <span className="absolute bottom-0 left-0 right-0 h-[2px] bg-[var(--accent)] rounded-full" />
                 )}
@@ -280,7 +295,7 @@ export default function PapersListPage() {
           全部论文
         </button>
 
-        {!favoritesOnly && (
+        {!favoritesOnly && !isFeaturedSource && (
           <>
             <span className="shrink-0 text-xs text-[var(--line)] px-0.5 select-none">|</span>
 
@@ -288,8 +303,8 @@ export default function PapersListPage() {
             <CategoryFilterMenu
               selectedIds={selectedCategories}
               onSelectionChange={handleCategoryChange}
-              onClear={() => updateParams({ cat: null, page: null })}
-              multiSelect={!isHuggingFace}
+              onClear={() => updateParams({ topic: null, page: null })}
+              multiSelect
             />
 
             <span className="shrink-0 text-xs text-[var(--line)] px-0.5 select-none">|</span>
@@ -447,14 +462,16 @@ export default function PapersListPage() {
 
         <div className="flex-1" />
 
-        {/* Sort toggle */}
-        <button
-          onClick={cycleSort}
-          className="shrink-0 inline-flex items-center gap-1 text-xs text-[var(--muted)] hover:text-[var(--ink)] transition-colors cursor-pointer px-1.5 py-1"
-        >
-          {sortLabels[sortField] || '时间'}
-          <ArrowDown size={13} strokeWidth={1.5} />
-        </button>
+        {/* Sort toggle（隐藏于 featured 板块，其按 featured_date 固定排序） */}
+        {!isFeaturedSource && (
+          <button
+            onClick={cycleSort}
+            className="shrink-0 inline-flex items-center gap-1 text-xs text-[var(--muted)] hover:text-[var(--ink)] transition-colors cursor-pointer px-1.5 py-1"
+          >
+            {sortLabels[sortField] || '时间'}
+            <ArrowDown size={13} strokeWidth={1.5} />
+          </button>
+        )}
 
         {/* 仅看收藏 */}
         <button
@@ -487,8 +504,14 @@ export default function PapersListPage() {
       {error && <EmptyState title="加载失败" description={error} />}
       {data && filteredItems.length === 0 && !loading && (
         <EmptyState
-          title={favoritesOnly ? '还没有收藏论文' : '当前暂无内容'}
-          description={favoritesOnly ? '你收藏的论文会显示在这里' : '我们正在整理这部分论文，稍后再来看'}
+          title={favoritesOnly ? '还没有收藏论文' : isFeaturedSource ? '该板块暂无内容，敬请期待' : '当前暂无内容'}
+          description={
+            favoritesOnly
+              ? '你收藏的论文会显示在这里'
+              : isFeaturedSource
+                ? undefined
+                : '我们正在整理这部分论文，稍后再来看'
+          }
         >
           {favoritesOnly && (
             <Link
@@ -504,11 +527,11 @@ export default function PapersListPage() {
         <>
           <div className="space-y-3">
             {filteredItems.map(paper => (
-              <PaperCard key={paper.id} paper={paper} backTo={backTo} />
+              <PaperCard key={paper.id} paper={paper} backTo={backTo} showCategories={!isFeaturedSource} />
             ))}
           </div>
-          {/* Pagination: server-side when not favorites-only and no client filter needed */}
-          {!favoritesOnly && !needsClientFilter && (
+          {/* Pagination: server-side (topic_slug filtered by the API) */}
+          {!favoritesOnly && (
             <Pagination page={page} pages={data.pages} onPageChange={p => updateParams({ page: p === 1 ? null : String(p) })} />
           )}
         </>

@@ -262,6 +262,16 @@ _PAPERS_COLUMN_MIGRATIONS: list[tuple[str, str]] = [
     ("title_zh", "TEXT"),
     ("abstract_zh", "TEXT"),
     ("original_language", "TEXT"),
+    # arXiv weekly-featured fields (src.papers.weekly)
+    ("keywords_json", "TEXT NOT NULL DEFAULT '[]'"),
+    ("ai_summary_json", "TEXT"),
+    ("github_url", "TEXT"),
+    ("venue", "TEXT"),
+    ("is_featured", "INTEGER NOT NULL DEFAULT 0"),
+    ("featured_date", "TEXT"),
+    ("ai_relevance_score", "REAL"),
+    ("ai_score_breakdown_json", "TEXT"),
+    ("ai_reason", "TEXT"),
 ]
 
 
@@ -274,6 +284,11 @@ def _migrate_papers_table(conn: sqlite3.Connection) -> None:
     for column, ddl in _PAPERS_COLUMN_MIGRATIONS:
         if column not in existing:
             conn.execute(f"ALTER TABLE papers ADD COLUMN {column} {ddl}")
+    # Drop the retired ai_interpretation column (and any stored values) —
+    # the editorial-comment field was removed from the detail-enrichment
+    # schema; keeping the column would orphan data nothing reads.
+    if "ai_interpretation_json" in existing:
+        conn.execute("ALTER TABLE papers DROP COLUMN ai_interpretation_json")
     # Safe to run here — the column now always exists.
     conn.execute("CREATE INDEX IF NOT EXISTS idx_papers_category ON papers(category)")
     conn.commit()
@@ -413,6 +428,15 @@ def _row_to_paper(row: sqlite3.Row) -> dict[str, Any]:
         "title_zh": row["title_zh"],
         "abstract_zh": row["abstract_zh"],
         "original_language": row["original_language"],
+        "keywords": json.loads(row["keywords_json"]) if row["keywords_json"] else [],
+        "ai_summary": json.loads(row["ai_summary_json"]) if row["ai_summary_json"] else None,
+        "github_url": row["github_url"],
+        "venue": row["venue"],
+        "is_featured": bool(row["is_featured"]) if row["is_featured"] is not None else False,
+        "featured_date": row["featured_date"],
+        "ai_relevance_score": row["ai_relevance_score"],
+        "ai_score_breakdown": json.loads(row["ai_score_breakdown_json"]) if row["ai_score_breakdown_json"] else None,
+        "ai_reason": row["ai_reason"],
         "fetched_at": row["fetched_at"],
     }
 
@@ -854,9 +878,12 @@ class HorizonDB:
                     open_access, citation_count, citation_percentile,
                     upvote_count, raw_metadata_json,
                     title_zh, abstract_zh, original_language,
+                    keywords_json, ai_summary_json,
+                    github_url, venue, is_featured, featured_date,
+                    ai_relevance_score, ai_score_breakdown_json, ai_reason,
                     fetched_at, updated_row_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
                 ON CONFLICT(id) DO UPDATE SET
                     title=excluded.title,
                     authors_json=excluded.authors_json,
@@ -884,6 +911,15 @@ class HorizonDB:
                     title_zh=excluded.title_zh,
                     abstract_zh=excluded.abstract_zh,
                     original_language=excluded.original_language,
+                    keywords_json=excluded.keywords_json,
+                    ai_summary_json=excluded.ai_summary_json,
+                    github_url=excluded.github_url,
+                    venue=excluded.venue,
+                    is_featured=excluded.is_featured,
+                    featured_date=excluded.featured_date,
+                    ai_relevance_score=excluded.ai_relevance_score,
+                    ai_score_breakdown_json=excluded.ai_score_breakdown_json,
+                    ai_reason=excluded.ai_reason,
                     fetched_at=excluded.fetched_at,
                     updated_row_at=datetime('now')
                 """,
@@ -918,6 +954,15 @@ class HorizonDB:
                     p.title_zh,
                     p.abstract_zh,
                     p.original_language,
+                    json.dumps(p.keywords, ensure_ascii=False) if p.keywords else "[]",
+                    json.dumps(p.ai_summary, ensure_ascii=False) if p.ai_summary is not None else None,
+                    p.github_url,
+                    p.venue,
+                    int(bool(p.is_featured)),
+                    _dt_iso(p.featured_date) if p.featured_date is not None else None,
+                    p.ai_relevance_score,
+                    json.dumps(p.ai_score_breakdown, ensure_ascii=False) if p.ai_score_breakdown is not None else None,
+                    p.ai_reason,
                     _dt_iso(p.fetched_at),
                 ),
             )
@@ -932,6 +977,8 @@ class HorizonDB:
         search: Optional[str] = None,
         topic_slug: Optional[str] = None,
         publication_month: Optional[str] = None,
+        featured: Optional[bool] = None,
+        featured_date: Optional[str] = None,
         sort: str = "published_at",
         order: str = "desc",
         page: int = 1,
@@ -941,22 +988,39 @@ class HorizonDB:
 
         When *topic_slug* is given, only papers associated with that topic are
         returned (via JOIN on paper_topics + topics).
+
+        *featured* restricts to the weekly-featured set (is_featured=1);
+        *featured_date* restricts to papers featured on a given day (YYYY-MM-DD,
+        matched via ``strftime`` so timezone suffixes in the stored value don't
+        break equality).
         """
         where = []
         params: list[Any] = []
 
-        # ── topic_slug filter (JOIN path) ──
-        topic_join = ""
+        # ── topic_slug filter (multi-value EXISTS path) ──
+        # Comma-separated slugs are treated as OR (match any). EXISTS avoids row
+        # multiplication from a multi-topic JOIN, keeping count and pagination exact.
         if topic_slug:
-            topic_join = (
-                "JOIN paper_topics pt_filter ON p.id = pt_filter.paper_id "
-                "JOIN topics t_filter ON pt_filter.topic_id = t_filter.id AND t_filter.slug = ?"
-            )
-            params.append(topic_slug)
+            slugs = [s.strip() for s in topic_slug.split(",") if s.strip()]
+            if slugs:
+                placeholders = ", ".join("?" for _ in slugs)
+                where.append(
+                    "EXISTS (SELECT 1 FROM paper_topics ptf JOIN topics tf ON ptf.topic_id = tf.id "
+                    f"WHERE ptf.paper_id = p.id AND tf.slug IN ({placeholders}))"
+                )
+                params.extend(slugs)
 
         if source:
             where.append("p.source = ?")
             params.append(source)
+
+        if featured is not None:
+            where.append("p.is_featured = ?")
+            params.append(1 if featured else 0)
+
+        if featured_date is not None:
+            where.append("strftime('%Y-%m-%d', p.featured_date) = ?")
+            params.append(featured_date)
 
         if category:
             cats = [c.strip() for c in category.split(",") if c.strip()]
@@ -979,14 +1043,14 @@ class HorizonDB:
             params.extend([like_pattern, like_pattern])
 
         where_clause = " AND ".join(where) if where else "1=1"
-        base_from = f"FROM papers p {topic_join} WHERE {where_clause}"
+        base_from = f"FROM papers p WHERE {where_clause}"
 
         count_row = self.conn.execute(
             f"SELECT COUNT(*) as cnt {base_from}", params
         ).fetchone()
         total = count_row["cnt"] if count_row else 0
 
-        allowed_sort = {"published_at", "updated_at", "fetched_at", "citation_count", "upvote_count"}
+        allowed_sort = {"published_at", "updated_at", "fetched_at", "citation_count", "upvote_count", "featured_date", "ai_relevance_score"}
         sort_col = sort if sort in allowed_sort else "published_at"
         order_dir = "DESC" if order.lower() == "desc" else "ASC"
         offset = (page - 1) * per_page

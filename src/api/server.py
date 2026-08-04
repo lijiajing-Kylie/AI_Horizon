@@ -709,7 +709,7 @@ def set_topic_pref(
 
 @app.get("/api/runs")
 def list_runs(limit: int = Query(30, ge=1, le=100)) -> list[dict]:
-    """List recent daily pipeline runs."""
+    """List recent weekly pipeline runs."""
     return db.get_runs(limit=limit)
 
 
@@ -776,11 +776,13 @@ def daily_detail(date: str, user_id: Optional[str] = Depends(_get_user_id_option
 
 @app.get("/api/papers")
 def list_papers(
-    source: Optional[str] = Query(None, description="Filter by source (openalex/huggingface)"),
+    source: Optional[str] = Query(None, description="Filter by source (openalex/huggingface/arxiv)"),
     category: Optional[str] = Query(None, description="Filter by category"),
     topic_slug: Optional[str] = Query(None, description="Filter by research topic slug"),
     search: Optional[str] = Query(None, description="Search title/abstract"),
     month: Optional[str] = Query(None, description="Filter by publication month (YYYY-MM)"),
+    featured: Optional[bool] = Query(None, description="Only the weekly-featured set (arxiv)"),
+    featured_date: Optional[str] = Query(None, description="Papers featured on this day (YYYY-MM-DD)"),
     sort: str = Query("published_at"),
     order: str = Query("desc"),
     page: int = Query(1, ge=1),
@@ -794,6 +796,8 @@ def list_papers(
         topic_slug=topic_slug,
         search=search,
         publication_month=month,
+        featured=featured,
+        featured_date=featured_date,
         sort=sort,
         order=order,
         page=page,

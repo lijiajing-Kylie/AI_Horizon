@@ -1,8 +1,44 @@
 """Shared AI utility functions."""
 
+import asyncio
 import json
 import re
 from typing import Any
+
+
+# ---------------------------------------------------------------------------
+# Retrying AI completion calls
+# ---------------------------------------------------------------------------
+
+
+async def complete_with_retry(
+    ai_client: Any,
+    *,
+    retries: int = 2,
+    backoff: float = 1.5,
+    **kwargs: Any,
+) -> str:
+    """Call ``ai_client.complete(**kwargs)`` with light exponential backoff.
+
+    Retries transient failures (rate limits, timeouts, upstream errors) up to
+    *retries* times, sleeping ``backoff * (attempt + 1)`` seconds between
+    attempts.  Raises the last exception once attempts are exhausted.
+
+    Single-provider configs get no retry from the client itself
+    (``ChainedAIClient`` already falls back across providers), so this wrapper
+    is the mitigation for rate-limit/request storms.
+    """
+    last_exc: Exception | None = None
+    for attempt in range(retries + 1):
+        try:
+            return await ai_client.complete(**kwargs)
+        except Exception as exc:  # noqa: BLE001 - retry any transient failure
+            last_exc = exc
+            if attempt >= retries:
+                break
+            await asyncio.sleep(backoff * (attempt + 1))
+    assert last_exc is not None
+    raise last_exc
 
 
 # ---------------------------------------------------------------------------

@@ -366,12 +366,73 @@ class HuggingFaceSourceConfig(BaseModel):
     topics: List[str] = Field(default_factory=list, description="关键词过滤（可选）。对标题/摘要/分类做不区分大小写的子串匹配")
 
 
+class ArxivSourceConfig(BaseModel):
+    """arXiv 每周精选源：按分类抓最新论文，规则过滤 + AI 精选 top N。
+
+    流程：按 ``categories`` 各抓 ``max_results_per_category`` 篇候选 →
+    规则过滤（关键词/黑名单/短摘要/withdrawn）→ 顶会信号优先排序 →
+    截断到 ``target_candidates`` → AI 粗筛打分 → 取 ``featured_count`` 篇详析。
+    """
+
+    enabled: bool = Field(default=False, description="是否启用 arXiv 每周精选源")
+    categories: List[str] = Field(
+        default=["cs.AI", "cs.LG", "cs.CL"],
+        description="抓取的 arXiv 分类码列表",
+    )
+    max_results_per_category: int = Field(
+        default=50, ge=10, le=100,
+        description="每个分类抓取的候选论文数",
+    )
+    window_days: int = Field(
+        default=7, ge=1, le=7,
+        description="回看窗口（天）。与周更对齐，容忍 arXiv 发布/索引滞后",
+    )
+    keyword_whitelist: List[str] = Field(
+        default_factory=list,
+        description="关键词白名单（可选）。标题/摘要命中任意词才保留；空列表不启用",
+    )
+    keyword_blacklist: List[str] = Field(
+        default_factory=list,
+        description="关键词黑名单（可选）。标题/摘要命中任意词即剔除",
+    )
+    min_abstract_chars: int = Field(default=80, ge=0, description="摘要最小长度，短于此剔除")
+    target_candidates: int = Field(
+        default=150, ge=50, le=200,
+        description="规则过滤后进入 AI 粗筛的目标候选数（50-200）",
+    )
+    featured_count: int = Field(
+        default=20, ge=1, le=30,
+        description="每次运行精选论文数（AI 粗筛后取 top N 详析）",
+    )
+    # ── AI+金融子板块 ──────────────────────────────────────────────────────
+    # 抓取时与通用 AI 类目一起抓（同一次 fetch_recent），分类后按是否命中
+    # finance_categories 拆分为两组：通用 AI（source=arxiv）与 AI+金融
+    # （source=arxiv_fin），各自独立跑完整每周精选管线。
+    finance_enabled: bool = Field(
+        default=False, description="是否启用 AI+金融子板块（抓取 finance_categories 并单独精选）",
+    )
+    finance_categories: List[str] = Field(
+        default_factory=list,
+        description="金融类 arXiv 分类码（q-fin.*）。命中任意分类的论文归入 AI+金融子板块",
+    )
+    finance_keyword_whitelist: List[str] = Field(
+        default_factory=list,
+        description="AI+金融子板块关键词白名单（AI 方法词）。标题/摘要命中任意词才保留，剔除纯金融非 AI 论文",
+    )
+    finance_featured_count: int = Field(
+        default=15, ge=1, le=30,
+        description="AI+金融子板块每次运行精选论文数",
+    )
+
+
 class PapersConfig(BaseModel):
     """论文库配置：独立于新闻管线的学术论文抓取。"""
 
     enabled: bool = Field(default=False, description="是否启用论文库")
     openalex: OpenAlexSourceConfig = Field(default_factory=OpenAlexSourceConfig, description="OpenAlex 经典论文源（基于固定种子列表，非实时推荐）")
     huggingface: HuggingFaceSourceConfig = Field(default_factory=HuggingFaceSourceConfig, description="Hugging Face 每日热门论文源（每月自动更新）")
+    arxiv: ArxivSourceConfig = Field(default_factory=ArxivSourceConfig, description="arXiv 每周精选源（规则过滤 + AI 精选）")
+    extract_keywords: bool = Field(default=True, description="抓取经典论文时是否用 AI 提取关键词")
 
 
 class ReportSourceItem(BaseModel):

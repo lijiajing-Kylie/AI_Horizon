@@ -340,6 +340,30 @@ export interface PaperTopic {
   reason?: string
 }
 
+export interface PaperLayeredSummary {
+  one_sentence_summary?: string
+  why_it_matters?: string
+  background?: string
+  previous_problem?: string
+  core_idea?: string
+  how_it_works?: string
+  technical_details?: string
+  experimental_evidence?: string
+  real_world_impact?: string
+  limitations?: string
+  /** Editorial innovation grading: level ∈ {breakthrough, significant_improvement, incremental, engineering}. */
+  innovation_level?: { level: string; reason?: string }
+  /** Legacy field present on pre-monolingual (bilingual) data only. */
+  key_details?: string
+}
+
+export interface PaperScoreBreakdown {
+  innovation?: number
+  technical_quality?: number
+  impact_potential?: number
+  relevance?: number
+}
+
 export interface Paper {
   id: string
   source: string

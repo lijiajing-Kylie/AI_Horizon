@@ -2,7 +2,7 @@
 """Export horizon.db to static JSON files for the frontend (GitHub Pages).
 
 Produces ``docs/data/`` with:
-  - daily.json              — daily report list
+  - weekly.json              — daily report list
   - daily-{date}.json       — each daily detail (items, stats, tags, topics)
   - topics.json             — all news topics grouped
   - categories.json         — category counts
@@ -11,6 +11,8 @@ Produces ``docs/data/`` with:
   - runs.json               — run history
   - runs-dates.json         — list of dates with data
   - papers.json             — all papers (page 1)
+  - papers-arxiv.json       — arXiv 每周精选 featured papers
+  - papers-arxiv-fin.json   — AI+金融 featured papers
   - paper-topics.json       — paper topic groups
   - reports.json            — all reports (page 1)
   - report-institutions.json — institution list
@@ -123,9 +125,24 @@ def _row_to_paper(row: sqlite3.Row) -> dict:
         "citation_count": row["citation_count"],
         "citation_percentile": row["citation_percentile"],
         "upvote_count": row["upvote_count"],
+        "canonical_doi": row["canonical_doi"],
+        "reprint_doi": row["reprint_doi"],
+        "source_version_type": row["source_version_type"],
+        "openalex_id_override": row["openalex_id_override"],
+        "arxiv_id": row["arxiv_id"],
+        "semantic_scholar_id": row["semantic_scholar_id"],
         "title_zh": row["title_zh"],
         "abstract_zh": row["abstract_zh"],
         "original_language": row["original_language"],
+        "keywords": json.loads(row["keywords_json"]) if row["keywords_json"] else [],
+        "ai_summary": json.loads(row["ai_summary_json"]) if row["ai_summary_json"] else None,
+        "ai_interpretation": json.loads(row["ai_interpretation_json"]) if row["ai_interpretation_json"] else None,
+        "github_url": row["github_url"],
+        "venue": row["venue"],
+        "is_featured": bool(row["is_featured"]) if row["is_featured"] is not None else False,
+        "featured_date": row["featured_date"],
+        "ai_relevance_score": row["ai_relevance_score"],
+        "ai_reason": row["ai_reason"],
         "fetched_at": row["fetched_at"],
     }
 
@@ -219,7 +236,7 @@ def export(db_path: str, out_dir: str) -> int:
         }
         for r in runs
     ]
-    write_json("daily.json", {"reports": daily_reports})
+    write_json("weekly.json", {"reports": daily_reports})
 
     # ── items + daily-{date} per run date ────────────────────────────────
     items_by_date: dict[str, list[dict]] = {}
@@ -453,6 +470,21 @@ def export(db_path: str, out_dir: str) -> int:
         p["topics"] = paper_topics_map.get(p["id"], [])
 
     write_json("papers.json", paginated(papers, total_papers))
+
+    # ── arXiv weekly-featured sets ───────────────────────────────────────────
+    # papers.json only holds the first page of the whole library, so the
+    # featured arXiv papers would be buried; export them to their own files
+    # (papers-arxiv.json / papers-arxiv-fin.json) which the frontend's static
+    # client reads for the "arXiv 每周精选" / "AI+金融" tabs.
+    for source, out_name in (("arxiv", "papers-arxiv.json"), ("arxiv_fin", "papers-arxiv-fin.json")):
+        featured = [
+            p for p in papers if p["source"] == source and p.get("is_featured")
+        ]
+        featured.sort(
+            key=lambda p: (p.get("featured_date") or p.get("published_at") or ""),
+            reverse=True,
+        )
+        write_json(out_name, paginated(featured, len(featured)))
 
     # ── paper topics ──────────────────────────────────────────────────────
     paper_topic_groups: dict[str, list[dict]] = {}

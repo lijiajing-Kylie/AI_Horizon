@@ -1,14 +1,18 @@
 """arXiv lookup: fills gaps in OpenAlex/Semantic Scholar data for papers that
-have an arXiv preprint. Uses the public Atom-feed API (no key required).
+have an arXiv preprint, and provides the daily-category listing used by the
+arXiv weekly-featured pipeline. Uses the public Atom-feed API (no key required).
 """
 
 import asyncio
 import logging
 import re
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from xml.etree import ElementTree
 
 import httpx
+
+from ..models import Paper
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +25,17 @@ _ARXIV_NS = "{http://arxiv.org/schemas/atom}"
 _BATCH_SIZE = 50
 # arXiv's terms: "no more than one request per three seconds"
 _INTER_BATCH_DELAY = 3.1
+# Spacing between category-listing requests (fetch_recent). arXiv soft-throttles
+# bursts of category queries: 11-12 categories at 3.1s spacing empirically came
+# back as empty feeds, while 6.0s spacing returned data for every category.
+# Listing is the burst-heavy path, so it gets its own (larger) delay; id lookups
+# keep the documented minimum.
+_CATEGORY_LISTING_DELAY = 6.0
+# Per-category fetch retry budget for 429 / transient transport errors. arXiv
+# throttles bursts of category queries (a run may fetch 10+ categories), and a
+# reset/truncated connection currently surfaces as an empty feed — retrying with
+# backoff keeps those categories from silently dropping out.
+_MAX_CATEGORY_RETRIES = 3
 
 
 async def search(client: httpx.AsyncClient, title: str) -> Optional[Dict[str, Any]]:
@@ -184,6 +199,8 @@ def _normalize(entry: ElementTree.Element) -> Dict[str, Any]:
         "comment": comment,
         "categories": categories,
         "primary_category": primary_category,
+        "published_at": published,  # full ISO timestamp, e.g. "2015-12-10T00:00:00Z"
+        "updated_at": _text(entry, "updated"),
     }
 
 
@@ -196,3 +213,154 @@ def _arxiv_text(element: ElementTree.Element, tag: str) -> Optional[str]:
     """Extract text from an element in the arXiv namespace."""
     child = element.find(f"{_ARXIV_NS}{tag}")
     return child.text.strip() if child is not None and child.text else None
+
+
+def _parse_dt(iso: Optional[str]) -> Optional[datetime]:
+    """Parse an arXiv ISO timestamp to an aware UTC datetime.
+
+    Accepts trailing ``Z`` (Python 3.11+ ``fromisoformat`` handles it).
+    Returns None for missing/unparseable input.
+    """
+    if not iso:
+        return None
+    try:
+        dt = datetime.fromisoformat(iso)
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+async def fetch_recent(
+    client: httpx.AsyncClient,
+    categories: List[str],
+    max_results_per_category: int = 50,
+) -> List[Paper]:
+    """Fetch the newest papers per arXiv category and return them as ``Paper``s.
+
+    Queries ``search_query=cat:{cat}`` sorted by submission date descending.
+    Requests are serial across categories and rate-limited (≥3.1 s apart) to
+    respect arXiv's terms of use; 429 responses are retried with the
+    ``Retry-After`` header.
+
+    Cross-category duplicates are merged by arXiv id, keeping the entry that
+    lists the most categories. Papers without an id/title are skipped.
+    """
+    if not categories:
+        return []
+
+    merged: Dict[str, Paper] = {}
+    for i, cat in enumerate(categories):
+        if i > 0:
+            await asyncio.sleep(_CATEGORY_LISTING_DELAY)
+        entries = await _fetch_category(client, cat, max_results_per_category)
+        for normalized in entries:
+            paper = _entry_to_paper(normalized)
+            if paper is None:
+                continue
+            existing = merged.get(paper.id)
+            if existing is None or len(paper.categories) > len(existing.categories):
+                merged[paper.id] = paper
+
+    return sorted(
+        merged.values(),
+        key=lambda p: p.published_at,
+        reverse=True,
+    )
+
+
+async def _fetch_category(
+    client: httpx.AsyncClient,
+    category: str,
+    max_results: int,
+    _attempts: int = 0,
+) -> List[Dict[str, Any]]:
+    """Fetch one category's newest entries, retrying on throttling failures.
+
+    arXiv throttles bursts of category queries (a run may fetch 10+ categories);
+    failures surface as 429s, reset/truncated connections, or 200 responses with
+    no entries. Every failure retries with an increasing backoff (429s also halve
+    the batch) within the ``_MAX_CATEGORY_RETRIES`` budget, so a flaky category
+    degrades gracefully instead of silently dropping out of the combined fetch.
+    """
+    params: Dict[str, str] = {
+        "search_query": f"cat:{category}",
+        "sortBy": "submittedDate",
+        "sortOrder": "descending",
+        "max_results": str(max_results),
+        "start": "0",
+    }
+    retry_after: Optional[int] = None
+    error: Optional[str] = None
+    try:
+        response = await client.get(ARXIV_API_URL, params=params, timeout=60.0)
+        response.raise_for_status()
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 429 and max_results > 1:
+            retry_after = int(e.response.headers.get("Retry-After", "3"))
+            error = f"429 (retry in {retry_after}s)"
+        else:
+            error = str(e)
+    except httpx.HTTPError as e:
+        error = str(e)
+
+    entries: List[Dict[str, Any]] = []
+    if error is None:
+        try:
+            root = ElementTree.fromstring(response.text)
+        except ElementTree.ParseError as e:
+            error = f"parse error: {e}"
+        else:
+            entries = [_normalize(entry) for entry in root.findall(f"{_ATOM_NS}entry")]
+
+    # Retry failures and empty feeds with backoff. An empty feed is treated as
+    # throttling — a category that normally has thousands of papers returning
+    # zero within a recent window is far more likely throttled than genuinely
+    # empty, and retrying it costs only backoff time.
+    if error is not None or not entries:
+        if _attempts < _MAX_CATEGORY_RETRIES:
+            backoff = retry_after if retry_after is not None else _CATEGORY_LISTING_DELAY * (_attempts + 1)
+            logger.warning(
+                "Retrying arXiv cat=%s after %s (attempt %d/%d) in %.1fs",
+                category, error or "empty feed", _attempts + 1, _MAX_CATEGORY_RETRIES, backoff,
+            )
+            await asyncio.sleep(backoff)
+            next_batch = max_results // 2 if retry_after is not None else max_results
+            return await _fetch_category(client, category, next_batch, _attempts + 1)
+        logger.warning("Error fetching arXiv cat=%s: %s", category, error or "empty feed")
+        return []
+
+    return entries
+
+
+def _entry_to_paper(normalized: Dict[str, Any]) -> Optional[Paper]:
+    """Convert a ``_normalize`` output dict into a ``Paper`` (source="arxiv")."""
+    arxiv_id = normalized.get("arxiv_id")
+    title = (normalized.get("title") or "").strip()
+    if not arxiv_id or not title:
+        return None
+
+    published_dt = _parse_dt(normalized.get("published_at")) or datetime.now(timezone.utc)
+    updated_dt = _parse_dt(normalized.get("updated_at")) or published_dt
+
+    return Paper(
+        id=f"arxiv:{arxiv_id}",
+        source="arxiv",
+        native_id=arxiv_id,
+        title=title,
+        authors=normalized.get("authors") or [],
+        abstract=(normalized.get("abstract") or "").strip(),
+        url=f"https://arxiv.org/abs/{arxiv_id}",
+        pdf_url=normalized.get("pdf_url") or f"https://arxiv.org/pdf/{arxiv_id}",
+        published_at=published_dt,
+        updated_at=updated_dt,
+        publication_year=published_dt.year,
+        categories=normalized.get("categories") or [],
+        category=normalized.get("primary_category"),
+        comment=normalized.get("comment"),
+        journal_ref=normalized.get("journal_ref"),
+        arxiv_id=arxiv_id,
+        fetched_at=datetime.now(timezone.utc),
+        raw_metadata=normalized,
+    )

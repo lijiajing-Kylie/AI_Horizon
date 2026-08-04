@@ -31,6 +31,7 @@ from ...models import OpenAlexSourceConfig
 from ..enrichment import enrich_paper, enrichment_status_for
 from ..models import ClassicFetchResult, Paper, SeedMatchResult
 from ..seed_data import SEED_PAPERS, SeedPaper
+from . import arxiv
 from .base import PaperSourceFetcher
 
 logger = logging.getLogger(__name__)
@@ -184,12 +185,23 @@ class OpenAlexFetcher(PaperSourceFetcher):
         # Priority 3: arXiv ID lookup
         if seed.arxiv_id:
             work = await self._search_by_arxiv(client, seed.arxiv_id)
-            if work is not None:
+            # Validate the matched work's title too — OpenAlex sometimes maps an
+            # arXiv DOI to an unrelated (polluted) work, and in that case the
+            # record must not be trusted.
+            if work is not None and _title_compatible(seed.title, work.get("display_name") or ""):
                 paper = self._work_to_paper(work, seed)
                 if paper is not None:
                     return paper, self._make_result(seed, "matched", "arxiv_id", paper,
                                                     note=f"matched via arXiv {seed.arxiv_id}")
                 logger.debug("arXiv match for %r returned unparseable work; falling through", seed.title)
+
+            # arXiv fallback: when OpenAlex has no trustworthy record for an
+            # arXiv-ID'd seed (polluted DOI mapping or missing work entirely),
+            # fetch authoritative metadata straight from arXiv's own API.
+            paper = await self._match_from_arxiv(client, seed)
+            if paper is not None:
+                return paper, self._make_result(seed, "matched", "arxiv_id", paper,
+                                                note=f"matched via arXiv API {seed.arxiv_id}")
 
         # Priority 4: title search + local validation
         candidates = await self._search_candidates(client, seed.title)
@@ -280,6 +292,64 @@ class OpenAlexFetcher(PaperSourceFetcher):
             matched_year=paper.publication_year if paper else None,
             expected_year=seed.expected_year,
             note=note,
+        )
+
+    async def _match_from_arxiv(
+        self, client: httpx.AsyncClient, seed: SeedPaper,
+    ) -> Optional[Paper]:
+        """Fetch a seed's authoritative metadata from arXiv itself.
+
+        Used when OpenAlex has no trustworthy record for an arXiv-ID'd seed —
+        either its arXiv DOI is mapped to an unrelated (polluted) work, or the
+        work is missing entirely. The constructed Paper keeps the ``openalex``
+        source (so it stays in the classic library) but all of its metadata
+        comes from arXiv's own Atom API via ``arxiv.lookup_by_ids``.
+        """
+        if not seed.arxiv_id:
+            return None
+        lookup = await arxiv.lookup_by_ids(client, [seed.arxiv_id])
+        normalized = lookup.get(seed.arxiv_id)
+        if not normalized or not normalized.get("title"):
+            logger.debug("arXiv lookup for %r returned no metadata", seed.arxiv_id)
+            return None
+        return self._arxiv_normalized_to_paper(normalized, seed)
+
+    @staticmethod
+    def _arxiv_normalized_to_paper(normalized: dict, seed: SeedPaper) -> Paper:
+        """Convert an ``arxiv._normalize`` output dict into a ``Paper``.
+
+        The seed's canonical fields and category win over the arXiv metadata;
+        ``id`` uses the ``openalex:arxiv:{id}`` scheme so the paper stays in
+        the classic library even though OpenAlex itself has no record for it.
+        """
+        arxiv_id = seed.arxiv_id
+        published_at = _parse_date(normalized.get("published_at"))
+        if published_at is None:
+            published_at = datetime(seed.expected_year, 1, 1, tzinfo=timezone.utc)
+        if seed.canonical_year and published_at.year != seed.canonical_year:
+            try:
+                published_at = published_at.replace(year=seed.canonical_year)
+            except ValueError:  # Feb 29 on a non-leap year
+                published_at = datetime(seed.canonical_year, 1, 1, tzinfo=timezone.utc)
+
+        return Paper(
+            id=f"openalex:arxiv:{arxiv_id}",
+            source="openalex",
+            native_id=f"arxiv:{arxiv_id}",
+            title=seed.canonical_title or normalized["title"],
+            authors=seed.canonical_authors or normalized.get("authors") or [],
+            abstract=(normalized.get("abstract") or "").strip(),
+            url=f"https://arxiv.org/abs/{arxiv_id}",
+            pdf_url=normalized.get("pdf_url") or f"https://arxiv.org/pdf/{arxiv_id}",
+            published_at=published_at,
+            updated_at=published_at,
+            publication_year=seed.canonical_year or normalized.get("year"),
+            categories=normalized.get("categories") or [],
+            category=seed.category,
+            journal_ref=seed.canonical_venue,
+            arxiv_id=arxiv_id,
+            fetched_at=datetime.now(timezone.utc),
+            raw_metadata=normalized,
         )
 
     @staticmethod

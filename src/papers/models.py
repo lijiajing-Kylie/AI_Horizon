@@ -50,6 +50,25 @@ class Paper(BaseModel):
     title_zh: Optional[str] = None          # AI-translated Chinese title
     abstract_zh: Optional[str] = None       # AI-translated Chinese abstract
     original_language: Optional[str] = None  # detected language: "zh" | "en" | "unknown"
+    # ---- arXiv weekly-featured (source="arxiv") -----------------------------
+    # Populated by the arXiv weekly pipeline (src/papers/weekly.py); empty for
+    # the classic/HF sources unless a paper was also selected there.
+    keywords: List[str] = []                # AI-extracted keywords
+    # Single-language (Chinese) layered editorial breakdown:
+    # one_sentence_summary / why_it_matters / background / previous_problem /
+    # core_idea / how_it_works / technical_details / experimental_evidence /
+    # real_world_impact / limitations / innovation_level({level, reason}).
+    # Older pre-monolingual rows may still hold {en:{...}, zh:{...}} (kept as-is).
+    ai_summary: Optional[Dict[str, Any]] = None
+    github_url: Optional[str] = None        # code link extracted from arXiv comment
+    venue: Optional[str] = None             # top-conference signal, e.g. "NeurIPS 2025"
+    is_featured: bool = False               # selected into the weekly featured list
+    featured_date: Optional[datetime] = None  # date (UTC) it was featured
+    ai_relevance_score: Optional[float] = None  # AI pre-screen overall score 0-10
+    ai_score_breakdown: Optional[Dict[str, float]] = None  # four dimension scores:
+                                               #   innovation / technical_quality /
+                                               #   impact_potential / relevance
+    ai_reason: Optional[str] = None         # one-line Chinese reason from pre-screen
     fetched_at: datetime
 
 

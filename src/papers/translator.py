@@ -11,8 +11,9 @@ import re
 from typing import List
 
 from ..ai.client import AIClient
-from ..ai.utils import parse_json_response
+from ..ai.utils import complete_with_retry, parse_json_response
 from .models import Paper
+from .progress import run_progress
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +64,8 @@ async def translate_paper(client: AIClient, paper: Paper) -> Paper:
     abstract_snippet = paper.abstract[:2000] if paper.abstract else ""
 
     try:
-        response = await client.complete(
+        response = await complete_with_retry(
+            client,
             system=(
                 "You are a translator specializing in academic papers. "
                 "Translate the following paper title and abstract to Simplified Chinese. "
@@ -91,6 +93,9 @@ async def translate_paper(client: AIClient, paper: Paper) -> Paper:
         logger.warning(
             "Translation failed for paper %s", paper.id, exc_info=True
         )
+        reason = (paper.ai_reason or "").strip()
+        marker = "[translate failed]"
+        paper.ai_reason = f"{reason} {marker}".strip() if reason else marker
 
     return paper
 
@@ -106,6 +111,8 @@ async def translate_papers(
     Each translation runs behind an ``asyncio.Semaphore`` to avoid
     overwhelming the AI provider.
     """
+    if not papers:
+        return []
     sem = asyncio.Semaphore(concurrency)
 
     async def _translate_one(paper: Paper) -> Paper:
@@ -116,6 +123,4 @@ async def translate_papers(
         async with sem:
             return await translate_paper(client, paper)
 
-    tasks = [_translate_one(p) for p in papers]
-    results = await asyncio.gather(*tasks)
-    return list(results)
+    return await run_progress("翻译为中文", [_translate_one(p) for p in papers])

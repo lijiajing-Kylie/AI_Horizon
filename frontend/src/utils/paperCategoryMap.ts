@@ -28,6 +28,7 @@ export const UNIFIED_CATEGORY_IDS = [
   'robotics-control',
   'graph-learning',
   'interdisciplinary',
+  'finance',
   'other',
 ] as const
 
@@ -52,6 +53,7 @@ export const UNIFIED_LABELS_ZH: Record<UnifiedCategoryId, string> = {
   'robotics-control': '机器人与控制',
   'graph-learning': '图学习',
   'interdisciplinary': '跨学科',
+  'finance': '金融',
   'other': '其他',
 }
 
@@ -67,6 +69,17 @@ const RAW_TO_UNIFIED: Record<string, UnifiedCategoryId> = {
   'cs.MA': 'agent-multi-agent',
   'cs.HC': 'interdisciplinary',
   'cs.MM': 'multimodal',
+
+  // ── q-fin (arXiv finance) ──
+  'q-fin.CP': 'finance',
+  'q-fin.EC': 'finance',
+  'q-fin.GN': 'finance',
+  'q-fin.MF': 'finance',
+  'q-fin.PM': 'finance',
+  'q-fin.PR': 'finance',
+  'q-fin.RM': 'finance',
+  'q-fin.ST': 'finance',
+  'q-fin.TR': 'finance',
 
   // ── OpenAlex topics ──
 
@@ -166,6 +179,15 @@ const RAW_TO_ZH: Record<string, string> = {
   'cs.MA': '多智能体系统',
   'cs.HC': '人机交互',
   'cs.MM': '多模态',
+  'q-fin.CP': '计算金融',
+  'q-fin.EC': '计量经济学',
+  'q-fin.GN': '综合金融',
+  'q-fin.MF': '数理金融',
+  'q-fin.PM': '组合管理',
+  'q-fin.PR': '证券定价',
+  'q-fin.RM': '风险管理',
+  'q-fin.ST': '统计金融',
+  'q-fin.TR': '交易与市场微观结构',
 
   // machine-learning
   'Advanced Bandit Algorithms Research': '高级赌博机算法',

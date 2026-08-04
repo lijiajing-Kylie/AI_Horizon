@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom'
 import { ExternalLink } from 'lucide-react'
 import { useApi } from '../hooks/useApi'
 import { getPaper } from '../api/client'
+import type { PaperLayeredSummary as PaperLayeredSummaryType, PaperScoreBreakdown } from '../api/types'
 import LoadingSkeleton from '../components/LoadingSkeleton'
 import EmptyState from '../components/EmptyState'
 import BackLink from '../components/BackLink'
@@ -10,6 +11,18 @@ import { paperSourceLabel } from '../utils/source'
 import { unifiedCategoryId, unifiedLabelZh } from '../utils/paperCategoryMap'
 import FavoriteButton from '../components/FavoriteButton'
 import CardHeading from '../components/CardHeading'
+import PaperLayeredSummary, { InnovationBadge } from '../components/PaperLayeredSummary'
+
+/** 旧版单层解读（背景/问题/贡献/方法/证据/意义/局限）——兼容 pre-monolingual 历史数据。 */
+const LEGACY_SUMMARY_FIELDS: { key: string; label: string }[] = [
+  { key: 'background', label: '背景' },
+  { key: 'problem', label: '要解决的问题' },
+  { key: 'contribution', label: '核心贡献' },
+  { key: 'method', label: '方法' },
+  { key: 'evidence', label: '实验证据' },
+  { key: 'significance', label: '实际意义' },
+  { key: 'limitation', label: '局限' },
+]
 
 export default function PaperDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -38,6 +51,32 @@ export default function PaperDetailPage() {
     displayLang === 'zh' && paper.title_zh ? paper.title_zh : paper.title
   const displayAbstract =
     displayLang === 'zh' && paper.abstract_zh ? paper.abstract_zh : paper.abstract
+
+  // ── AI interpretation (arXiv featured papers) ──
+  // Monolingual (Chinese) rows store summary fields at the top level; legacy
+  // bilingual rows keep them under { zh }. Fall back so old data still renders.
+  const summary = (paper.ai_summary?.zh ?? paper.ai_summary) as PaperLayeredSummaryType | undefined
+  const hasAI = !!summary
+  // New 11-layer monolingual rows render with the layered PaperLayeredSummary
+  // component; older rows that only carry background/problem/contribution/...
+  // fall back to the flat LEGACY rendering. Detection keys must be NEW-format-
+  // only (one_sentence_summary, core_idea, ...) — `background` exists in both
+  // formats and would misclassify.
+  const summaryRecord = summary as Record<string, unknown> | undefined
+  const isNewFormat = !!(
+    summary &&
+    ['one_sentence_summary', 'why_it_matters', 'core_idea', 'how_it_works'].some(
+      k => typeof summaryRecord?.[k] === 'string',
+    )
+  )
+  const legacyFields = isNewFormat ? [] : LEGACY_SUMMARY_FIELDS
+  // 创新等级 badge 仅存在于新格式数据，展示在标题下方。
+  const innovationBadge =
+    isNewFormat && summary?.innovation_level ? summary.innovation_level : null
+
+  // ── Score breakdown (arXiv featured papers) ──
+  const breakdown = paper.ai_score_breakdown as PaperScoreBreakdown | null | undefined
+  const hasBreakdown = !!breakdown && Object.values(breakdown).some(v => v != null)
 
   return (
     <div className="max-w-[1180px] mx-auto">
@@ -70,6 +109,22 @@ export default function PaperDetailPage() {
           </div>
           <FavoriteButton itemId={paper.id} initialFavorited={paper.is_favorited ?? false} type="paper" size="md" />
         </div>
+
+        {(innovationBadge || (paper.keywords && paper.keywords.length > 0)) && (
+          <div className="flex flex-wrap gap-1.5 mb-3">
+            {innovationBadge && (
+              <InnovationBadge level={innovationBadge.level} reason={innovationBadge.reason} />
+            )}
+            {paper.keywords && paper.keywords.slice(0, 5).map(k => (
+              <span
+                key={k}
+                className="inline-block text-xs px-2 py-0.5 rounded-full bg-black/[.03] text-[var(--muted)]"
+              >
+                {k}
+              </span>
+            ))}
+          </div>
+        )}
 
         {paper.authors.length > 0 && (
           <div className="text-sm text-[var(--muted)] mb-2 leading-relaxed">
@@ -107,8 +162,18 @@ export default function PaperDetailPage() {
                 PDF <ExternalLink className="w-3.5 h-3.5 inline" strokeWidth={2} />
               </a>
             )}
+            {paper.github_url && (
+              <a
+                href={paper.github_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-medium text-[var(--accent)] hover:opacity-80 transition-colors"
+              >
+                GitHub <ExternalLink className="w-3.5 h-3.5 inline" strokeWidth={2} />
+              </a>
+            )}
           </div>
-          {paper.categories.length > 0 && (() => {
+          {paper.source !== 'arxiv' && paper.source !== 'arxiv_fin' && paper.categories.length > 0 && (() => {
             const cats = displayLang === 'zh'
               ? [...new Set(paper.categories.map(c => unifiedLabelZh(unifiedCategoryId(c))))]
               : paper.categories
@@ -140,12 +205,58 @@ export default function PaperDetailPage() {
             ))}
           </div>
         )}
+
       </header>
 
       <section className="glass rounded-[22px] p-6 mb-6">
         <CardHeading>摘要</CardHeading>
         <p className="text-[17px] leading-[1.85] text-[var(--ink)] whitespace-pre-line">{displayAbstract}</p>
       </section>
+
+      {hasAI && summary && (
+        <section className="glass rounded-[22px] p-6 mb-6">
+          <CardHeading>AI 解读</CardHeading>
+
+          {isNewFormat ? (
+            <PaperLayeredSummary summary={summary} />
+          ) : (
+            <div className="space-y-5">
+              {legacyFields.map(({ key, label }) => {
+                const text = summary[key as keyof typeof summary]
+                if (typeof text !== 'string' || !text) return null
+                return (
+                  <div key={key}>
+                    <div className="text-[11px] font-bold tracking-[.14em] text-[#8ea0b6] mb-1">{label}</div>
+                    <p className="text-[15px] leading-[1.85] text-[var(--ink)] whitespace-pre-line">{text}</p>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </section>
+      )}
+
+      {hasBreakdown && (
+        <section className="glass rounded-[22px] p-6 mb-6">
+          <CardHeading>AI 评分</CardHeading>
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+            {[
+              { key: 'innovation', label: '创新性', value: breakdown?.innovation },
+              { key: 'technical_quality', label: '技术质量', value: breakdown?.technical_quality },
+              { key: 'impact_potential', label: '潜在影响', value: breakdown?.impact_potential },
+              { key: 'relevance', label: 'AI 关注度', value: breakdown?.relevance },
+              { key: 'overall', label: '综合评分', value: paper.ai_relevance_score },
+            ].map(({ label, value }) => (
+              <div key={label} className="rounded-lg bg-black/[.03] px-3 py-2">
+                <div className="text-[11px] font-bold tracking-[.14em] text-[#8ea0b6] mb-0.5">{label}</div>
+                <div className="text-lg font-medium text-[var(--ink)]">
+                  {value != null ? value.toFixed(1) : '—'}
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       <hr className="my-8 border-[var(--line)]" />
       <BackLink

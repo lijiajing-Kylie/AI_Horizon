@@ -43,6 +43,10 @@ let _stats: Stats | null = null
 let _runs: Run[] | null = null
 let _runDates: string[] | null = null
 let _papers: PaginatedResponse<Paper> | null = null
+// arXiv weekly-featured sets live in their own files (papers.json only holds the
+// first page of the full library, so featured papers would be buried).
+let _arxivFeatured: PaginatedResponse<Paper> | null = null
+let _arxivFinFeatured: PaginatedResponse<Paper> | null = null
 let _reports: PaginatedResponse<Report> | null = null
 let _paperTopics: any = null
 let _reportInstitutions: any[] | null = null
@@ -380,10 +384,19 @@ export async function getReportFavorites(params?: { page?: number; per_page?: nu
 
 export async function getPapers(params?: {
   category?: string; source?: string; search?: string;
-  topic_slug?: string; month?: string; sort?: string; order?: string;
+  topic_slug?: string; month?: string; featured?: boolean;
+  featured_date?: string; sort?: string; order?: string;
   page?: number; per_page?: number;
 }): Promise<PaginatedResponse<Paper>> {
-  const data = await fetchWithCache({ value: _papers }, 'papers.json')
+  // The arXiv weekly-featured sets are exported to their own files; the generic
+  // papers.json holds only the first page of the whole library.
+  const isArxivFeatured = params?.source === 'arxiv' && params?.featured === true
+  const isArxivFinFeatured = params?.source === 'arxiv_fin' && params?.featured === true
+  const data = isArxivFeatured
+    ? await fetchWithCache({ value: _arxivFeatured }, 'papers-arxiv.json')
+    : isArxivFinFeatured
+      ? await fetchWithCache({ value: _arxivFinFeatured }, 'papers-arxiv-fin.json')
+      : await fetchWithCache({ value: _papers }, 'papers.json')
   if (!data) return { items: [], total: 0, page: 1, per_page: 20, pages: 0 }
 
   let items = data.items
@@ -393,8 +406,19 @@ export async function getPapers(params?: {
     const q = params.search.toLowerCase()
     items = items.filter(p => p.title.toLowerCase().includes(q) || p.abstract.toLowerCase().includes(q))
   }
-  if (params?.topic_slug) items = items.filter(p => p.topics?.some(t => t.slug === params!.topic_slug))
+  if (params?.topic_slug) {
+    // Comma-separated slugs are OR — match any topic (same semantics as the
+    // live /api/papers?topic_slug=a,b EXISTS-IN path).
+    const slugs = params.topic_slug.split(',').filter(Boolean)
+    items = items.filter(p => p.topics?.some(t => slugs.includes(t.slug)))
+  }
   if (params?.month) items = items.filter(p => p.published_at?.startsWith(params!.month!))
+  if (params?.featured !== undefined && params?.featured !== true) {
+    items = items.filter(p => !p.is_featured)
+  }
+  if (params?.featured_date) {
+    items = items.filter(p => p.featured_date?.startsWith(params!.featured_date!))
+  }
 
   const order = params?.order || 'desc'
   const sort = params?.sort || 'published_at'
@@ -425,7 +449,15 @@ export async function getPaperMonthCounts(): Promise<{ ym: string; cnt: number }
 
 export async function getPaper(id: string): Promise<Paper | null> {
   const data = await fetchWithCache({ value: _papers }, 'papers.json')
-  return data?.items.find(p => p.id === id) ?? null
+  const found = data?.items.find(p => p.id === id) ?? null
+  if (found) return found
+  // arXiv featured papers live in their own files (papers-arxiv.json /
+  // papers-arxiv-fin.json).
+  const arxiv = await fetchWithCache({ value: _arxivFeatured }, 'papers-arxiv.json')
+  const foundArxiv = arxiv?.items.find(p => p.id === id) ?? null
+  if (foundArxiv) return foundArxiv
+  const arxivFin = await fetchWithCache({ value: _arxivFinFeatured }, 'papers-arxiv-fin.json')
+  return arxivFin?.items.find(p => p.id === id) ?? null
 }
 
 export async function getPaperTopics() {

@@ -227,6 +227,51 @@ papers = {
     "enabled": True,
     "openalex": {"enabled": True},          # 经典论文源（基于种子列表）
     "huggingface": {"enabled": True, "top_n": 30},  # HF 每日热门论文
+    # arXiv 每周精选：按分类抓最新论文 → 规则过滤 → AI 粗筛打分 → 精选 top N
+    "arxiv": {
+        "enabled": True,
+        # 抓取分类（arXiv 分类码）
+        "categories": ["cs.AI", "cs.LG", "cs.CL"],
+        # 每分类抓取候选数
+        "max_results_per_category": 50,
+        # 回看窗口（天）。arXiv 发布/索引可能滞后数天，容忍回看 7 天
+        "window_days": 7,
+        # 关键词白/黑名单（标题+摘要，不区分大小写子串匹配）
+        "keyword_whitelist": [],
+        "keyword_blacklist": [],
+        # 摘要最短长度
+        "min_abstract_chars": 80,
+        # 规则过滤后进入 AI 粗筛的目标候选数（50-200）
+        "target_candidates": 150,
+        # 每次运行精选数（AI 粗筛后取 top N 做详析）。周更建议 15-30
+        "featured_count": 20,
+        # ── AI+金融子板块 ──────────────────────────────────────────────────
+        # 与上面通用 AI 类目一起抓取（同一次 fetch_recent），分类后按是否命中
+        # finance_categories 拆分：命中 → AI+金融（source=arxiv_fin）单独精选，
+        # 其余 → 通用 AI（source=arxiv）。复用同一管线，各自独立跑。
+        "finance_enabled": True,
+        # 金融类 arXiv 分类码（q-fin.*）。命中任意分类即归入 AI+金融。
+        # 注意：q-fin.EC 已被 arXiv 弃用（新论文转入 econ.EM，实测该分类恒为空），
+        # 已移除避免空抓取。不引入 cs.CE / econ.EM：计算金融论文通常都带 q-fin
+        # 分类，cs.CE 含大量非金融计算工程论文会稀释 AI 池。
+        "finance_categories": [
+            "q-fin.CP", "q-fin.GN", "q-fin.MF", "q-fin.PM",
+            "q-fin.PR", "q-fin.RM", "q-fin.ST", "q-fin.TR",
+        ],
+        # AI+金融子板块关键词白名单（AI 方法词）。q-fin 论文已保证"金融"属性，
+        # 此白名单剔除纯金融非 AI 论文，只保留 AI 与金融结合/应用的论文。
+        "finance_keyword_whitelist": [
+            # 词边界匹配（filters._keyword_regex）：ai/rag/llm 等短缩写只匹配独立词，
+            # 不会命中 said/storage/main 等含相同子串的英文词；agent 同时匹配 agents。
+            "machine learning", "deep learning", "neural network", "transformer",
+            "large language model", "llm", "reinforcement learning", "deep reinforcement",
+            "foundation model", "generative", "artificial intelligence", "ai", "agent",
+            "graph neural", "natural language", "nlp", "embedding", "sentiment analysis",
+            "gpt", "rag", "attention", "lstm", "diffusion", "fine-tuning", "prompt",
+        ],
+        # AI+金融子板块每次精选数（AI 粗筛后取 top N 做详析）
+        "finance_featured_count": 15,
+    },
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════

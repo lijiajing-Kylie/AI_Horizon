@@ -241,6 +241,53 @@ def test_preprint_and_published_duplicate_collapse_to_one_match() -> None:
     assert paper.native_id == "W2"  # published (non-arXiv) record preferred
 
 
+# -- Polluted arXiv DOI → arXiv API fallback --------------------------------
+
+def test_polluted_arxiv_doi_falls_back_to_arxiv_api() -> None:
+    """When OpenAlex maps an arXiv DOI to an unrelated (polluted) work whose
+    title is incompatible with the seed, matching falls back to fetching the
+    authoritative metadata from arXiv's own API."""
+    polluted = _work(
+        display_name="A Completely Unrelated Paper About Organisations",
+        doi="https://doi.org/10.48550/arxiv.2210.03629",
+    )
+    client = _client_returning(_search_response([polluted]))
+    seed = _seed(
+        category="NLP & LLM",
+        title="ReAct: Synergizing Reasoning and Acting in Language Models",
+        expected_year=2022,
+        arxiv_id="2210.03629",
+    )
+    arxiv_meta = {
+        "title": "ReAct: Synergizing Reasoning and Acting in Language Models",
+        "authors": ["Shunyu Yao", "Jeffrey Zhao"],
+        "abstract": "While large language models (LLMs) have demonstrated impressive capabilities...",
+        "year": 2022,
+        "arxiv_id": "2210.03629",
+        "pdf_url": "https://arxiv.org/pdf/2210.03629",
+        "categories": ["cs.CL", "cs.AI", "cs.LG"],
+        "published_at": "2022-10-06T00:00:00Z",
+    }
+
+    with (
+        patch("src.papers.sources.openalex.arxiv.lookup_by_ids",
+              new=AsyncMock(return_value={"2210.03629": arxiv_meta})),
+        patch("src.papers.sources.openalex.enrich_paper",
+              new=AsyncMock(return_value=(_sentinel_paper(), "complete"))),
+    ):
+        paper, result = asyncio.run(_fetcher()._match_seed(client, seed))
+
+    assert result.match_status == "matched"
+    assert result.match_method == "arxiv_id"
+    assert result.note == "matched via arXiv API 2210.03629"
+    assert paper.id == "openalex:arxiv:2210.03629"
+    assert paper.source == "openalex"
+    assert paper.title == "ReAct: Synergizing Reasoning and Acting in Language Models"
+    assert paper.abstract.startswith("While large language models")
+    assert paper.categories == ["cs.CL", "cs.AI", "cs.LG"]
+    assert paper.category == "NLP & LLM"
+
+
 # -- Two distinct candidates → manual_review --------------------------------
 
 def test_two_distinct_candidates_both_verified_is_manual_review() -> None:

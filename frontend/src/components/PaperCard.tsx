@@ -10,9 +10,11 @@ interface PaperCardProps {
   paper: Paper
   /** Where "back" should return to from the paper detail page this card links into. */
   backTo?: BackTarget
+  /** Hide the category/topic chips (used by featured arXiv boards where they're all "机器学习"). */
+  showCategories?: boolean
 }
 
-export default function PaperCard({ paper, backTo }: PaperCardProps) {
+export default function PaperCard({ paper, backTo, showCategories = true }: PaperCardProps) {
   const authors = paper.authors.slice(0, 3).join(', ') + (paper.authors.length > 3 ? ' 等' : '')
 
   // ---- translation toggle ------------------------------------------------
@@ -66,10 +68,17 @@ export default function PaperCard({ paper, backTo }: PaperCardProps) {
       </div>
 
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--muted)] mt-1 mb-3">
+        {paper.venue && (
+          <span className="text-xs px-2 py-0.5 rounded-full bg-[var(--accent)]/10 text-[var(--accent)]">
+            {paper.venue}
+          </span>
+        )}
         {authors && <span>{authors}</span>}
         {paper.published_at && <span>· {paper.published_at.slice(0, 10)}</span>}
-        <span>· {paperSourceLabel(paper.source)}</span>
         {paper.journal_ref && <span>· {paper.journal_ref}</span>}
+        {paper.ai_relevance_score != null && (
+          <span>· AI {paper.ai_relevance_score.toFixed(1)}</span>
+        )}
         {paper.citation_count != null && (
           <span>· 被引 {paper.citation_count}</span>
         )}
@@ -80,7 +89,28 @@ export default function PaperCard({ paper, backTo }: PaperCardProps) {
 
       <p className="text-sm text-[var(--muted)] line-clamp-3">{displayAbstract}</p>
 
-      {paper.categories.length > 0 && (() => {
+      {(() => {
+        const summary = (paper.ai_summary?.zh ?? paper.ai_summary)
+        const legacySummary = summary as Record<string, unknown> | undefined
+        // New 11-layer rows have one_sentence_summary; older rows fall back to
+        // significance / contribution so the card still shows an AI snippet.
+        const snippet =
+          typeof summary?.one_sentence_summary === 'string'
+            ? summary.one_sentence_summary
+            : typeof legacySummary?.significance === 'string'
+              ? legacySummary.significance
+              : typeof legacySummary?.contribution === 'string'
+                ? legacySummary.contribution
+                : undefined
+        if (!snippet) return null
+        return (
+          <p className="text-sm leading-relaxed text-[var(--ink)] mt-3 line-clamp-3 border-l-2 border-[var(--accent)]/40 pl-3">
+            {snippet}
+          </p>
+        )
+      })()}
+
+      {showCategories && paper.categories.length > 0 && (() => {
         const cats = displayLang === 'zh'
           ? [...new Set(paper.categories.map(c => unifiedLabelZh(unifiedCategoryId(c))))]
           : paper.categories
@@ -97,6 +127,19 @@ export default function PaperCard({ paper, backTo }: PaperCardProps) {
           </div>
         )
       })()}
+
+      {paper.keywords && paper.keywords.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 mt-2">
+          {paper.keywords.slice(0, 5).map(k => (
+            <span
+              key={k}
+              className="inline-block text-xs px-2 py-0.5 rounded-full bg-black/[.03] text-[var(--muted)]"
+            >
+              {k}
+            </span>
+          ))}
+        </div>
+      )}
 
       <div className="flex items-center gap-3 mt-3 text-xs">
         <a
@@ -115,6 +158,16 @@ export default function PaperCard({ paper, backTo }: PaperCardProps) {
             className="text-[var(--accent)] hover:opacity-80 font-medium"
           >
             查看PDF文件
+          </a>
+        )}
+        {paper.github_url && (
+          <a
+            href={paper.github_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[var(--accent)] hover:opacity-80 font-medium"
+          >
+            GitHub
           </a>
         )}
       </div>

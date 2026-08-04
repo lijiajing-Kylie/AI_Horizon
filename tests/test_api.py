@@ -730,3 +730,49 @@ class TestScrapeDiagnostics:
         r = c.get("/api/items/rss:diag:zh?include_debug=true")
         debug = r.json()["debug"]
         assert debug["translation"]["status"] == "skipped_already_chinese"
+
+
+# ---------------------------------------------------------------------------
+# Papers — arXiv weekly-featured filter
+# ---------------------------------------------------------------------------
+
+
+def test_api_papers_featured_filter(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    from src.papers.models import Paper
+    from src.storage.db import HorizonDB
+    import src.api.server as server_module
+
+    db = HorizonDB(db_path=str(tmp_path / "test.db"))
+    now = datetime.now(timezone.utc)
+    db.save_papers([
+        Paper(
+            id="arxiv:a", source="arxiv", native_id="a", title="Featured A",
+            authors=[], abstract="abstract a", url="https://arxiv.org/abs/a",
+            published_at=now, updated_at=now, categories=["cs.LG"],
+            is_featured=True, featured_date=now, ai_relevance_score=9.0,
+            keywords=["transformer"], ai_reason="good", fetched_at=now,
+        ),
+        Paper(
+            id="arxiv:b", source="arxiv", native_id="b", title="Plain B",
+            authors=[], abstract="abstract b", url="https://arxiv.org/abs/b",
+            published_at=now, updated_at=now, categories=["cs.LG"],
+            is_featured=False, fetched_at=now,
+        ),
+    ])
+    monkeypatch.setattr(server_module, "db", db)
+    c = TestClient(app)
+
+    r = c.get("/api/papers", params={"source": "arxiv", "featured": "true"})
+    assert r.status_code == 200
+    data = r.json()
+    assert data["total"] == 1
+    assert data["items"][0]["id"] == "arxiv:a"
+    assert data["items"][0]["is_featured"] is True
+    assert data["items"][0]["ai_relevance_score"] == 9.0
+    assert data["items"][0]["keywords"] == ["transformer"]
+    assert data["items"][0]["ai_reason"] == "good"
+
+    all_arxiv = c.get("/api/papers", params={"source": "arxiv"}).json()
+    assert all_arxiv["total"] == 2
+
+    db.close()
