@@ -137,18 +137,17 @@ class WxGather:
         
         return ""
     def fix_header(self,url):
-         user_agent = random.choice(USER_AGENTS)
-          # 更新请求头
-         headers = self.headers.copy()
-         headers.update({
-                "User-Agent": user_agent,
-                "Refer": url,
+        # 固定 UA：沿用登录会话初始化时选定的那一个（self.headers["User-Agent"]），
+        # 不再每个请求随机换 UA——同一 token 多 UA 是触发微信风控的高危信号。
+        headers = self.headers.copy()
+        headers.update({
+                "Referer": url,
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9",
                 "Accept-Language": "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7",
                 "Accept-Encoding": "gzip, deflate, br",
                 "Connection": "keep-alive"
             })
-         return headers
+        return headers
     def content_extract(self,  url):
         text=""
         try:
