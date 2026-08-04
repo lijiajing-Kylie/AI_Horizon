@@ -50,7 +50,7 @@ export default function PaperCard({ paper, backTo, showCategories = true }: Pape
             {hasTranslation && (
               <>
                 {displayLang === 'zh' && (
-                  <span className="inline-flex items-center text-xs px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200">
+                  <span className="inline-flex items-center text-xs px-1.5 py-0.5 rounded bg-[var(--tag-warn-bg)] text-[var(--tag-warn-text)] border border-[var(--tag-warn-border)]">
                     已翻译
                   </span>
                 )}
@@ -141,7 +141,15 @@ export default function PaperCard({ paper, backTo, showCategories = true }: Pape
         </div>
       )}
 
-      <div className="flex items-center gap-3 mt-3 text-xs">
+      <div className="flex items-center gap-3 mt-3 text-xs flex-wrap">
+        <Link
+          to={`/papers/${paper.id}`}
+          state={backToState(backTo)}
+          className="text-[var(--accent)] hover:opacity-80 font-medium"
+        >
+          查看详情
+        </Link>
+        <span className="flex-1" />
         <a
           href={paper.url}
           target="_blank"

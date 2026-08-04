@@ -95,7 +95,7 @@ export default function ItemCard({ item, showTopics = true, backTo }: ItemCardPr
             {showTranslationUI && (
               <>
                 {showingTranslation && (
-                  <span className="inline-flex items-center text-xs px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200">
+                  <span className="inline-flex items-center text-xs px-1.5 py-0.5 rounded bg-[var(--tag-warn-bg)] text-[var(--tag-warn-text)] border border-[var(--tag-warn-border)]">
                     已翻译
                   </span>
                 )}

@@ -21,6 +21,8 @@
   --card: rgba(255, 255, 255, .45);
   --ink: #2f3c50;
   --muted: #647181;
+  /* 小标题 eyebrow 色（PageEyebrow / CardHeading / Section heading） */
+  --eyebrow: #8ea0b6;
   --line: rgba(208, 214, 221, .6);
   /* Single shared accent for every interactive/highlight element site-wide:
      nav active state + underline, "查看详情"/"查看全部"/"全部主题" links,
@@ -28,6 +30,11 @@
      the calendar's selected-day circle. Change this one value to recolor
      all of them together. */
   --accent: #B197C4;
+
+  /* Warm-tone status tag（如「已翻译」badge）——主题感知，避免硬编码 amber。 */
+  --tag-warn-bg: rgba(251, 191, 36, .12);
+  --tag-warn-text: #b45309;
+  --tag-warn-border: rgba(251, 191, 36, .3);
 
   /* Theming extras — consumed by Layout.tsx so the header / search / dropdown
      all switch with the theme rather than being hardcoded. */
@@ -61,6 +68,10 @@
   --muted: #8B7E6E;
   --line: rgba(176, 155, 130, .35);
   --accent: #C66B3D;   /* terracotta — overridden by skin picker if set */
+
+  --tag-warn-bg: rgba(198, 107, 61, .14);
+  --tag-warn-text: #8a4a26;
+  --tag-warn-border: rgba(198, 107, 61, .32);
 
   --header-bg: rgba(232, 220, 199, .92);
   --header-shadow: 0 8px 28px rgba(74, 63, 53, .06);

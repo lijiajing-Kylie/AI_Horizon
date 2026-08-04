@@ -80,7 +80,7 @@ export default function TopicDetailPage() {
       <header className="glass news-card rounded-[28px] p-7 mb-6">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="text-[11px] font-bold tracking-[.18em] text-[#8ea0b6] mb-1.5">{topic.group_name}</p>
+            <p className="text-[11px] font-bold tracking-[.18em] text-[var(--eyebrow)] mb-1.5">{topic.group_name}</p>
             <h1 className="text-xl font-semibold text-[var(--ink)] leading-snug">{topic.name}</h1>
           </div>
           {prefs && (

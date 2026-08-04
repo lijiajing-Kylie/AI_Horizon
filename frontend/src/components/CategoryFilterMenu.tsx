@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { ChevronDown, Check, Minus, X } from 'lucide-react'
 import {
   PAPER_CATEGORY_GROUPS,
   type CategoryGroup,
@@ -104,7 +105,7 @@ export default function CategoryFilterMenu({
 
   // ── Trigger label ──────────────────────────────────────────────────────
   const triggerLabel = (() => {
-    if (selectedIds.length === 0) return '主题⌄'
+    if (selectedIds.length === 0) return '主题'
 
     // Single subcategory selected — show "GroupLabel / SubLabel"
     if (selectedIds.length === 1) {
@@ -133,21 +134,25 @@ export default function CategoryFilterMenu({
       <div className="flex items-center gap-0">
         <button
           onClick={() => setIsOpen(v => !v)}
-          className={`shrink-0 text-xs font-medium transition-colors cursor-pointer px-1 py-1 ${
+          className={`shrink-0 text-xs font-medium transition-colors cursor-pointer px-1 py-1 min-h-[44px] sm:min-h-0 inline-flex items-center ${
             hasSelection
               ? 'text-[var(--accent)]'
               : 'text-[var(--muted)] hover:text-[var(--ink)]'
           }`}
         >
-          {triggerLabel}
+          <span className="inline-flex items-center gap-0.5">
+            {triggerLabel}
+            <ChevronDown size={12} strokeWidth={2} />
+          </span>
         </button>
         {hasSelection && (
           <button
             onClick={onClear}
-            className="text-xs text-[var(--muted)] hover:text-[var(--ink)] transition-colors cursor-pointer px-1 py-1"
+            className="text-[var(--muted)] hover:text-[var(--ink)] transition-colors cursor-pointer px-1 py-1 min-h-[44px] sm:min-h-0 inline-flex items-center"
             title="清除主题筛选"
+            aria-label="清除主题筛选"
           >
-            ✕
+            <X size={14} strokeWidth={2} />
           </button>
         )}
       </div>
@@ -169,6 +174,7 @@ export default function CategoryFilterMenu({
                   <button
                     key={group.id}
                     onClick={() => toggleGroup(group)}
+                    onFocus={() => setHoveredGroup(group)}
                     onMouseEnter={() => setHoveredGroup(group)}
                     className={`w-full text-left px-3 py-2 text-sm font-medium transition-colors cursor-pointer ${
                       allSelected
@@ -180,10 +186,10 @@ export default function CategoryFilterMenu({
                   >
                     {group.label}
                     {allSelected && (
-                      <span className="ml-1 text-[10px] text-[var(--accent)]">✓</span>
+                      <Check size={12} strokeWidth={2.5} className="ml-1 text-[var(--accent)] shrink-0" />
                     )}
                     {someSelected && !allSelected && (
-                      <span className="ml-1 text-[10px] text-[var(--accent)]">–</span>
+                      <Minus size={12} strokeWidth={2.5} className="ml-1 text-[var(--accent)] shrink-0" />
                     )}
                   </button>
                 )
@@ -235,16 +241,18 @@ export default function CategoryFilterMenu({
                           : 'text-[var(--ink)] hover:bg-black/[.03]'
                     }`}
                   >
-                    <span>
+                    <span className="inline-flex items-center">
                       {group.label}
-                      {allSelected && <span className="ml-1.5 text-[10px]">✓</span>}
+                      {allSelected && <Check size={12} strokeWidth={2.5} className="ml-1.5 shrink-0" />}
                       {someSelected && !allSelected && (
-                        <span className="ml-1.5 text-[10px]">–</span>
+                        <Minus size={12} strokeWidth={2.5} className="ml-1.5 shrink-0" />
                       )}
                     </span>
-                    <span className={`text-xs text-[var(--muted)] transition-transform ${isExpanded ? 'rotate-180' : ''}`}>
-                      ▾
-                    </span>
+                    <ChevronDown
+                      size={14}
+                      strokeWidth={2}
+                      className={`text-[var(--muted)] transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                    />
                   </button>
                   {isExpanded && (
                     <div className="border-t border-[var(--line)]/40">

@@ -228,12 +228,6 @@ export function getPapers(params?: {
     : liveGet<PaginatedResponse<Paper>>('/api/papers', params as Record<string, string | number | undefined>)
 }
 
-export function getPaperMonthCounts(): Promise<{ ym: string; cnt: number }[]> {
-  return STATIC_MODE
-    ? staticClient.getPaperMonthCounts()
-    : liveGet<{ ym: string; cnt: number }[]>('/api/papers/month-counts')
-}
-
 export function getPaper(id: string): Promise<Paper | null> {
   return STATIC_MODE
     ? staticClient.getPaper(id)

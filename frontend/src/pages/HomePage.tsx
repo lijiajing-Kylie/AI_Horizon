@@ -17,18 +17,22 @@ interface ColumnProps {
   title: string
   to: string
   viewMoreTo: string
+  meta?: string
   children: ReactNode
 }
 
-function Column({ eyebrow, title, to, viewMoreTo, children }: ColumnProps) {
+function Column({ eyebrow, title, to, viewMoreTo, meta, children }: ColumnProps) {
   return (
     <section className="glass news-card rounded-[22px] p-5">
       <div className="flex items-end justify-between gap-4 mb-4">
         <div>
-          <p className="text-[10px] font-bold tracking-[.18em] text-[#8ea0b6] mb-1.5">{eyebrow}</p>
-          <Link to={to} className="text-lg font-normal text-[var(--ink)] hover:text-[var(--accent)] tracking-wide transition-colors">
-            {title}
-          </Link>
+          <p className="text-[10px] font-bold tracking-[.18em] text-[var(--eyebrow)] mb-1.5">{eyebrow}</p>
+          <div className="flex items-baseline gap-2">
+            <Link to={to} className="text-lg font-normal text-[var(--ink)] hover:text-[var(--accent)] tracking-wide transition-colors">
+              {title}
+            </Link>
+            {meta && <span className="shrink-0 text-xs text-[var(--muted)]">{meta}</span>}
+          </div>
         </div>
         <Link
           to={viewMoreTo}
@@ -57,6 +61,10 @@ export default function HomePage() {
   const topReports: Report[] = reportsData?.items || []
   const topPapers: Paper[] = papersData?.items || []
 
+  // 列级轻量 meta：日报显示今日条数，论文显示库最近抓取时间。
+  const dailyCount = dailyData?.total ?? 0
+  const latestPaperFetch = topPapers.reduce((max, p) => (p.fetched_at > max ? p.fetched_at : max), '')
+
   if (loading && !dailyData) return <LoadingSkeleton />
   if (error) return <EmptyState title="加载失败" description={error} />
 
@@ -64,7 +72,8 @@ export default function HomePage() {
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-stretch">
       {/* Left half: 日报 / 论文 / 报告 columns */}
       <div className="space-y-6">
-        <Column eyebrow="TODAY" title="日报" to={`/daily/${today}`} viewMoreTo="/daily">
+        <Column eyebrow="TODAY" title="日报" to={`/daily/${today}`} viewMoreTo="/daily"
+          meta={dailyCount > 0 ? `今日 ${dailyCount} 条` : undefined}>
           {topItems.length > 0 ? (
             <div className="space-y-3">
               {topItems.map(item => (
@@ -85,7 +94,8 @@ export default function HomePage() {
           )}
         </Column>
 
-        <Column eyebrow="PAPERS" title="论文" to="/papers" viewMoreTo="/papers">
+        <Column eyebrow="PAPERS" title="论文" to="/papers" viewMoreTo="/papers"
+          meta={latestPaperFetch ? `更新于 ${latestPaperFetch.slice(5, 10)}` : undefined}>
           {topPapers.length > 0 ? (
             <div className="space-y-3">
               {topPapers.map(paper => (

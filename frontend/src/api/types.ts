@@ -397,6 +397,24 @@ export interface Paper {
   topics?: PaperTopic[]
   /** Only present when the request carried X-User-Id (see utils/userId.ts). */
   is_favorited?: boolean
+
+  // ── Featured / AI-enriched fields（arXiv 精选 + AI 解读）─────────────────
+  /** 期刊 / 会议名。 */
+  venue?: string | null
+  /** 是否被精选板块（AI+金融 / 最新论文）收录。 */
+  is_featured?: boolean
+  /** AI 解读摘要：新格式为分层 PaperLayeredSummary，旧数据为 { zh } 双语包装。 */
+  ai_summary?: (PaperLayeredSummary & { zh?: PaperLayeredSummary }) | null
+  /** AI 评分分项（创新性 / 技术质量 / 潜在影响 / AI 关注度）。 */
+  ai_score_breakdown?: PaperScoreBreakdown | null
+  /** AI 相关度综合评分（0–10）。 */
+  ai_relevance_score?: number | null
+  /** 精选板块（AI+金融 / 最新论文）的 featured 日期。 */
+  featured_date?: string | null
+  /** 关键词（展示用，经典论文可能为空）。 */
+  keywords?: string[]
+  /** GitHub 仓库链接（若论文开源）。 */
+  github_url?: string | null
 }
 
 // ---- Global Search -------------------------------------------------------

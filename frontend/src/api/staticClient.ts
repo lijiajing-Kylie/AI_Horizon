@@ -43,8 +43,8 @@ let _stats: Stats | null = null
 let _runs: Run[] | null = null
 let _runDates: string[] | null = null
 let _papers: PaginatedResponse<Paper> | null = null
-// arXiv weekly-featured sets live in their own files (papers.json only holds the
-// first page of the full library, so featured papers would be buried).
+// papers.json holds the FULL library (exported by scripts/export_static_data.py);
+// arXiv weekly-featured sets live in their own files so they aren't buried.
 let _arxivFeatured: PaginatedResponse<Paper> | null = null
 let _arxivFinFeatured: PaginatedResponse<Paper> | null = null
 let _reports: PaginatedResponse<Report> | null = null
@@ -285,17 +285,21 @@ export async function globalSearch(params: {
   const newsPage = params.news_page ?? 1
   const newsStart = (newsPage - 1) * perPage
 
-  // Search papers
-  const papers = await getPapers()
-  const matchedPapers = (papers?.items || []).filter(p =>
-    p.title.toLowerCase().includes(ql) || p.abstract.toLowerCase().includes(ql)
+  // Search papers — filter the FULL library, not just the first page
+  // (getPapers() with no args returns only page 1, which would miss most matches).
+  const papersData = await fetchWithCache({ value: _papers }, 'papers.json')
+  const matchedPapers = (papersData?.items || []).filter(p =>
+    p.title.toLowerCase().includes(ql) ||
+    (p.abstract || '').toLowerCase().includes(ql) ||
+    (p.title_zh || '').toLowerCase().includes(ql) ||
+    (p.abstract_zh || '').toLowerCase().includes(ql)
   )
   const papersPage = params.papers_page ?? 1
   const papersStart = (papersPage - 1) * perPage
 
-  // Search reports
-  const reports = await getReports()
-  const matchedReports = (reports?.items || []).filter(r =>
+  // Search reports — filter the FULL library too
+  const reportsData = await fetchWithCache({ value: _reports }, 'reports.json')
+  const matchedReports = (reportsData?.items || []).filter(r =>
     r.title.toLowerCase().includes(ql) || (r.summary || '').toLowerCase().includes(ql)
   )
   const reportsPage = params.reports_page ?? 1
@@ -389,7 +393,7 @@ export async function getPapers(params?: {
   page?: number; per_page?: number;
 }): Promise<PaginatedResponse<Paper>> {
   // The arXiv weekly-featured sets are exported to their own files; the generic
-  // papers.json holds only the first page of the whole library.
+  // papers.json holds the full library.
   const isArxivFeatured = params?.source === 'arxiv' && params?.featured === true
   const isArxivFinFeatured = params?.source === 'arxiv_fin' && params?.featured === true
   const data = isArxivFeatured
@@ -404,7 +408,12 @@ export async function getPapers(params?: {
   if (params?.category) items = items.filter(p => p.category === params.category)
   if (params?.search) {
     const q = params.search.toLowerCase()
-    items = items.filter(p => p.title.toLowerCase().includes(q) || p.abstract.toLowerCase().includes(q))
+    items = items.filter(p =>
+      p.title.toLowerCase().includes(q) ||
+      (p.abstract || '').toLowerCase().includes(q) ||
+      (p.title_zh || '').toLowerCase().includes(q) ||
+      (p.abstract_zh || '').toLowerCase().includes(q)
+    )
   }
   if (params?.topic_slug) {
     // Comma-separated slugs are OR — match any topic (same semantics as the
@@ -430,21 +439,6 @@ export async function getPapers(params?: {
   })
 
   return applyPagination(items, params?.page, params?.per_page)
-}
-
-export async function getPaperMonthCounts(): Promise<{ ym: string; cnt: number }[]> {
-  const data = await fetchWithCache({ value: _papers }, 'papers.json')
-  if (!data) return []
-  const counts: Record<string, number> = {}
-  for (const p of data.items) {
-    if (p.published_at) {
-      const ym = p.published_at.slice(0, 7)
-      counts[ym] = (counts[ym] || 0) + 1
-    }
-  }
-  return Object.entries(counts)
-    .map(([ym, cnt]) => ({ ym, cnt }))
-    .sort((a, b) => b.ym.localeCompare(a.ym))
 }
 
 export async function getPaper(id: string): Promise<Paper | null> {

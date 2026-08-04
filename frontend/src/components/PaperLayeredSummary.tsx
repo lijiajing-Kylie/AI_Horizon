@@ -1,37 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
-import { ChevronDown, ArrowDown } from 'lucide-react'
+import { ChevronDown } from 'lucide-react'
 import type { PaperLayeredSummary } from '../api/types'
-
-/** innovation_level.level 枚举 → 中文标签。 */
-const INNOVATION_LABELS: Record<string, string> = {
-  breakthrough: '重大突破',
-  significant_improvement: '重要改进',
-  incremental: '渐进优化',
-  engineering: '工程优化',
-}
-
-/**
- * 创新等级 badge，用于标题旁。悬停时以 tooltip 展示「它为什么属于这个等级」。
- * 悬停即可，无需点击（a11y 由原生 title 兜底；reason 为空则不渲染 tooltip）。
- */
-export function InnovationBadge({ level, reason }: { level: string; reason?: string }) {
-  const label = INNOVATION_LABELS[level] ?? level
-  return (
-    <span className="relative inline-block group align-middle">
-      <span className="inline-block text-xs px-2 py-0.5 rounded-full bg-[var(--accent)]/10 text-[var(--accent)] font-medium">
-        {label}
-      </span>
-      {reason && (
-        <span
-          title={reason}
-          className="absolute left-0 top-full mt-1.5 hidden group-hover:block z-10 w-72 max-w-[80vw] rounded-xl bg-[var(--dropdown-bg)] border border-[var(--line)] shadow-[var(--dropdown-shadow)] px-3 py-2 text-xs leading-relaxed text-[var(--muted)] pointer-events-none whitespace-pre-line"
-        >
-          它为什么属于这个等级：{reason}
-        </span>
-      )}
-    </span>
-  )
-}
 
 /** 详细解读 accordion 的条目配置（title 固定；fields 对应 PaperLayeredSummary 字段）。 */
 const ACCORDION_ITEMS: {
@@ -142,7 +111,7 @@ function AccordionItem({
           {present.map(f => (
             <div key={f.key}>
               {f.label && (
-                <div className="text-[11px] font-bold tracking-[.14em] text-[#8ea0b6] mb-1">
+                <div className="text-[11px] font-bold tracking-[.14em] text-[var(--eyebrow)] mb-1">
                   {f.label}
                 </div>
               )}
@@ -166,13 +135,11 @@ function AccordionItem({
 /**
  * 论文 AI 解读的分层展示（仅新 11 字段格式）：
  * Part 1 首屏「30秒理解」+ Part 2「展开详细解读」可折叠区。
- * 创新等级 badge 由上层（标题处）通过 InnovationBadge 展示。
  */
 export default function PaperLayeredSummary({ summary }: { summary: PaperLayeredSummary }) {
   const [detailOpen, setDetailOpen] = useState(false)
   const oneSentence = summary.one_sentence_summary?.trim()
   const why = summary.why_it_matters?.trim()
-  const prevProblem = summary.previous_problem?.trim()
   const coreIdea = summary.core_idea?.trim()
 
   // 任一 accordion 条目有内容才显示总开关。
@@ -189,7 +156,7 @@ export default function PaperLayeredSummary({ summary }: { summary: PaperLayered
       <div className="space-y-6">
         {oneSentence && (
           <div>
-            <div className="text-[11px] font-bold tracking-[.14em] text-[#8ea0b6] mb-2">30秒理解</div>
+            <div className="text-[11px] font-bold tracking-[.14em] text-[var(--eyebrow)] mb-2">30秒理解</div>
             <p className="text-xl leading-relaxed font-medium text-[var(--ink)] pl-4 border-l-2 border-[var(--accent)]/50">
               {oneSentence}
             </p>
@@ -198,7 +165,7 @@ export default function PaperLayeredSummary({ summary }: { summary: PaperLayered
 
         {why && (
           <div>
-            <div className="text-[11px] font-bold tracking-[.14em] text-[#8ea0b6] mb-2">为什么值得关注？</div>
+            <div className="text-[11px] font-bold tracking-[.14em] text-[var(--eyebrow)] mb-2">为什么值得关注？</div>
             <ClampText
               text={why}
               className="text-[15px] leading-[1.85] text-[var(--ink)] whitespace-pre-line"
@@ -206,33 +173,14 @@ export default function PaperLayeredSummary({ summary }: { summary: PaperLayered
           </div>
         )}
 
-        {(prevProblem || coreIdea) && (
+        {coreIdea && (
           <div>
-            <div className="text-[11px] font-bold tracking-[.14em] text-[#8ea0b6] mb-2">核心创新</div>
-            <div className="space-y-2">
-              {prevProblem && (
-                <div className="rounded-xl bg-black/[.03] px-4 py-3">
-                  <div className="text-xs font-medium text-[var(--muted)] mb-1">过去</div>
-                  <ClampText
-                    text={prevProblem}
-                    className="text-sm leading-relaxed text-[var(--muted)] whitespace-pre-line"
-                  />
-                </div>
-              )}
-              {prevProblem && coreIdea && (
-                <div className="flex justify-center py-0.5">
-                  <ArrowDown className="w-4 h-4 text-[var(--accent)]" strokeWidth={2} />
-                </div>
-              )}
-              {coreIdea && (
-                <div className="rounded-xl bg-[var(--accent)]/5 border border-[var(--accent)]/15 px-4 py-3">
-                  <div className="text-xs font-medium text-[var(--accent)] mb-1">本文</div>
-                  <ClampText
-                    text={coreIdea}
-                    className="text-sm leading-relaxed text-[var(--ink)] whitespace-pre-line"
-                  />
-                </div>
-              )}
+            <div className="text-[11px] font-bold tracking-[.14em] text-[var(--eyebrow)] mb-2">核心创新</div>
+            <div className="rounded-xl bg-[var(--accent)]/5 border border-[var(--accent)]/15 px-4 py-3">
+              <ClampText
+                text={coreIdea}
+                className="text-sm leading-relaxed text-[var(--ink)] whitespace-pre-line"
+              />
             </div>
           </div>
         )}

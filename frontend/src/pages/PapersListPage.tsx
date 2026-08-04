@@ -1,48 +1,21 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams, useLocation } from 'react-router-dom'
 import { useApi } from '../hooks/useApi'
 import { useScrollRestoration } from '../hooks/useScrollRestoration'
-import { getPapers, getPaperFavorites, getPaperMonthCounts } from '../api/client'
+import { getPapers, getPaperFavorites } from '../api/client'
 import PaperCard from '../components/PaperCard'
 import Pagination from '../components/Pagination'
 import LoadingSkeleton from '../components/LoadingSkeleton'
 import EmptyState from '../components/EmptyState'
 import PageEyebrow from '../components/PageEyebrow'
 import CategoryFilterMenu from '../components/CategoryFilterMenu'
-import { ArrowDown } from 'lucide-react'
+import { ArrowDown, Search } from 'lucide-react'
 import type { Paper } from '../api/types'
 
 type PaperSource = 'openalex' | 'arxiv' | 'arxiv_fin'
 
 // 板块顺序：AI+金融 → 最新论文(arXiv 每周精选) → 经典论文
 const PAPER_SOURCES: PaperSource[] = ['arxiv_fin', 'arxiv', 'openalex']
-
-// Months for the cascading time filter
-const _CUR_D = new Date()
-const _CUR_Y = _CUR_D.getFullYear()
-const _CUR_M = _CUR_D.getMonth() + 1
-
-const YEAR_MONTHS: { year: number; months: string[] }[] = [
-  // Current year: up to current month, descending
-  {
-    year: _CUR_Y,
-    months: Array.from({ length: _CUR_M }, (_, i) =>
-      String(_CUR_M - i).padStart(2, '0'),
-    ),
-  },
-  // Past 2 years: all 12 months, descending
-  ...[1, 2].map(yi => ({
-    year: _CUR_Y - yi,
-    months: Array.from({ length: 12 }, (_, i) =>
-      String(12 - i).padStart(2, '0'),
-    ),
-  })),
-]
-
-function formatMonth(ym: string): string {
-  const [y, m] = ym.split('-')
-  return `${y}年${Number(m)}月`
-}
 
 /** Merge partial updates into the current URLSearchParams, deleting keys set to null/undefined. */
 function mergeParams(
@@ -73,28 +46,15 @@ export default function PapersListPage() {
       ? rawSource
       : PAPER_SOURCES[0]
   const selectedCategories = searchParams.get('topic')?.split(',').filter(Boolean) ?? []
-  const monthFilter = searchParams.get('month') ?? null
   const favoritesOnly = searchParams.has('fav')
   const sortField = searchParams.get('sort') ?? 'published_at'
   const sortOrder = searchParams.get('order') ?? 'desc'
+  // 与 SearchPage「查看全部」共用 search 参数；跨板块保留关键词。
+  const searchQ = searchParams.get('search') ?? ''
 
   // ── UI-only state (not persisted to URL) ───────────────────────────────
-  const [menuOpen, setMenuOpen] = useState(false)
-  const [hoveredYearIndex, setHoveredYearIndex] = useState(0)
-  const [monthCounts, setMonthCounts] = useState<Record<string, number>>({})
-  const menuRef = useRef<HTMLDivElement>(null)
   // Featured sources（AI+金融 / arXiv 最新论文）：固定 featured 视图。
   const isFeaturedSource = source === 'arxiv' || source === 'arxiv_fin'
-
-  // Fetch month counts when menu opens
-  useEffect(() => {
-    if (!menuOpen) return
-    getPaperMonthCounts().then(counts => {
-      const map: Record<string, number> = {}
-      for (const c of counts) map[c.ym] = c.cnt
-      setMonthCounts(map)
-    }).catch(() => {})
-  }, [menuOpen])
 
   // ── URL param helpers ──────────────────────────────────────────────────
   const updateParams = useCallback(
@@ -104,17 +64,24 @@ export default function PapersListPage() {
     [setSearchParams],
   )
 
-  // Close time dropdown on outside click
+  // ── Search box（与 SearchPage 共用 search 参数，防抖写回 URL）────────────
+  const [searchInput, setSearchInput] = useState(searchQ)
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+
   useEffect(() => {
-    if (!menuOpen) return
-    const handleClick = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setMenuOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
-  }, [menuOpen])
+    setSearchInput(searchQ)
+  }, [searchQ])
+
+  useEffect(() => () => clearTimeout(searchDebounceRef.current), [])
+
+  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const v = e.target.value
+    setSearchInput(v)
+    clearTimeout(searchDebounceRef.current)
+    searchDebounceRef.current = setTimeout(() => {
+      updateParams({ search: v.trim() || null, page: null })
+    }, 300)
+  }
 
   // ── Topic filter → API param ────────────────────────────────────────────
   // 主题过滤直接走后端 paper_topics 表：unified category id 与 paper_topic
@@ -135,6 +102,7 @@ export default function PapersListPage() {
         return getPapers({
           source,
           featured: true,
+          search: searchQ || undefined,
           sort: 'featured_date',
           order: 'desc',
           page,
@@ -144,7 +112,7 @@ export default function PapersListPage() {
       return getPapers({
         source,
         topic_slug: topicSlug,
-        month: monthFilter ?? undefined,
+        search: searchQ || undefined,
         page,
         per_page: hfPerPage,
         sort: sortField,
@@ -152,7 +120,7 @@ export default function PapersListPage() {
       })
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [page, topicSlug, monthFilter, source, sortField, sortOrder, favoritesOnly, isFeaturedSource],
+    [page, topicSlug, source, searchQ, sortField, sortOrder, favoritesOnly, isFeaturedSource],
   )
 
   // 服务端已按 topic_slug（paper_topics）精确过滤并正确分页，无需客户端二次过滤。
@@ -164,24 +132,18 @@ export default function PapersListPage() {
   }
 
   const clearAllFilters = () => {
-    updateParams({ topic: null, month: null, fav: null, page: null })
+    updateParams({ topic: null, fav: null, search: null, page: null })
   }
 
   const handleSourceChange = (s: PaperSource) => {
     updateParams({
       source: s,
       topic: null,
-      month: null,
       fav: null,
       sort: null,
       order: null,
       page: null,
     })
-  }
-
-  const handleMonthSelect = (month: string | null) => {
-    updateParams({ month: month ?? null, page: null })
-    setMenuOpen(false)
   }
 
   const toggleFavoritesOnly = () => {
@@ -213,7 +175,10 @@ export default function PapersListPage() {
     upvote_count: '赞数',
   }
 
-  const hasAnyFilter = selectedCategories.length > 0 || monthFilter !== null || favoritesOnly
+  // 排序激活态：非默认（时间降序）即高亮，与「全部论文 / 主题 / 时间」激活规则对齐。
+  const isActiveSort = sortField !== 'published_at' || sortOrder !== 'desc'
+
+  const hasAnyFilter = selectedCategories.length > 0 || favoritesOnly || searchQ !== ''
 
   // ── Dynamic backTo carrying current URL state ──────────────────────────
   const backTo = {
@@ -237,6 +202,9 @@ export default function PapersListPage() {
   const latestFeaturedDate = isFeaturedSource
     ? ((data?.items?.[0]?.featured_date ?? null)?.slice(0, 10) ?? null)
     : null
+
+  // Refetch 中（如切换板块）旧列表仍保留显示——用半透明提示正在加载，避免内容跳变。
+  const refreshing = loading && !!data
 
   return (
     <div>
@@ -282,11 +250,11 @@ export default function PapersListPage() {
       </div>
 
       {/* Filter toolbar (single row) */}
-      <div className="flex items-center gap-0.5 mb-3 flex-wrap">
+      <div className="flex items-center gap-2 sm:gap-0.5 mb-3 flex-wrap">
         {/* 全部论文 — resets all filters */}
         <button
           onClick={clearAllFilters}
-          className={`shrink-0 text-xs font-medium transition-colors cursor-pointer px-1.5 py-1 ${
+          className={`shrink-0 text-xs font-medium transition-colors cursor-pointer px-1.5 py-1 min-h-[44px] sm:min-h-0 inline-flex items-center ${
             !hasAnyFilter
               ? 'text-[var(--accent)]'
               : 'text-[var(--muted)] hover:text-[var(--ink)]'
@@ -307,166 +275,33 @@ export default function PapersListPage() {
               multiSelect
             />
 
-            <span className="shrink-0 text-xs text-[var(--line)] px-0.5 select-none">|</span>
-
-            {/* 时间⌄ — cascading year→month menu */}
-            <div ref={menuRef} className="relative shrink-0">
-              <button
-                onClick={() => setMenuOpen(v => !v)}
-                className={`text-xs font-medium transition-colors cursor-pointer px-1.5 py-1 ${
-                  monthFilter !== null
-                    ? 'text-[var(--accent)]'
-                    : 'text-[var(--muted)] hover:text-[var(--ink)]'
-                }`}
-              >
-                {monthFilter !== null ? formatMonth(monthFilter) : '时间⌄'}
-              </button>
-              {monthFilter !== null && (
-                <button
-                  onClick={() => handleMonthSelect(null)}
-                  className="text-xs text-[var(--muted)] hover:text-[var(--ink)] transition-colors cursor-pointer px-0.5 py-1"
-                  title="清除时间筛选"
-                >
-                  ✕
-                </button>
-              )}
-
-              {menuOpen && (
-                <div
-                  className="absolute top-full left-0 mt-1 z-50"
-                  onClick={e => e.stopPropagation()}
-                >
-                  {/* Desktop: two-column layout */}
-                  <div className="hidden lg:flex bg-white/90 backdrop-blur-sm border border-[var(--line)] rounded-xl overflow-hidden min-w-[240px] shadow-sm">
-                    {/* Left: years */}
-                    <div className="w-[115px] border-r border-[var(--line)] py-1">
-                      {/* 全部时间 option */}
-                      <button
-                        onClick={() => handleMonthSelect(null)}
-                        className={`w-full text-left px-3 py-1.5 text-sm transition-colors cursor-pointer ${
-                          monthFilter === null
-                            ? 'text-[var(--accent)] font-medium'
-                            : 'text-[var(--muted)] hover:text-[var(--ink)] hover:bg-black/[.03]'
-                        }`}
-                      >
-                        全部时间
-                      </button>
-                      {YEAR_MONTHS.map((ym, i) => {
-                        const yearSelected = monthFilter?.startsWith(String(ym.year))
-                        return (
-                          <button
-                            key={ym.year}
-                            onMouseEnter={() => setHoveredYearIndex(i)}
-                            className={`w-full flex items-center justify-between px-3 py-1.5 text-sm transition-colors cursor-pointer ${
-                              yearSelected
-                                ? 'text-[var(--accent)] font-medium bg-[var(--accent)]/8'
-                                : 'text-[var(--ink)] hover:bg-black/[.03]'
-                            }`}
-                          >
-                            {ym.year}
-                            <span className={`text-xs ${hoveredYearIndex === i ? 'text-[var(--accent)]' : 'text-[var(--muted)]'}`}>▸</span>
-                          </button>
-                        )
-                      })}
-                    </div>
-
-                    {/* Right: months of hovered year */}
-                    <div className="w-[130px] py-1">
-                      {YEAR_MONTHS[hoveredYearIndex].months.map(m => {
-                        const ym = `${YEAR_MONTHS[hoveredYearIndex].year}-${m}`
-                        const selected = monthFilter === ym
-                        const cnt = monthCounts[ym] ?? -1
-                        const isEmpty = cnt === 0
-                        return (
-                          <button
-                            key={ym}
-                            onClick={() => !isEmpty && handleMonthSelect(ym)}
-                            disabled={isEmpty}
-                            className={`w-full text-left px-3 py-1.5 text-sm transition-colors ${
-                              selected
-                                ? 'text-[var(--accent)] bg-[var(--accent)]/8 font-medium'
-                                : isEmpty
-                                  ? 'text-[var(--line)]'
-                                  : 'text-[var(--muted)] hover:text-[var(--ink)] hover:bg-black/[.03] cursor-pointer'
-                            }`}
-                          >
-                            {Number(m)}月
-                          </button>
-                        )
-                      })}
-                    </div>
-                  </div>
-
-                  {/* Mobile: accordion layout */}
-                  <div className="lg:hidden bg-white/95 backdrop-blur-sm border border-[var(--line)] rounded-xl min-w-[200px] shadow-sm overflow-hidden">
-                    <button
-                      onClick={() => handleMonthSelect(null)}
-                      className={`w-full text-left px-3 py-2.5 text-sm transition-colors cursor-pointer ${
-                        monthFilter === null
-                          ? 'text-[var(--accent)] font-medium'
-                          : 'text-[var(--muted)] hover:bg-black/[.03]'
-                      }`}
-                    >
-                      全部时间
-                    </button>
-                    {YEAR_MONTHS.map((ym, i) => {
-                      const isExpanded = hoveredYearIndex === i
-                      return (
-                        <div key={ym.year}>
-                          <button
-                            onClick={() => setHoveredYearIndex(isExpanded ? -1 : i)}
-                            className={`w-full flex items-center justify-between px-3 py-2.5 text-sm transition-colors cursor-pointer ${
-                              monthFilter?.startsWith(String(ym.year))
-                                ? 'text-[var(--accent)] bg-[var(--accent)]/8 font-medium'
-                                : 'text-[var(--ink)] hover:bg-black/[.03]'
-                            }`}
-                          >
-                            {ym.year}
-                            <span className={`text-xs text-[var(--muted)] transition-transform ${isExpanded ? 'rotate-180' : ''}`}>▾</span>
-                          </button>
-                          {isExpanded && (
-                            <div className="border-t border-[var(--line)]/40">
-                              {ym.months.map(m => {
-                                const ymVal = `${ym.year}-${m}`
-                                const selected = monthFilter === ymVal
-                                const cnt = monthCounts[ymVal] ?? -1
-                                const isEmpty = cnt === 0
-                                return (
-                                  <button
-                                    key={ymVal}
-                                    onClick={() => !isEmpty && handleMonthSelect(ymVal)}
-                                    disabled={isEmpty}
-                                    className={`w-full text-left px-5 py-2 text-sm transition-colors ${
-                                      selected
-                                        ? 'text-[var(--accent)] bg-[var(--accent)]/8 font-medium'
-                                        : isEmpty
-                                          ? 'text-[var(--line)]'
-                                          : 'text-[var(--muted)] hover:text-[var(--ink)] hover:bg-black/[.03] cursor-pointer'
-                                    }`}
-                                  >
-                                    {Number(m)}月
-                                  </button>
-                                )
-                              })}
-                            </div>
-                          )}
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-              )}
-            </div>
           </>
         )}
 
         <div className="flex-1" />
 
+        {/* 搜索（与 SearchPage「查看全部」共用 search 参数） */}
+        <div className="relative shrink-0">
+          <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted)]" strokeWidth={1.8} />
+          <input
+            type="search"
+            value={searchInput}
+            onChange={handleSearchChange}
+            placeholder="搜索标题或摘要"
+            aria-label="搜索论文"
+            className="h-[34px] w-[150px] sm:w-[200px] pl-8 pr-2 rounded-full border border-[var(--line)] bg-white/60 text-xs text-[var(--ink)] placeholder:text-[var(--muted)] outline-none focus:ring-2 focus:ring-[var(--accent)] focus:border-transparent transition-all"
+          />
+        </div>
+
         {/* Sort toggle（隐藏于 featured 板块，其按 featured_date 固定排序） */}
         {!isFeaturedSource && (
           <button
             onClick={cycleSort}
-            className="shrink-0 inline-flex items-center gap-1 text-xs text-[var(--muted)] hover:text-[var(--ink)] transition-colors cursor-pointer px-1.5 py-1"
+            className={`shrink-0 inline-flex items-center gap-1 text-xs font-medium transition-colors cursor-pointer px-1.5 py-1 min-h-[44px] sm:min-h-0 ${
+              isActiveSort
+                ? 'text-[var(--accent)]'
+                : 'text-[var(--muted)] hover:text-[var(--ink)]'
+            }`}
           >
             {sortLabels[sortField] || '时间'}
             <ArrowDown size={13} strokeWidth={1.5} />
@@ -476,7 +311,7 @@ export default function PapersListPage() {
         {/* 仅看收藏 */}
         <button
           onClick={toggleFavoritesOnly}
-          className={`shrink-0 inline-flex items-center gap-1.5 text-xs font-medium transition-colors cursor-pointer px-1.5 py-1 ${
+          className={`shrink-0 inline-flex items-center gap-1.5 text-xs font-medium transition-colors cursor-pointer px-1.5 py-1 min-h-[44px] sm:min-h-0 ${
             favoritesOnly
               ? 'text-[var(--accent)]'
               : 'text-[var(--muted)] hover:text-[var(--ink)]'
@@ -504,13 +339,23 @@ export default function PapersListPage() {
       {error && <EmptyState title="加载失败" description={error} />}
       {data && filteredItems.length === 0 && !loading && (
         <EmptyState
-          title={favoritesOnly ? '还没有收藏论文' : isFeaturedSource ? '该板块暂无内容，敬请期待' : '当前暂无内容'}
+          title={
+            favoritesOnly
+              ? '还没有收藏论文'
+              : searchQ
+                ? `没有找到匹配 "${searchQ}" 的论文`
+                : isFeaturedSource
+                  ? '该板块暂无内容，敬请期待'
+                  : '当前暂无内容'
+          }
           description={
             favoritesOnly
               ? '你收藏的论文会显示在这里'
-              : isFeaturedSource
-                ? undefined
-                : '我们正在整理这部分论文，稍后再来看'
+              : searchQ
+                ? '试试更短的关键词，或检查拼写'
+                : isFeaturedSource
+                  ? undefined
+                  : '我们正在整理这部分论文，稍后再来看'
           }
         >
           {favoritesOnly && (
@@ -525,7 +370,7 @@ export default function PapersListPage() {
       )}
       {data && filteredItems.length > 0 && (
         <>
-          <div className="space-y-3">
+          <div className={`space-y-3 transition-opacity duration-200 ${refreshing ? 'opacity-60' : ''}`}>
             {filteredItems.map(paper => (
               <PaperCard key={paper.id} paper={paper} backTo={backTo} showCategories={!isFeaturedSource} />
             ))}

@@ -47,7 +47,7 @@ function PenaltyRow({ label, value, max }: { label: string; value: number; max: 
 export default function ScoreBreakdown({ breakdown }: { breakdown: ScoreBreakdownData }) {
   return (
     <section className="glass rounded-[22px] p-5">
-      <h2 className="text-[11px] font-bold tracking-[.14em] text-[#8ea0b6] mb-3">评分明细</h2>
+      <h2 className="text-[11px] font-bold tracking-[.14em] text-[var(--eyebrow)] mb-3">评分明细</h2>
 
       <div className="flex items-baseline justify-between mb-4 pb-4 border-b border-[var(--line)]">
         <span className="text-sm font-medium text-[var(--muted)]">总分</span>

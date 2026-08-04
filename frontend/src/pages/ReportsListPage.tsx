@@ -8,6 +8,7 @@ import Pagination from '../components/Pagination'
 import LoadingSkeleton from '../components/LoadingSkeleton'
 import EmptyState from '../components/EmptyState'
 import PageEyebrow from '../components/PageEyebrow'
+import { Search } from 'lucide-react'
 
 /** Merge partial updates into URLSearchParams, deleting keys set to null/undefined. */
 function mergeParams(
@@ -33,10 +34,22 @@ export default function ReportsListPage() {
   const page = Number(searchParams.get('page') ?? '1')
   const institution = searchParams.get('inst') || null
   const favoritesOnly = searchParams.has('fav')
+  // 与 SearchPage「查看全部」共用 search 参数。
+  const searchQ = searchParams.get('search') ?? ''
 
   // ── UI-only state ──────────────────────────────────────────────────────
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
+
+  // ── Search box（与 SearchPage 共用 search 参数，防抖写回 URL）────────────
+  const [searchInput, setSearchInput] = useState(searchQ)
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+
+  useEffect(() => {
+    setSearchInput(searchQ)
+  }, [searchQ])
+
+  useEffect(() => () => clearTimeout(searchDebounceRef.current), [])
 
   // ── URL param helper ───────────────────────────────────────────────────
   const updateParams = useCallback(
@@ -46,6 +59,15 @@ export default function ReportsListPage() {
     [setSearchParams],
   )
 
+  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const v = e.target.value
+    setSearchInput(v)
+    clearTimeout(searchDebounceRef.current)
+    searchDebounceRef.current = setTimeout(() => {
+      updateParams({ search: v.trim() || null, page: null })
+    }, 300)
+  }
+
   const { data: institutions } = useApi(() => getReportInstitutions(), [])
 
   const { data, loading, error } = useApi(
@@ -53,9 +75,14 @@ export default function ReportsListPage() {
       if (favoritesOnly) {
         return getReportFavorites({ page, per_page: 15 })
       }
-      return getReports({ page, per_page: 15, institution: institution ?? undefined })
+      return getReports({
+        page,
+        per_page: 15,
+        institution: institution ?? undefined,
+        search: searchQ || undefined,
+      })
     },
-    [page, institution, favoritesOnly],
+    [page, institution, favoritesOnly, searchQ],
   )
 
   // Close dropdown on outside click
@@ -71,7 +98,7 @@ export default function ReportsListPage() {
   }, [menuOpen])
 
   const clearAllFilters = () => {
-    updateParams({ inst: null, fav: null, page: null })
+    updateParams({ inst: null, fav: null, search: null, page: null })
   }
 
   const toggleFavoritesOnly = () => {
@@ -113,13 +140,16 @@ export default function ReportsListPage() {
       <div>
         <PageEyebrow>REPORTS</PageEyebrow>
         <h1 className="text-[28px] font-normal text-[var(--ink)] tracking-wide mb-6">报告库</h1>
-        <EmptyState title="暂无报告" description="报告库尚未同步" />
+        <EmptyState
+          title={searchQ ? `没有找到匹配 "${searchQ}" 的报告` : '暂无报告'}
+          description={searchQ ? '试试更短的关键词，或检查拼写' : '报告库尚未同步'}
+        />
       </div>
     )
   }
 
   const instList = institutions ?? []
-  const hasAnyFilter = institution !== null || favoritesOnly
+  const hasAnyFilter = institution !== null || favoritesOnly || searchQ !== ''
 
   return (
     <div>
@@ -186,6 +216,19 @@ export default function ReportsListPage() {
         )}
 
         <div className="flex-1" />
+
+        {/* 搜索（与 SearchPage「查看全部」共用 search 参数） */}
+        <div className="relative shrink-0">
+          <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted)]" strokeWidth={1.8} />
+          <input
+            type="search"
+            value={searchInput}
+            onChange={handleSearchChange}
+            placeholder="搜索标题或机构"
+            aria-label="搜索报告"
+            className="h-[34px] w-[150px] sm:w-[200px] pl-8 pr-2 rounded-full border border-[var(--line)] bg-white/60 text-xs text-[var(--ink)] placeholder:text-[var(--muted)] outline-none focus:ring-2 focus:ring-[var(--accent)] focus:border-transparent transition-all"
+          />
+        </div>
 
         {/* 仅看收藏 */}
         <button

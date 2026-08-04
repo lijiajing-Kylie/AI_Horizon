@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, type FormEvent } from 'react'
+import { useState, useEffect, useMemo, useRef, type FormEvent } from 'react'
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { Search, Settings, Check } from 'lucide-react'
 import {
@@ -37,12 +37,13 @@ export default function Layout() {
   // Autocomplete
   const [suggestions, setSuggestions] = useState<{ news: NewsItem[]; papers: Paper[]; reports: Report[]; total: number } | null>(null)
   const [showDropdown, setShowDropdown] = useState(false)
+  const [activeIndex, setActiveIndex] = useState(-1)
   const searchRef = useRef<HTMLDivElement>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
   useEffect(() => {
     const q = query.trim()
-    if (q.length < 2) { setSuggestions(null); setShowDropdown(false); return }
+    if (q.length < 2) { setSuggestions(null); setShowDropdown(false); setActiveIndex(-1); return }
 
     clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(async () => {
@@ -56,6 +57,7 @@ export default function Layout() {
           reports: (res.reports?.items ?? []) as Report[],
           total,
         })
+        setActiveIndex(-1)
         setShowDropdown(true)
       } catch { /* ignore */ }
     }, 300)
@@ -76,6 +78,39 @@ export default function Layout() {
   }, [showDropdown])
 
   const totalHits = (suggestions?.news.length ?? 0) + (suggestions?.papers.length ?? 0) + (suggestions?.reports.length ?? 0)
+
+  // 扁平化建议列表，供键盘导航（↑/↓ 移动、Enter 选中）使用。
+  const flatItems = useMemo(() => {
+    const items: { id: string; title: string; to: string }[] = []
+    for (const it of suggestions?.news ?? []) items.push({ id: it.id, title: it.title, to: `/items/${it.id}` })
+    for (const it of suggestions?.papers ?? []) items.push({ id: it.id, title: it.title, to: `/papers/${it.id}` })
+    for (const it of suggestions?.reports ?? []) items.push({ id: it.id, title: it.title, to: `/reports/${it.id}` })
+    return items
+  }, [suggestions])
+
+  // 键盘导航：↑/↓ 移动选中、Enter 跳转、Escape 关闭。
+  function handleSearchKeyDown(e: React.KeyboardEvent) {
+    if (e.key === 'Escape') {
+      setShowDropdown(false)
+      setActiveIndex(-1)
+      return
+    }
+    if (!showDropdown || flatItems.length === 0) return
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setShowDropdown(true)
+      setActiveIndex(i => (i + 1) % flatItems.length)
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setActiveIndex(i => (i - 1 + flatItems.length) % flatItems.length)
+    } else if (e.key === 'Enter' && activeIndex >= 0) {
+      e.preventDefault()
+      setShowDropdown(false)
+      setActiveIndex(-1)
+      navigate(flatItems[activeIndex].to)
+    }
+  }
 
   const isActive = (to: string) => (to === '/' ? pathname === '/' : pathname.startsWith(to))
 
@@ -143,8 +178,16 @@ export default function Layout() {
                 type="search"
                 value={query}
                 onChange={e => setQuery(e.target.value)}
+                onKeyDown={handleSearchKeyDown}
                 placeholder="搜索标题或主题"
                 aria-label="搜索标题或主题"
+                role="combobox"
+                aria-expanded={showDropdown}
+                aria-controls="search-suggestions"
+                aria-autocomplete="list"
+                aria-activedescendant={
+                  showDropdown && activeIndex >= 0 ? `search-option-${activeIndex}` : undefined
+                }
                 className="w-full bg-transparent text-xs outline-none"
                 style={{ color: 'var(--input-text)' }}
                 onFocus={e => {
@@ -158,46 +201,63 @@ export default function Layout() {
               />
             </form>
 
-            {showDropdown && suggestions && totalHits > 0 && (
-              <div className="absolute top-[36px] left-0 z-40 w-[360px] p-2 rounded-2xl border border-[var(--line)] transition-colors"
+            {showDropdown && suggestions && (
+              <div id="search-suggestions" role="listbox"
+                className="absolute top-[36px] left-0 z-40 w-[360px] p-2 rounded-2xl border border-[var(--line)] transition-colors"
                 style={{
                   backgroundColor: 'var(--dropdown-bg)',
                   boxShadow: 'var(--dropdown-shadow)',
                 }}
               >
-                {[/* news */ ...(suggestions.news.length > 0 ? [{ key: 'news', label: '新闻', items: suggestions.news }] : []),
-                  /* papers */ ...(suggestions.papers.length > 0 ? [{ key: 'papers', label: '论文', items: suggestions.papers }] : []),
-                  /* reports */ ...(suggestions.reports.length > 0 ? [{ key: 'reports', label: '报告', items: suggestions.reports }] : []),
-                ].map(section => (
-                  <div key={section.key} className="mb-1 last:mb-0">
-                    <p className="text-[10px] font-bold tracking-[.14em] text-[#8ea0b6] px-2 py-1">{section.label}</p>
-                    {section.items.map((item: any) => (
+                {totalHits > 0 ? (
+                  <>
+                    {(() => {
+                      let flatIndex = 0
+                      return [
+                        /* news */ suggestions.news.length > 0 ? { key: 'news', label: '新闻', items: suggestions.news } : null,
+                        /* papers */ suggestions.papers.length > 0 ? { key: 'papers', label: '论文', items: suggestions.papers } : null,
+                        /* reports */ suggestions.reports.length > 0 ? { key: 'reports', label: '报告', items: suggestions.reports } : null,
+                      ].filter(Boolean).map(section => (
+                        <div key={section!.key} className="mb-1 last:mb-0">
+                          <p className="text-[10px] font-bold tracking-[.14em] text-[var(--eyebrow)] px-2 py-1">{section!.label}</p>
+                          {section!.items.map((item: any) => {
+                            const idx = flatIndex++
+                            const active = idx === activeIndex
+                            return (
+                              <Link
+                                key={item.id}
+                                id={`search-option-${idx}`}
+                                role="option"
+                                aria-selected={active}
+                                to={section!.key === 'news' ? `/items/${item.id}` : section!.key === 'papers' ? `/papers/${item.id}` : `/reports/${item.id}`}
+                                onClick={() => setShowDropdown(false)}
+                                onMouseEnter={() => setActiveIndex(idx)}
+                                className="block px-2 py-1.5 rounded-lg text-xs transition-colors truncate"
+                                style={{
+                                  color: 'var(--ink)',
+                                  backgroundColor: active ? 'var(--dropdown-hover)' : 'transparent',
+                                }}
+                              >
+                                {item.title}
+                              </Link>
+                            )
+                          })}
+                        </div>
+                      ))
+                    })()}
+                    <div className="border-t border-[var(--line)] mt-1 pt-1">
                       <Link
-                        key={item.id}
-                        to={section.key === 'news' ? `/items/${item.id}` : section.key === 'papers' ? `/papers/${item.id}` : `/reports/${item.id}`}
+                        to={`/search?q=${encodeURIComponent(query.trim())}`}
                         onClick={() => setShowDropdown(false)}
-                        className="block px-2 py-1.5 rounded-lg text-xs transition-colors truncate"
-                        style={{
-                          color: 'var(--ink)',
-                          backgroundColor: 'transparent',
-                        }}
-                        onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'var(--dropdown-hover)' }}
-                        onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent' }}
+                        className="block px-2 py-1.5 text-xs font-medium text-[var(--accent)] hover:opacity-80 transition-colors"
                       >
-                        {item.title}
+                        查看全部 {suggestions.total} 条结果
                       </Link>
-                    ))}
-                  </div>
-                ))}
-                <div className="border-t border-[var(--line)] mt-1 pt-1">
-                  <Link
-                    to={`/search?q=${encodeURIComponent(query.trim())}`}
-                    onClick={() => setShowDropdown(false)}
-                    className="block px-2 py-1.5 text-xs font-medium text-[var(--accent)] hover:opacity-80 transition-colors"
-                  >
-                    查看全部 {suggestions.total} 条结果
-                  </Link>
-                </div>
+                    </div>
+                  </>
+                ) : (
+                  <p className="px-2 py-2 text-xs text-[var(--muted)]">未找到匹配结果</p>
+                )}
               </div>
             )}
           </div>

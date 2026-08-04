@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, type FormEvent } from 'react'
 import { useSearchParams, Link, useLocation } from 'react-router-dom'
-import { ChevronDown, ChevronRight } from 'lucide-react'
+import { ChevronDown, ChevronRight, X } from 'lucide-react'
 import { globalSearch } from '../api/client'
 import { useApi } from '../hooks/useApi'
 import { useScrollRestoration } from '../hooks/useScrollRestoration'
@@ -127,6 +127,8 @@ export default function SearchPage() {
         {/* Section header — clickable toggle */}
         <button
           onClick={() => toggleSection(key)}
+          aria-expanded={!collapsed}
+          aria-controls={`search-section-${key}`}
           className="w-full flex items-center gap-2 text-left cursor-pointer"
         >
           {collapsed ? (
@@ -144,11 +146,11 @@ export default function SearchPage() {
 
         {/* Collapsible content */}
         {!collapsed && (
-          <div className="mt-4">
+          <div id={`search-section-${key}`} className="mt-4">
             <div className="space-y-3">
-              {section.items.map((item: unknown) => (
-                <>{renderItem(item as NewsItem | Paper | Report)}</>
-              ))}
+              {section.items.map((item: unknown) =>
+                renderItem(item as NewsItem | Paper | Report),
+              )}
             </div>
 
             {section.pages > 1 && (
@@ -175,6 +177,9 @@ export default function SearchPage() {
     )
   }
 
+  // 搜索词变化时 useApi 保留旧结果并重新请求——用半透明提示正在加载，避免内容跳变。
+  const refreshing = loading && !!data
+
   // Compute total count across all sections
   const allCount = (() => {
     if (!data) return 0
@@ -192,14 +197,28 @@ export default function SearchPage() {
       <p className="text-sm text-[var(--muted)] mb-6">按关键词搜索新闻、论文和报告</p>
 
       <form onSubmit={submit} className="flex gap-2 mb-6">
-        <input
-          type="text"
-          value={input}
-          onChange={e => setInput(e.target.value)}
-          placeholder="输入关键词，例如 OpenAI、芯片、GitHub..."
-          autoFocus
-          className="flex-1 border border-[var(--line)] rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--accent)] focus:border-transparent"
-        />
+        <div className="relative flex-1">
+          <input
+            type="text"
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            placeholder="输入关键词，例如 OpenAI、芯片、GitHub..."
+            className="w-full border border-[var(--line)] rounded-lg pl-4 pr-9 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--accent)] focus:border-transparent"
+          />
+          {input && (
+            <button
+              type="button"
+              onClick={() => {
+                setInput('')
+                setSearchParams({}, { replace: true })
+              }}
+              aria-label="清除搜索"
+              className="absolute right-2 top-1/2 -translate-y-1/2 w-6 h-6 inline-flex items-center justify-center rounded-full text-[var(--muted)] hover:bg-black/[.05] hover:text-[var(--ink)] transition-colors"
+            >
+              <X className="w-3.5 h-3.5" strokeWidth={2} />
+            </button>
+          )}
+        </div>
         <button
           type="submit"
           className="px-4 py-2 rounded-lg bg-[var(--accent)] text-white text-sm font-medium hover:opacity-80 transition-opacity"
@@ -219,16 +238,19 @@ export default function SearchPage() {
       )}
 
       {q.trim() !== '' && !loading && !error && data && allCount === 0 && (
-        <EmptyState title="没有找到相关内容" description={`没有匹配 "${q}" 的结果`} />
+        <EmptyState title="没有找到相关内容" description={`没有匹配 "${q}" 的结果`}>
+          <p className="text-xs text-[var(--muted)]">试试更短的关键词，或检查拼写</p>
+        </EmptyState>
       )}
 
       {q.trim() !== '' && data && allCount > 0 && (
-        <div className="space-y-4">
+        <div className={`space-y-4 transition-opacity duration-200 ${refreshing ? 'opacity-60' : ''}`}>
           <div className="flex items-center justify-between">
             <p className="text-sm text-[var(--muted)]">共找到 {allCount} 条结果</p>
             <div className="flex items-center gap-1 text-xs">
               <button
                 onClick={() => updateParams({ sort: null, np: null, pp: null, rp: null })}
+                aria-pressed={sortBy === 'relevance'}
                 className={`px-2.5 py-1 rounded-full font-medium transition-colors ${
                   sortBy === 'relevance'
                     ? 'bg-[var(--accent)] text-white'
@@ -239,6 +261,7 @@ export default function SearchPage() {
               </button>
               <button
                 onClick={() => updateParams({ sort: 'published_at', np: null, pp: null, rp: null })}
+                aria-pressed={sortBy === 'published_at'}
                 className={`px-2.5 py-1 rounded-full font-medium transition-colors ${
                   sortBy === 'published_at'
                     ? 'bg-[var(--accent)] text-white'
