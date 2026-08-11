@@ -3,7 +3,7 @@
 import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 import httpx
 from rich.console import Console
 
@@ -88,12 +88,16 @@ class HorizonOrchestrator:
 
         try:
             # 1. Determine time window
-            since = self._determine_time_window(force_hours, refetch_date)
+            since, until = self._determine_time_window(force_hours, refetch_date)
             if refetch_date:
-                date_dt = datetime.strptime(refetch_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
                 self.console.print(
                     f"📅 Fetching content for report date {refetch_date}: "
-                    f"{since.strftime('%Y-%m-%d %H:%M')} – {date_dt.strftime('%Y-%m-%d %H:%M')} UTC\n"
+                    f"{since.strftime('%Y-%m-%d %H:%M')} – {until.strftime('%Y-%m-%d %H:%M')} UTC\n"
+                )
+            elif until:
+                self.console.print(
+                    f"📅 Fetching content for UTC day: "
+                    f"{since.strftime('%Y-%m-%d %H:%M')} – {until.strftime('%Y-%m-%d %H:%M')} UTC\n"
                 )
             else:
                 self.console.print(f"📅 Fetching content since: {since.strftime('%Y-%m-%d %H:%M:%S')}\n")
@@ -102,11 +106,8 @@ class HorizonOrchestrator:
             all_items = await self.fetch_all_sources(since)
             self.console.print(f"📥 Fetched {len(all_items)} items from all sources\n")
 
-            # 2.25 When refetching for a specific date, scope items to the 24-hour window
-            #     covering that UTC day (refetch_date 00:00 UTC – next day 00:00 UTC)
-            if refetch_date:
-                date_dt = datetime.strptime(refetch_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-                until = date_dt
+            # 2.25 Scope items to the fetch window (previous day 00:00 UTC – that day 00:00 UTC)
+            if until:
                 before_count = len(all_items)
                 all_items = [
                     item for item in all_items
@@ -330,17 +331,24 @@ class HorizonOrchestrator:
 
             raise
 
-    def _determine_time_window(self, force_hours: int = None, refetch_date: str = None) -> datetime:
+    def _determine_time_window(
+        self, force_hours: int = None, refetch_date: str = None
+    ) -> Tuple[datetime, Optional[datetime]]:
+        """Compute the (since, until) fetch window.
+
+        - refetch_date: covers a UTC day — previous day 00:00 UTC – that day 00:00 UTC
+        - force_hours: rolling window over the past N hours (no until bound)
+        - default: aligned to UTC days — previous day 00:00 UTC – today 00:00 UTC
+        """
         if refetch_date:
-            # Report covers the UTC day: refetch_date 00:00 UTC – next day 00:00 UTC
-            dt = datetime.strptime(refetch_date, "%Y-%m-%d")
-            return dt.replace(tzinfo=timezone.utc) - timedelta(hours=24)
+            dt = datetime.strptime(refetch_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            return dt - timedelta(hours=24), dt
         if force_hours:
-            since = datetime.now(timezone.utc) - timedelta(hours=force_hours)
-        else:
-            hours = self.config.filtering.time_window_hours
-            since = datetime.now(timezone.utc) - timedelta(hours=hours)
-        return since
+            now = datetime.now(timezone.utc)
+            return now - timedelta(hours=force_hours), None
+        now = datetime.now(timezone.utc)
+        day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        return day_start - timedelta(hours=24), day_start
 
     async def fetch_all_sources(self, since: datetime) -> List[ContentItem]:
         """Fetch content from all configured sources.

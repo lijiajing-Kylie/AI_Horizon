@@ -17,6 +17,7 @@ import asyncio
 import logging
 import sys
 from pathlib import Path
+from typing import Optional
 
 import httpx
 from dotenv import load_dotenv
@@ -28,6 +29,7 @@ from ..models import Config
 from ..storage.db import HorizonDB
 from ..storage.manager import ConfigError, StorageManager
 from .fetcher import fetch_all_reports
+from .keywords import _get_concurrency, extract_report_keywords
 from .models import Report
 from .pdf_downloader import download_report_pdfs
 
@@ -52,11 +54,15 @@ async def run(config: Config, wxmp_max_age: int | None = None) -> int:
         console.print("[yellow]Reports library not enabled in config; nothing to do.[/yellow]")
         return 0
 
-    # Create AI client if filtering is enabled
+    # Create AI client if filtering or keyword extraction is enabled
     ai_client = None
     if config.reports.ai_filter_enabled:
         ai_client = create_ai_client(config.ai)
         console.print("[dim]AI filter enabled — non-tech reports will be skipped.[/dim]")
+    if config.reports.extract_keywords:
+        if ai_client is None:
+            ai_client = create_ai_client(config.ai)
+        console.print("[dim]AI keyword extraction enabled — reports will get 5-8 keywords.[/dim]")
 
     source_names = [s.name if hasattr(s, 'name') else str(s) for s in config.reports.sources]
     if wxmp_max_age:
@@ -72,6 +78,12 @@ async def run(config: Config, wxmp_max_age: int | None = None) -> int:
         )
 
     console.print(f"[dim]Fetched {len(reports)} reports total.[/dim]")
+
+    # ── AI keyword extraction (5-8 keywords per report) ──
+    if reports and config.reports.extract_keywords and ai_client:
+        await extract_report_keywords(ai_client, reports, _get_concurrency(ai_client))
+        with_keywords = sum(1 for r in reports if r.keywords)
+        console.print(f"[green]Extracted keywords for {with_keywords}/{len(reports)} reports.[/green]")
 
     if reports:
         console.print("\n[bold]保存的报告：[/bold]")
@@ -286,6 +298,178 @@ async def backfill_pdfs(
 
 
 # ────────────────────────────────────────────────────────────
+# Backfill keywords subcommand
+# ────────────────────────────────────────────────────────────
+
+
+async def backfill_keywords(
+    config: Config,
+    source: str | None = None,
+    limit: int = 0,
+) -> int:
+    """AI-extract keywords for existing reports that lack them."""
+    if not config.reports or not config.reports.enabled:
+        console.print("[yellow]Reports library not enabled; nothing to do.[/yellow]")
+        return 0
+
+    db = HorizonDB()
+    result = db.get_reports(
+        source=source or None,
+        per_page=9999,
+        sort="fetched_at",
+        order="desc",
+    )
+    all_reports = result["items"]
+    missing = [r for r in all_reports if not r.get("keywords")]
+    if not missing:
+        console.print("[green]All reports already have keywords.[/green]")
+        return 0
+    if limit > 0:
+        missing = missing[:limit]
+    console.print(
+        f"[dim]Extracting keywords for {len(missing)} reports "
+        f"(of {len(all_reports)} total).[/dim]"
+    )
+    ai_client = create_ai_client(config.ai)
+    reports = [Report(**d) for d in missing]
+    await extract_report_keywords(ai_client, reports, _get_concurrency(ai_client))
+    saved = db.save_reports(reports)
+    console.print(f"[green]Extracted and saved keywords for {saved} reports.[/green]")
+    return saved
+
+
+# ────────────────────────────────────────────────────────────
+# Backfill composite subcommand
+# ────────────────────────────────────────────────────────────
+
+
+async def backfill_composite(
+    config: Config,
+    source: str | None = None,
+    limit: int = 0,
+) -> int:
+    """Compute composite_score for reports that lack it (no LLM call)."""
+    if not config.reports or not config.reports.enabled:
+        console.print("[yellow]Reports library not enabled; nothing to do.[/yellow]")
+        return 0
+
+    from .scoring import compute_composite_score
+
+    db = HorizonDB()
+    result = db.get_reports(
+        source=source or None,
+        per_page=9999,
+        sort="fetched_at",
+        order="desc",
+    )
+    all_reports = result["items"]
+    missing = [r for r in all_reports if r.get("composite_score") is None]
+    if not missing:
+        console.print("[green]All reports already have a composite score.[/green]")
+        return 0
+    if limit > 0:
+        missing = missing[:limit]
+    console.print(
+        f"[dim]Computing composite score for {len(missing)} reports "
+        f"(of {len(all_reports)} total).[/dim]"
+    )
+    pdf_dir = config.reports.pdf_output_dir or "data/reports_pdfs"
+    changed = 0
+    for d in missing:
+        try:
+            report = Report(**d)  # 复用已有 ai_relevance_score，None → 中性 0.6
+            compute_composite_score(report, pdf_dir)
+            db.save_reports([report])
+            changed += 1
+        except Exception as exc:
+            logger.warning("backfill-composite failed for %s: %s", d["id"], exc)
+    console.print(f"[green]Computed composite score for {changed}/{len(missing)} reports.[/green]")
+    return changed
+
+
+# ────────────────────────────────────────────────────────────
+# Backfill wxmp text subcommand
+# ────────────────────────────────────────────────────────────
+
+
+async def backfill_wxmp_text(
+    config: Config,
+    source: str = "wxmp",
+    limit: int = 0,
+    db: Optional[HorizonDB] = None,
+) -> int:
+    """Re-clean wxmp report body text with the current cleaning rules.
+
+    The extraction rules (block-level-aware newlines, WeChat footer
+    truncation, noise-line filtering) have improved over time, so reports
+    fetched under older rules keep their dirty ``content_text``.  This
+    re-cleans stored reports:
+
+    - reports with ``raw_html`` re-run the full extraction over the original
+      article HTML;
+    - reports without it (fetched before that column existed) get their
+      existing plain-text ``content_text`` passed through the noise-line
+      filter + footer truncation — this strips the trailing WeChat UI/footer
+      noise, though already-flattened fragments (e.g. a parenthetical split
+      onto its own line) can't be re-joined without the HTML.
+    """
+    if not config.reports or not config.reports.enabled:
+        console.print("[yellow]Reports library not enabled; nothing to do.[/yellow]")
+        return 0
+
+    from .sources.wxmp import WxMpReportFetcher
+
+    if db is None:
+        db = HorizonDB()
+    result = db.get_reports(
+        source=source or "wxmp",
+        per_page=9999,
+        sort="fetched_at",
+        order="desc",
+    )
+    items = result["items"]
+    if not items:
+        console.print("[yellow]No wxmp reports found in the database.[/yellow]")
+        return 0
+    if limit > 0:
+        items = items[:limit]
+
+    changed = 0
+    for i, r in enumerate(items, 1):
+        old = r.get("content_text") or ""
+        raw = r.get("raw_html")
+        if raw:
+            # 有原始 HTML：用当前提取逻辑完整重洗。
+            new_text = WxMpReportFetcher._extract_text(raw)
+            # raw_html 太短说明 we-mp-rss 当时没抓到完整正文（content_text 来自
+            # URL 回退、更长），用短文本覆盖只会更差，跳过。阈值与 fetch_detail
+            # 的回退触发阈值一致。
+            if len(new_text) < 100:
+                continue
+        else:
+            # 无 raw_html（旧数据）：对已有纯文本做二次清洗 —— 去单行 UI
+            # 噪声、在已知 footer 标记处截断，再重排旧提取器拆碎的括号碎片。
+            new_text = WxMpReportFetcher._merge_text_fragments(
+                WxMpReportFetcher._clean_article_text(old)
+            )
+        if not new_text or new_text == old:
+            continue
+        r["content_text"] = new_text
+        try:
+            db.save_reports([Report(**r)])
+        except Exception as exc:
+            logger.warning("backfill re-clean failed for %s: %s", r["id"], exc)
+            continue
+        changed += 1
+        if i % 50 == 0:
+            console.print(
+                f"[dim]… re-cleaned {i}/{len(items)} ({changed} changed)[/dim]"
+            )
+    console.print(f"[green]Re-cleaned content_text for {changed}/{len(items)} reports.[/green]")
+    return changed
+
+
+# ────────────────────────────────────────────────────────────
 # Playwright helper for backfill
 # ────────────────────────────────────────────────────────────
 
@@ -378,6 +562,52 @@ def _build_parser() -> argparse.ArgumentParser:
         default=0,
         help="Maximum number of reports to process (0 = unlimited)",
     )
+
+    bk = sub.add_parser(
+        "backfill-keywords",
+        help="AI-extract keywords for reports already in the database",
+    )
+    bk.add_argument(
+        "--source",
+        help="Only backfill keywords for this source (e.g. 'aliresearch', 'fxbaogao')",
+    )
+    bk.add_argument(
+        "--limit",
+        type=int,
+        default=0,
+        help="Maximum number of reports to process (0 = unlimited)",
+    )
+
+    bwt = sub.add_parser(
+        "backfill-wxmp-text",
+        help="Re-clean wxmp report body text from stored raw_html",
+    )
+    bwt.add_argument(
+        "--source",
+        default="wxmp",
+        help="Only backfill this source (default: wxmp)",
+    )
+    bwt.add_argument(
+        "--limit",
+        type=int,
+        default=0,
+        help="Maximum number of reports to process (0 = unlimited)",
+    )
+
+    bc = sub.add_parser(
+        "backfill-composite",
+        help="Compute composite_score (0.5×AI relevance + 0.5×length) for reports lacking it",
+    )
+    bc.add_argument(
+        "--source",
+        help="Only backfill composite for this source (e.g. 'aliresearch', 'fxbaogao')",
+    )
+    bc.add_argument(
+        "--limit",
+        type=int,
+        default=0,
+        help="Maximum number of reports to process (0 = unlimited)",
+    )
     return parser
 
 
@@ -412,6 +642,12 @@ def main() -> None:
 
     if args.command == "backfill-pdfs":
         asyncio.run(backfill_pdfs(config, source=args.source, limit=args.limit))
+    elif args.command == "backfill-keywords":
+        asyncio.run(backfill_keywords(config, source=args.source, limit=args.limit))
+    elif args.command == "backfill-wxmp-text":
+        asyncio.run(backfill_wxmp_text(config, source=args.source, limit=args.limit))
+    elif args.command == "backfill-composite":
+        asyncio.run(backfill_composite(config, source=args.source, limit=args.limit))
     else:
         if args.source and config.reports and config.reports.sources:
             matched = [s for s in config.reports.sources if s.name == args.source]

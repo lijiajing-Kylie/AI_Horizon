@@ -136,7 +136,8 @@ def _row_to_paper(row: sqlite3.Row) -> dict:
         "original_language": row["original_language"],
         "keywords": json.loads(row["keywords_json"]) if row["keywords_json"] else [],
         "ai_summary": json.loads(row["ai_summary_json"]) if row["ai_summary_json"] else None,
-        "ai_interpretation": json.loads(row["ai_interpretation_json"]) if row["ai_interpretation_json"] else None,
+        # ai_interpretation_json 列已在 db.py 迁移中被 DROP（旧字段），旧库可能没有该列。
+        "ai_interpretation": json.loads(row["ai_interpretation_json"]) if "ai_interpretation_json" in row.keys() and row["ai_interpretation_json"] else None,
         "github_url": row["github_url"],
         "venue": row["venue"],
         "is_featured": bool(row["is_featured"]) if row["is_featured"] is not None else False,
@@ -174,6 +175,8 @@ def _row_to_report(row: sqlite3.Row) -> dict:
         "view_count": row["view_count"],
         "download_count": row["download_count"],
         "fetched_at": row["fetched_at"],
+        "ai_relevance_score": row["ai_relevance_score"] if "ai_relevance_score" in row.keys() else None,
+        "composite_score": row["composite_score"] if "composite_score" in row.keys() else None,
     }
 
 

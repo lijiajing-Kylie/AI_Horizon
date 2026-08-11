@@ -12,6 +12,7 @@ reports (marketing, product catalogues, etc.) are silently skipped.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Dict, List, Optional, Type
 
@@ -21,6 +22,7 @@ from ..models import ReportsConfig
 from .filter import ReportFilter
 from .models import Report
 from .pdf_downloader import download_report_pdfs
+from .scoring import compute_composite_score
 from .sources.aliresearch import AliResearchFetcher
 from .sources.aliyunreports import AliyunReportsFetcher
 from .sources.base import ReportSourceFetcher
@@ -160,5 +162,11 @@ async def fetch_all_reports(
                 reports[r.id] = r
         finally:
             await resolver.close()
+
+    # ── Composite score（0.5×AI相关 + 0.5×篇幅）统一计算，供前端排序 ──
+    # 必须在 wxmp resolver 之后：此时 wxmp 报告的 PDF local_path 已写入。
+    # pypdf 提取为同步 IO，用 to_thread 避免阻塞事件循环。
+    for r in reports.values():
+        await asyncio.to_thread(compute_composite_score, r, config.pdf_output_dir)
 
     return sorted(reports.values(), key=lambda r: r.published_at, reverse=True)

@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom'
 import { ExternalLink } from 'lucide-react'
 import { useApi } from '../hooks/useApi'
 import { getPaper } from '../api/client'
-import type { PaperLayeredSummary as PaperLayeredSummaryType, PaperScoreBreakdown } from '../api/types'
+import type { PaperLayeredSummary as PaperLayeredSummaryType } from '../api/types'
 import LoadingSkeleton from '../components/LoadingSkeleton'
 import EmptyState from '../components/EmptyState'
 import BackLink from '../components/BackLink'
@@ -78,10 +78,6 @@ export default function PaperDetailPage() {
   )
   const legacyFields = isNewFormat ? [] : LEGACY_SUMMARY_FIELDS
 
-  // ── Score breakdown (arXiv featured papers) ──
-  const breakdown = paper.ai_score_breakdown as PaperScoreBreakdown | null | undefined
-  const hasBreakdown = !!breakdown && Object.values(breakdown).some(v => v != null)
-
   return (
     <div className="max-w-[1180px] mx-auto">
       <BackLink
@@ -119,7 +115,7 @@ export default function PaperDetailPage() {
             {paper.keywords.slice(0, 5).map(k => (
               <span
                 key={k}
-                className="inline-block text-xs px-2 py-0.5 rounded-full bg-black/[.03] text-[var(--muted)]"
+                className="inline-block text-xs px-2 py-0.5 rounded-full bg-[var(--accent)]/10 text-[var(--accent)]"
               >
                 {k}
               </span>
@@ -193,20 +189,6 @@ export default function PaperDetailPage() {
           })()}
         </div>
 
-        {/* Topic tags */}
-        {paper.topics && paper.topics.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 mt-3">
-            {paper.topics.map((t: { id: number; name: string; slug: string; group_name: string }) => (
-              <span
-                key={t.slug}
-                className="text-xs px-2 py-0.5 rounded-full bg-[var(--accent)]/10 text-[var(--accent)]"
-              >
-                {t.name}
-              </span>
-            ))}
-          </div>
-        )}
-
       </header>
 
       <section className="glass rounded-[22px] p-6 mb-6">
@@ -237,23 +219,17 @@ export default function PaperDetailPage() {
         </section>
       )}
 
-      {hasBreakdown && (
-        <section className="glass rounded-[22px] p-6 mb-6">
-          <CardHeading>AI 评分</CardHeading>
-          <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
-            {[
-              { key: 'innovation', label: '创新性', value: breakdown?.innovation },
-              { key: 'technical_quality', label: '技术质量', value: breakdown?.technical_quality },
-              { key: 'impact_potential', label: '潜在影响', value: breakdown?.impact_potential },
-              { key: 'relevance', label: 'AI 关注度', value: breakdown?.relevance },
-              { key: 'overall', label: '综合评分', value: paper.ai_relevance_score },
-            ].map(({ label, value }) => (
-              <div key={label} className="rounded-lg bg-black/[.03] px-3 py-2">
-                <div className="text-[11px] font-bold tracking-[.14em] text-[var(--eyebrow)] mb-0.5">{label}</div>
-                <div className="text-lg font-medium text-[var(--ink)]">
-                  {value != null ? value.toFixed(1) : '—'}
-                </div>
-              </div>
+      {paper.topics && paper.topics.length > 0 && (
+        <section className="glass rounded-[22px] p-6">
+          <CardHeading>主题</CardHeading>
+          <div className="flex flex-wrap gap-1.5">
+            {paper.topics.map((t: { id: number; name: string; slug: string; group_name: string }) => (
+              <span
+                key={t.slug}
+                className="text-xs px-2 py-0.5 rounded-full bg-black/[.03] text-[var(--muted)]"
+              >
+                {t.name}
+              </span>
             ))}
           </div>
         </section>

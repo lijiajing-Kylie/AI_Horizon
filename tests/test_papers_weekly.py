@@ -211,6 +211,29 @@ async def test_run_weekly_arxiv_saves_papers_when_db_given(tmp_path) -> None:
 
 
 @pytest.mark.anyio
+async def test_run_weekly_arxiv_writes_paper_topics(tmp_path) -> None:
+    """Saving a group must also classify its papers into paper_topics so the
+    frontend can filter the featured board by topic."""
+    papers = [
+        _paper(id="arxiv:a", title="Paper A", categories=["cs.CV"]),
+        _paper(id="arxiv:b", title="Paper B", categories=["cs.RO"]),
+    ]
+    ai = _FakeAI(score_map={"Paper A": 9, "Paper B": 8})
+    db = HorizonDB(db_path=str(tmp_path / "test.db"))
+    with patch("src.papers.weekly._arxiv_fetch_recent", AsyncMock(return_value=papers)):
+        result = await weekly.run_weekly_arxiv(ai, http_client=None, cfg=_config(), db=db)
+
+    assert result.saved_total == 2
+    # cs.CV → computer-vision, cs.RO → embodied-robotics
+    cv = db.get_papers(source="arxiv", featured=True, topic_slug="computer-vision")
+    assert cv["total"] == 1
+    assert cv["items"][0]["id"] == "arxiv:a"
+    ro = db.get_papers(source="arxiv", featured=True, topic_slug="embodied-robotics")
+    assert ro["total"] == 1
+    assert ro["items"][0]["id"] == "arxiv:b"
+
+
+@pytest.mark.anyio
 async def test_detail_enrichment_failure_degrades_gracefully() -> None:
     papers = [_paper(id="arxiv:a", title="Paper A")]
     ai = _FakeAI(score_map={"Paper A": 9}, fail_detail=True)

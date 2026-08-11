@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -162,6 +162,11 @@ def test_run_applies_balanced_digest_before_enrichment(tmp_path, monkeypatch) ->
         make_item("finance", 8.0, "finance"),
         make_item("below-threshold", 6.0, "ai"),
     ]
+    # Default run window is previous UTC day 00:00 – today 00:00 UTC; put the
+    # mocked items inside that window so run()'s scoping keeps them.
+    day_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    for item in items:
+        item.published_at = day_start - timedelta(hours=12)
     enriched_ids: list[str] = []
 
     async def fetch_all_sources(since):  # type: ignore[no-untyped-def]

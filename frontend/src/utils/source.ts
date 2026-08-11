@@ -23,7 +23,6 @@ export function sourceLabel(item: NewsItem): string {
 
 const PAPER_SOURCE_LABELS: Record<string, string> = {
   openalex: 'OpenAlex',
-  huggingface: 'Hugging Face',
   arxiv: 'arXiv',
   // AI+金融 组论文本身来自 arXiv，url 指向 arxiv.org/abs 页面；来源标签应
   // 显示 arXiv（"AI+金融" 只是列表页的板块 tab 名，硬编码在 PapersListPage）。

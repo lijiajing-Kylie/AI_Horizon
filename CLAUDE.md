@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Horizon is an AI-powered news aggregation pipeline that fetches content from multiple sources (Hacker News, RSS, Reddit, Telegram, Twitter/X, GitHub, OpenBB, GDELT, Google News), deduplicates stories via URL and AI semantic matching, scores items for importance, enriches them with web-researched background context, and generates bilingual (EN/ZH) Markdown daily briefings. It also includes standalone pipelines for academic papers (OpenAlex, Hugging Face daily papers) and research reports (institutional sources like AliResearch). Outputs include GitHub Pages sites, email newsletters, webhook notifications (Feishu, Slack, Discord, etc.), and a FastAPI + React query API/UI over the same data.
+Horizon is an AI-powered news aggregation pipeline that fetches content from multiple sources (Hacker News, RSS, Reddit, Telegram, Twitter/X, GitHub, OpenBB, GDELT, Google News), deduplicates stories via URL and AI semantic matching, scores items for importance, enriches them with web-researched background context, and generates bilingual (EN/ZH) Markdown daily briefings. It also includes standalone pipelines for academic papers (OpenAlex, arXiv weekly featured) and research reports (institutional sources like AliResearch). Outputs include GitHub Pages sites, email newsletters, webhook notifications (Feishu, Slack, Discord, etc.), and a FastAPI + React query API/UI over the same data.
 
 ## Build, Test, and Run
 
@@ -33,7 +33,7 @@ uv run horizon-webhook --date 2026-07-01 --language en
 
 # Papers library (standalone; fetch and persist academic papers, independent of the news pipeline)
 uv run horizon-papers                # all enabled sources
-uv run horizon-papers --source openalex    # single source (openalex, huggingface)
+uv run horizon-papers --source openalex    # single source (openalex, arxiv)
 uv run horizon-papers --dry-run      # fetch and print match report, no DB write
 
 # Reports library (standalone; fetch and persist research reports from institutions)
@@ -173,7 +173,6 @@ All clients implement `async complete(system, user, temperature?, max_tokens?) -
 
 **Sources** (`src/papers/sources/`):
 - `openalex.py` — OpenAlex `/works` API. Two modes: **classic** (fetch by human-curated seed list in `src/papers/seed_data.py` via DOI/arXiv-id/title-year-author matching, producing `ClassicFetchResult` with per-category match-status reporting) and the generic fetch used by `PaperSourceFetcher`.
-- `huggingface.py` — Hugging Face daily papers via `huggingface_hub.HfApi.list_daily_papers()`, keeps top N by upvotes from the last full month.
 - `arxiv.py`, `crossref.py`, `semantic_scholar.py` — helper fetchers for looking up paper metadata by id.
 
 **Source pattern**: All paper-source fetchers extend `PaperSourceFetcher` (`src/papers/sources/base.py`) with `fetch(client: httpx.AsyncClient) -> List[Paper]`. The orchestration entry point is `fetch_all_papers()` in `src/papers/fetcher.py`, which calls each enabled source concurrently and deduplicates by the source-namespaced id.
@@ -196,11 +195,13 @@ All clients implement `async complete(system, user, temperature?, max_tokens?) -
 
 **Source pattern**: Unlike papers (single `fetch()` call), report fetchers have a two-phase flow: list native ids → fetch detail for each. `fetch_all_reports()` in `src/reports/fetcher.py` iterates the source registry, calls each phase, and deduplicates by the source-namespaced id.
 
-**DB persistence**: `HorizonDB` has a `reports` table (source-namespaced id, title, institution, author, url, pdf_urls as JSON, summary, content_text, categories, view/download counts) with `save_reports()` (UPSERT by id) and `get_reports()` (paginated, filterable by source/institution/search).
+**DB persistence**: `HorizonDB` has a `reports` table (source-namespaced id, title, institution, author, url, pdf_urls as JSON, summary, content_text, categories, view/download counts, plus `ai_relevance_score` and `composite_score`) with `save_reports()` (UPSERT by id) and `get_reports()` (paginated, filterable by source/institution/search, sortable by published_at/updated_at/fetched_at/composite_score).
 
-**API**: `GET /api/reports` (paginated, filterable by source, institution, search query) and `GET /api/reports/{report_id}`.
+**Composite score** (`src/reports/scoring.py`): `composite_score` = 0.5 × (ai_relevance_score/5) + 0.5 × length_norm, where `ai_relevance_score` (1-5) is written back by `ReportFilter` during fetch (None → neutral 3) and length_norm is `min(1, char_count/15000)`. Character count prefers `content_text` (≥1000 chars) and falls back to the local PDF via pypdf when the body is summary-level (sources like aliyunreports put only ~150-400-char abstracts in `content_text`; the full text lives in the downloaded PDF). Used purely for frontend sorting — never displayed. `horizon-reports backfill-composite` recomputes it for stored reports without calling the LLM.
 
-**Frontend**: routes at `/reports` (`ReportsListPage`) and `/reports/:id` (`ReportDetailPage`), with `ReportCard` component.
+**API**: `GET /api/reports` (paginated, filterable by source, institution, search; `sort` accepts `composite_score` for the 综合 ordering) and `GET /api/reports/{report_id}`.
+
+**Frontend**: routes at `/reports` (`ReportsListPage`) and `/reports/:id` (`ReportDetailPage`), with `ReportCard` component. The list page has a 时间/综合 sort toggle (URL `?sort=composite`) — hidden in favorites-only mode.
 
 ### Query API and web frontend
 
@@ -260,4 +261,4 @@ Two DB tables scope state by that id: `user_item_state` (favorites; `state='favo
 
 ### Tests
 
-Tests use pytest with fixtures from `conftest.py` (just adds project root to sys.path). Test files mirror source modules (`test_rss.py`, `test_analyzer.py`, `test_api.py`, `test_db.py`, `test_papers_fetcher.py`, `test_papers_db.py`, `test_reports_fetcher.py`, `test_reports_db.py`, etc.). MCP and provider-specific tests (Azure, Minimax, chained client) validate integration paths. Papers tests also cover per-source fetchers (Hugging Face, OpenAlex, Semantic Scholar) and enrichment. The `frontend/` app has no test suite yet — validate changes with `npm run build` and `npm run lint`.
+Tests use pytest with fixtures from `conftest.py` (just adds project root to sys.path). Test files mirror source modules (`test_rss.py`, `test_analyzer.py`, `test_api.py`, `test_db.py`, `test_papers_fetcher.py`, `test_papers_db.py`, `test_reports_fetcher.py`, `test_reports_db.py`, etc.). MCP and provider-specific tests (Azure, Minimax, chained client) validate integration paths. Papers tests also cover per-source fetchers (OpenAlex, Semantic Scholar) and enrichment. The `frontend/` app has no test suite yet — validate changes with `npm run build` and `npm run lint`.

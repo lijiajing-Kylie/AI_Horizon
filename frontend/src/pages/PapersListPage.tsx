@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { Link, useSearchParams, useLocation } from 'react-router-dom'
 import { useApi } from '../hooks/useApi'
 import { useScrollRestoration } from '../hooks/useScrollRestoration'
@@ -9,7 +9,6 @@ import LoadingSkeleton from '../components/LoadingSkeleton'
 import EmptyState from '../components/EmptyState'
 import PageEyebrow from '../components/PageEyebrow'
 import CategoryFilterMenu from '../components/CategoryFilterMenu'
-import { ArrowDown, Search } from 'lucide-react'
 import type { Paper } from '../api/types'
 
 type PaperSource = 'openalex' | 'arxiv' | 'arxiv_fin'
@@ -49,12 +48,13 @@ export default function PapersListPage() {
   const favoritesOnly = searchParams.has('fav')
   const sortField = searchParams.get('sort') ?? 'published_at'
   const sortOrder = searchParams.get('order') ?? 'desc'
-  // 与 SearchPage「查看全部」共用 search 参数；跨板块保留关键词。
-  const searchQ = searchParams.get('search') ?? ''
 
   // ── UI-only state (not persisted to URL) ───────────────────────────────
-  // Featured sources（AI+金融 / arXiv 最新论文）：固定 featured 视图。
+  // Featured sources（AI+金融 / arXiv 最新论文）：精选内容（featured 过滤），
+  // 排序可选「综合（AI 打分）/ 时间」，默认时间。
   const isFeaturedSource = source === 'arxiv' || source === 'arxiv_fin'
+  const [sortMenuOpen, setSortMenuOpen] = useState(false)
+  const sortMenuRef = useRef<HTMLDivElement>(null)
 
   // ── URL param helpers ──────────────────────────────────────────────────
   const updateParams = useCallback(
@@ -64,25 +64,6 @@ export default function PapersListPage() {
     [setSearchParams],
   )
 
-  // ── Search box（与 SearchPage 共用 search 参数，防抖写回 URL）────────────
-  const [searchInput, setSearchInput] = useState(searchQ)
-  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
-
-  useEffect(() => {
-    setSearchInput(searchQ)
-  }, [searchQ])
-
-  useEffect(() => () => clearTimeout(searchDebounceRef.current), [])
-
-  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const v = e.target.value
-    setSearchInput(v)
-    clearTimeout(searchDebounceRef.current)
-    searchDebounceRef.current = setTimeout(() => {
-      updateParams({ search: v.trim() || null, page: null })
-    }, 300)
-  }
-
   // ── Topic filter → API param ────────────────────────────────────────────
   // 主题过滤直接走后端 paper_topics 表：unified category id 与 paper_topic
   // slug 一一对应（见 utils/paperCategories.ts），选中的主题 id 逗号拼接后
@@ -91,36 +72,35 @@ export default function PapersListPage() {
   const topicSlug = selectedCategories.length > 0 ? selectedCategories.join(',') : undefined
 
   // ── API call ────────────────────────────────────────────────────────────
-  const hfPerPage = 15
+  const perPage = 15
 
   const { data, loading, error } = useApi(
     () => {
       if (favoritesOnly) {
-        return getPaperFavorites({ page, per_page: hfPerPage, source })
+        return getPaperFavorites({ page, per_page: perPage, source })
       }
       if (isFeaturedSource) {
         return getPapers({
           source,
           featured: true,
-          search: searchQ || undefined,
-          sort: 'featured_date',
-          order: 'desc',
+          topic_slug: topicSlug,
+          sort: sortField,
+          order: sortOrder,
           page,
-          per_page: hfPerPage,
+          per_page: perPage,
         })
       }
       return getPapers({
         source,
         topic_slug: topicSlug,
-        search: searchQ || undefined,
         page,
-        per_page: hfPerPage,
+        per_page: perPage,
         sort: sortField,
         order: sortOrder,
       })
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [page, topicSlug, source, searchQ, sortField, sortOrder, favoritesOnly, isFeaturedSource],
+    [page, topicSlug, source, sortField, sortOrder, favoritesOnly, isFeaturedSource],
   )
 
   // 服务端已按 topic_slug（paper_topics）精确过滤并正确分页，无需客户端二次过滤。
@@ -132,7 +112,7 @@ export default function PapersListPage() {
   }
 
   const clearAllFilters = () => {
-    updateParams({ topic: null, fav: null, search: null, page: null })
+    updateParams({ topic: null, fav: null, page: null })
   }
 
   const handleSourceChange = (s: PaperSource) => {
@@ -153,32 +133,29 @@ export default function PapersListPage() {
     })
   }
 
-  // Sort options（经典论文库）
-  const sortOptions = [
-    { sort: 'published_at', order: 'desc', label: '时间' },
-    { sort: 'citation_count', order: 'desc', label: '被引' },
-  ]
+  // ── Sort menu（精选板块：时间 / 综合；经典库：时间 / 被引；收藏固定按收藏时间）─
+  useEffect(() => {
+    if (!sortMenuOpen) return
+    const handleClick = (e: MouseEvent) => {
+      if (sortMenuRef.current && !sortMenuRef.current.contains(e.target as Node)) {
+        setSortMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [sortMenuOpen])
 
-  const cycleSort = () => {
-    const current = sortOptions.findIndex(o => o.sort === sortField && o.order === sortOrder)
-    const next = sortOptions[(current + 1) % sortOptions.length]
+  const selectSort = (s: string) => {
     updateParams({
-      sort: next.sort === 'published_at' ? null : next.sort,
-      order: next.order === 'desc' ? null : next.order,
+      // 默认（时间降序）不在 URL 中显式出现；切回默认时清掉参数。
+      sort: s === 'published_at' ? null : s,
+      order: null,
       page: null,
     })
+    setSortMenuOpen(false)
   }
 
-  const sortLabels: Record<string, string> = {
-    published_at: '时间',
-    citation_count: '被引',
-    upvote_count: '赞数',
-  }
-
-  // 排序激活态：非默认（时间降序）即高亮，与「全部论文 / 主题 / 时间」激活规则对齐。
-  const isActiveSort = sortField !== 'published_at' || sortOrder !== 'desc'
-
-  const hasAnyFilter = selectedCategories.length > 0 || favoritesOnly || searchQ !== ''
+  const hasAnyFilter = selectedCategories.length > 0 || favoritesOnly
 
   // ── Dynamic backTo carrying current URL state ──────────────────────────
   const backTo = {
@@ -251,19 +228,74 @@ export default function PapersListPage() {
 
       {/* Filter toolbar (single row) */}
       <div className="flex items-center gap-2 sm:gap-0.5 mb-3 flex-wrap">
-        {/* 全部论文 — resets all filters */}
-        <button
-          onClick={clearAllFilters}
-          className={`shrink-0 text-xs font-medium transition-colors cursor-pointer px-1.5 py-1 min-h-[44px] sm:min-h-0 inline-flex items-center ${
-            !hasAnyFilter
-              ? 'text-[var(--accent)]'
-              : 'text-[var(--muted)] hover:text-[var(--ink)]'
-          }`}
-        >
-          全部论文
-        </button>
+        {/* 全部论文⌄：展开选择排序（时间 / 被引）。精选板块固定按精选日期排序；收藏视图固定按收藏时间排序。 */}
+        <div ref={sortMenuRef} className="relative shrink-0">
+          <button
+            onClick={() => setSortMenuOpen(v => !v)}
+            className={`shrink-0 text-xs font-medium transition-colors cursor-pointer px-1.5 py-1 min-h-[44px] sm:min-h-0 inline-flex items-center ${
+              sortMenuOpen || !hasAnyFilter
+                ? 'text-[var(--accent)]'
+                : 'text-[var(--muted)] hover:text-[var(--ink)]'
+            }`}
+          >
+            全部论文⌄
+          </button>
+          {sortMenuOpen && (
+            <div className="absolute top-full left-0 mt-1 z-50 bg-white/95 backdrop-blur-sm border border-[var(--line)] rounded-xl overflow-hidden min-w-[150px] shadow-sm py-1">
+              {!favoritesOnly && (
+                <>
+                  <div className="px-3 pt-1.5 pb-0.5 text-[10px] font-bold tracking-[.12em] text-[#8ea0b6]">排序</div>
+                  <button
+                    onClick={() => selectSort('published_at')}
+                    className={`w-full text-left px-3 py-1.5 text-sm transition-colors cursor-pointer ${
+                      sortField === 'published_at'
+                        ? 'text-[var(--accent)] font-medium bg-[var(--accent)]/8'
+                        : 'text-[var(--muted)] hover:text-[var(--ink)] hover:bg-black/[.03]'
+                    }`}
+                  >
+                    时间
+                  </button>
+                  {isFeaturedSource ? (
+                    <button
+                      onClick={() => selectSort('ai_relevance_score')}
+                      className={`w-full text-left px-3 py-1.5 text-sm transition-colors cursor-pointer ${
+                        sortField === 'ai_relevance_score'
+                          ? 'text-[var(--accent)] font-medium bg-[var(--accent)]/8'
+                          : 'text-[var(--muted)] hover:text-[var(--ink)] hover:bg-black/[.03]'
+                      }`}
+                    >
+                      综合
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => selectSort('citation_count')}
+                      className={`w-full text-left px-3 py-1.5 text-sm transition-colors cursor-pointer ${
+                        sortField === 'citation_count'
+                          ? 'text-[var(--accent)] font-medium bg-[var(--accent)]/8'
+                          : 'text-[var(--muted)] hover:text-[var(--ink)] hover:bg-black/[.03]'
+                      }`}
+                    >
+                      被引
+                    </button>
+                  )}
+                </>
+              )}
+              {hasAnyFilter && (
+                <>
+                  {!favoritesOnly && <div className="h-px my-1 bg-[var(--line)]/60" />}
+                  <button
+                    onClick={() => { clearAllFilters(); setSortMenuOpen(false) }}
+                    className="w-full text-left px-3 py-1.5 text-sm text-[var(--muted)] hover:text-[var(--ink)] hover:bg-black/[.03] transition-colors cursor-pointer"
+                  >
+                    清除筛选
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+        </div>
 
-        {!favoritesOnly && !isFeaturedSource && (
+        {!favoritesOnly && source !== 'arxiv_fin' && (
           <>
             <span className="shrink-0 text-xs text-[var(--line)] px-0.5 select-none">|</span>
 
@@ -279,34 +311,6 @@ export default function PapersListPage() {
         )}
 
         <div className="flex-1" />
-
-        {/* 搜索（与 SearchPage「查看全部」共用 search 参数） */}
-        <div className="relative shrink-0">
-          <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted)]" strokeWidth={1.8} />
-          <input
-            type="search"
-            value={searchInput}
-            onChange={handleSearchChange}
-            placeholder="搜索标题或摘要"
-            aria-label="搜索论文"
-            className="h-[34px] w-[150px] sm:w-[200px] pl-8 pr-2 rounded-full border border-[var(--line)] bg-white/60 text-xs text-[var(--ink)] placeholder:text-[var(--muted)] outline-none focus:ring-2 focus:ring-[var(--accent)] focus:border-transparent transition-all"
-          />
-        </div>
-
-        {/* Sort toggle（隐藏于 featured 板块，其按 featured_date 固定排序） */}
-        {!isFeaturedSource && (
-          <button
-            onClick={cycleSort}
-            className={`shrink-0 inline-flex items-center gap-1 text-xs font-medium transition-colors cursor-pointer px-1.5 py-1 min-h-[44px] sm:min-h-0 ${
-              isActiveSort
-                ? 'text-[var(--accent)]'
-                : 'text-[var(--muted)] hover:text-[var(--ink)]'
-            }`}
-          >
-            {sortLabels[sortField] || '时间'}
-            <ArrowDown size={13} strokeWidth={1.5} />
-          </button>
-        )}
 
         {/* 仅看收藏 */}
         <button
@@ -342,20 +346,16 @@ export default function PapersListPage() {
           title={
             favoritesOnly
               ? '还没有收藏论文'
-              : searchQ
-                ? `没有找到匹配 "${searchQ}" 的论文`
-                : isFeaturedSource
-                  ? '该板块暂无内容，敬请期待'
-                  : '当前暂无内容'
+              : isFeaturedSource
+                ? '该板块暂无内容，敬请期待'
+                : '当前暂无内容'
           }
           description={
             favoritesOnly
               ? '你收藏的论文会显示在这里'
-              : searchQ
-                ? '试试更短的关键词，或检查拼写'
-                : isFeaturedSource
-                  ? undefined
-                  : '我们正在整理这部分论文，稍后再来看'
+              : isFeaturedSource
+                ? undefined
+                : '我们正在整理这部分论文，稍后再来看'
           }
         >
           {favoritesOnly && (
@@ -372,7 +372,7 @@ export default function PapersListPage() {
         <>
           <div className={`space-y-3 transition-opacity duration-200 ${refreshing ? 'opacity-60' : ''}`}>
             {filteredItems.map(paper => (
-              <PaperCard key={paper.id} paper={paper} backTo={backTo} showCategories={!isFeaturedSource} />
+              <PaperCard key={paper.id} paper={paper} backTo={backTo} />
             ))}
           </div>
           {/* Pagination: server-side (topic_slug filtered by the API) */}

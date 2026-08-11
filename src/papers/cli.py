@@ -27,7 +27,6 @@ from ..ai.client import create_ai_client
 from .weekly import WeeklyArxivResult, enrich_featured, run_weekly_arxiv_all
 from .keywords import _get_concurrency, extract_paper_keywords
 from .models import ClassicFetchResult, Paper
-from .sources.huggingface import HuggingFaceFetcher
 from .sources.openalex import OpenAlexFetcher
 from .topics import build_paper_topics, classify_paper_topics
 from .translator import translate_papers
@@ -55,9 +54,6 @@ def _ai_summary_stale(raw) -> bool:
 async def run(
     config: Config,
     only_source: Optional[str] = None,
-    month: Optional[str] = None,
-    week: Optional[str] = None,
-    top_n: Optional[int] = None,
     dry_run: bool = False,
     no_translate: bool = False,
     no_enrich: bool = False,
@@ -236,33 +232,6 @@ async def run(
                         f"({len(result.papers) - len(matched_papers)} not written: "
                         f"manual_review/unmatched). {tc} classified.[/green]"
                     )
-
-        if papers_cfg.huggingface.enabled and only_source in (None, "huggingface"):
-            hf_papers = await HuggingFaceFetcher(papers_cfg.huggingface).fetch(
-                client, month=month, week=week, top_n_override=top_n,
-                no_enrich=no_enrich,
-            )
-            console.print(f"\nHugging Face: fetched {len(hf_papers)} papers.")
-            if db is not None:
-                if hf_papers and (not no_translate or papers_cfg.extract_keywords):
-                    ai_client = create_ai_client(config.ai)
-                    if not no_translate:
-                        await translate_papers(ai_client, hf_papers)
-                    if papers_cfg.extract_keywords:
-                        await extract_paper_keywords(
-                            ai_client, hf_papers, _get_concurrency(ai_client),
-                        )
-                n = db.save_papers(hf_papers)
-                total_saved += n
-                # Topic classification (rule-based, zero AI cost)
-                db.seed_paper_topics(build_paper_topics())
-                tc = 0
-                for paper in hf_papers:
-                    td = classify_paper_topics(paper)
-                    if td:
-                        db.save_paper_topics(paper.id, td)
-                        tc += 1
-                console.print(f"  Topics: {tc}/{len(hf_papers)} papers classified.")
 
         if papers_cfg.arxiv.enabled and only_source in (None, "arxiv"):
             arxiv_cfg = papers_cfg.arxiv
@@ -459,25 +428,9 @@ def main() -> None:
     )
     parser.add_argument(
         "--source",
-        choices=["openalex", "huggingface", "arxiv"],
+        choices=["openalex", "arxiv"],
         default=None,
         help="Only fetch this source (default: all enabled sources)",
-    )
-    parser.add_argument(
-        "--month",
-        default=None,
-        help="Fetch specific month (YYYY-MM) — only applies to huggingface source",
-    )
-    parser.add_argument(
-        "--week",
-        default=None,
-        help="Fetch specific ISO week (YYYY-Www) — only applies to huggingface source",
-    )
-    parser.add_argument(
-        "--top-n",
-        type=int,
-        default=None,
-        help="Override top_n from config for this run (only applies to huggingface)",
     )
     parser.add_argument(
         "--featured-count",
@@ -546,7 +499,6 @@ def main() -> None:
         sys.exit(1)
 
     asyncio.run(run(config, only_source=args.source,
-                     month=args.month, week=args.week, top_n=args.top_n,
                      dry_run=args.dry_run,
                      no_translate=args.no_translate,
                      no_enrich=args.no_enrich,

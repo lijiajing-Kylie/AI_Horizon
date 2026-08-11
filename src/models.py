@@ -358,14 +358,6 @@ class OpenAlexSourceConfig(BaseModel):
     enabled: bool = Field(default=True, description="是否启用 OpenAlex 论文源")
 
 
-class HuggingFaceSourceConfig(BaseModel):
-    """Hugging Face 每日热门论文源：每月拉取上月热门论文。"""
-
-    enabled: bool = Field(default=True, description="是否启用 Hugging Face 论文源")
-    top_n: int = Field(default=15, description="按点赞数保留前 N 篇")
-    topics: List[str] = Field(default_factory=list, description="关键词过滤（可选）。对标题/摘要/分类做不区分大小写的子串匹配")
-
-
 class ArxivSourceConfig(BaseModel):
     """arXiv 每周精选源：按分类抓最新论文，规则过滤 + AI 精选 top N。
 
@@ -376,7 +368,7 @@ class ArxivSourceConfig(BaseModel):
 
     enabled: bool = Field(default=False, description="是否启用 arXiv 每周精选源")
     categories: List[str] = Field(
-        default=["cs.AI", "cs.LG", "cs.CL"],
+        default=["cs.AI", "cs.LG", "cs.CL", "cs.CV", "cs.MA", "cs.RO"],
         description="抓取的 arXiv 分类码列表",
     )
     max_results_per_category: int = Field(
@@ -430,7 +422,6 @@ class PapersConfig(BaseModel):
 
     enabled: bool = Field(default=False, description="是否启用论文库")
     openalex: OpenAlexSourceConfig = Field(default_factory=OpenAlexSourceConfig, description="OpenAlex 经典论文源（基于固定种子列表，非实时推荐）")
-    huggingface: HuggingFaceSourceConfig = Field(default_factory=HuggingFaceSourceConfig, description="Hugging Face 每日热门论文源（每月自动更新）")
     arxiv: ArxivSourceConfig = Field(default_factory=ArxivSourceConfig, description="arXiv 每周精选源（规则过滤 + AI 精选）")
     extract_keywords: bool = Field(default=True, description="抓取经典论文时是否用 AI 提取关键词")
 
@@ -490,6 +481,7 @@ class ReportsConfig(BaseModel):
         default_factory=lambda: f"{datetime.now().year}年",
         description="阿里云报告源筛选年份，例如 2025年",
     )
+    extract_keywords: bool = Field(default=True, description="抓取报告时是否用 AI 提取关键词")
 
     @computed_field  # type: ignore[misc]
     @property

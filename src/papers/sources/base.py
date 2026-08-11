@@ -14,8 +14,7 @@ class PaperSourceFetcher(ABC):
     Unlike `src.reports.sources.base.ReportSourceFetcher` (list-then-detail,
     since report sites require a separate detail fetch per item), each
     papers source returns its full batch of `Paper`s from one `fetch()`
-    call — both OpenAlex and Hugging Face's daily-papers API already return
-    complete records.
+    call — the OpenAlex API already returns complete records.
     """
 
     source_name: str

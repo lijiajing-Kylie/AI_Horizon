@@ -640,7 +640,7 @@ def remove_paper_favorite(paper_id: str, user_id: str = Depends(_get_user_id_req
 def list_paper_favorites(
     page: int = Query(1, ge=1, description="Page number"),
     per_page: int = Query(20, ge=1, le=100, description="Items per page"),
-    source: str | None = Query(None, description="Filter by paper source (openalex, huggingface)"),
+    source: str | None = Query(None, description="Filter by paper source (openalex, arxiv)"),
     user_id: str = Depends(_get_user_id_required),
 ) -> dict:
     """Paginated list of the current user's favorited papers."""
@@ -778,7 +778,7 @@ def daily_detail(date: str, user_id: Optional[str] = Depends(_get_user_id_option
 
 @app.get("/api/papers")
 def list_papers(
-    source: Optional[str] = Query(None, description="Filter by source (openalex/huggingface/arxiv)"),
+    source: Optional[str] = Query(None, description="Filter by source (openalex/arxiv)"),
     category: Optional[str] = Query(None, description="Filter by category"),
     topic_slug: Optional[str] = Query(None, description="Filter by research topic slug"),
     search: Optional[str] = Query(None, description="Search title/abstract"),

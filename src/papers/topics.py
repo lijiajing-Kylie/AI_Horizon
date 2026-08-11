@@ -13,6 +13,7 @@ on ``src/seed_topics.py``.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Dict, List
 
 from .models import Paper
@@ -118,6 +119,17 @@ _TITLE_KEYWORDS: Dict[str, List[str]] = {
         "slam", "locomotion", "kinematics", "embodied",
         "sim-to-real", "end-effector",
     ],
+}
+
+# ── Precompiled word-boundary regexes for title/abstract keywords ────────
+# Same semantics as `src.papers.filters._keyword_regex`: a ``\b`` boundary on
+# both sides keeps short tokens (``gan``, ``serving``, ``ai``) from matching
+# inside longer words (``organization``, ``preserving``), a trailing ``s?``
+# matches common plurals (``agents``), and IGNORECASE handles case variants.
+_KEYWORD_RE: Dict[str, "re.Pattern[str]"] = {
+    kw: re.compile(rf"\b{re.escape(kw)}s?\b", re.IGNORECASE)
+    for kws in _TITLE_KEYWORDS.values()
+    for kw in kws
 }
 
 # ── OpenAlex topic name keywords → unified category ID ──────────────────
@@ -392,12 +404,12 @@ def classify_paper_topics(paper: Paper) -> List[dict]:
                 "reason": f"arXiv category: {cat}",
             }
 
-    # ── Step 3: title/abstract keyword matching ─────────────────────────
+    # ── Step 3: title/abstract keyword matching (word-boundary) ──────────
     for unified_id, keywords in _TITLE_KEYWORDS.items():
         if unified_id in assigned:
             continue
         for kw in keywords:
-            if kw in title_abs:
+            if _KEYWORD_RE[kw].search(title_abs):
                 assigned[unified_id] = {
                     "slug": unified_id,
                     "confidence": 0.7,

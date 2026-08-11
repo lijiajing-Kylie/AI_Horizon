@@ -3,8 +3,7 @@
 Standalone from the news pipeline (same as ``src.papers.weekly``): only reuses
 ``AIClient`` and ``parse_json_response``. arXiv weekly-featured papers get their
 keywords from the heavier ``weekly.py`` enrichment; this module covers the
-classic sources (openalex / huggingface) plus the ``--extract-keywords``
-backfill.
+classic source (openalex) plus the ``--extract-keywords`` backfill.
 
 Language policy: proper nouns / technical terms keep their original language
 (English); generic descriptive words come out in Simplified Chinese.

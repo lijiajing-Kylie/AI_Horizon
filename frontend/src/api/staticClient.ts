@@ -13,7 +13,7 @@ import type {
   TopicsResponse, TopicNewsResponse,
   DailyListResponse, DailyDetailResponse,
   Stats, Run, TopicPrefs, TopicPrefState, Paper, Report,
-  GlobalSearchResponse,
+  ReportsResponse, GlobalSearchResponse,
 } from './types'
 
 /**
@@ -505,7 +505,7 @@ export async function getTopicPapers(slug: string, params?: {
 export async function getReports(params?: {
   source?: string; institution?: string; category?: string; search?: string;
   sort?: string; order?: string; page?: number; per_page?: number;
-}): Promise<PaginatedResponse<Report>> {
+}): Promise<ReportsResponse> {
   const data = await fetchWithCache({ value: _reports }, 'reports.json')
   if (!data) return { items: [], total: 0, page: 1, per_page: 20, pages: 0 }
 
@@ -527,7 +527,11 @@ export async function getReports(params?: {
     return va < vb ? dir : va > vb ? -dir : 0
   })
 
-  return applyPagination(items, params?.page, params?.per_page)
+  const latest = items.reduce((max, r) => (r.fetched_at > max ? r.fetched_at : max), '')
+  return {
+    ...applyPagination(items, params?.page, params?.per_page),
+    latest_fetched_at: latest || undefined,
+  }
 }
 
 export async function getReport(id: string): Promise<Report | null> {

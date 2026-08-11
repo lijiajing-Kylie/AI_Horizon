@@ -101,6 +101,8 @@ class ReportFilter:
             return True
 
         result, reason, score = self._parse(raw)
+        # 写回 AI 相关分（1-5），供综合分使用；AI 调用失败走 fail-open 时不写（None）。
+        report.ai_relevance_score = float(score)
         if not result:
             logger.info("Filtered out [score=%d]: %s (%s) — %s",
                          score, report.title, report.institution, reason)

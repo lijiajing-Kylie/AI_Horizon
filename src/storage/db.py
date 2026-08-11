@@ -220,12 +220,16 @@ CREATE TABLE IF NOT EXISTS reports (
     pdf_urls_json       TEXT NOT NULL DEFAULT '[]',
     summary             TEXT,
     content_text        TEXT NOT NULL,
+    raw_html            TEXT,
     categories_json     TEXT NOT NULL DEFAULT '[]',
+    keywords_json       TEXT NOT NULL DEFAULT '[]',
     published_at        TEXT NOT NULL,
     updated_at          TEXT NOT NULL,
     view_count          INTEGER,
     download_count      INTEGER,
     fetched_at          TEXT NOT NULL,
+    ai_relevance_score  REAL,
+    composite_score     REAL,
     created_at          TEXT NOT NULL DEFAULT (datetime('now')),
     updated_row_at      TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -274,6 +278,25 @@ _PAPERS_COLUMN_MIGRATIONS: list[tuple[str, str]] = [
     ("ai_score_breakdown_json", "TEXT"),
     ("ai_reason", "TEXT"),
 ]
+
+
+# Columns added to the reports table after its initial schema — same pattern
+# as _PAPERS_COLUMN_MIGRATIONS. Applied via ALTER TABLE for existing DB files.
+_REPORTS_COLUMN_MIGRATIONS: list[tuple[str, str]] = [
+    ("keywords_json", "TEXT NOT NULL DEFAULT '[]'"),
+    ("raw_html", "TEXT"),
+    ("ai_relevance_score", "REAL"),
+    ("composite_score", "REAL"),
+]
+
+
+def _migrate_reports_table(conn: sqlite3.Connection) -> None:
+    """Add any columns that were added to reports after the initial schema."""
+    existing = {row["name"] for row in conn.execute("PRAGMA table_info(reports)")}
+    for column, ddl in _REPORTS_COLUMN_MIGRATIONS:
+        if column not in existing:
+            conn.execute(f"ALTER TABLE reports ADD COLUMN {column} {ddl}")
+    conn.commit()
 
 
 def _migrate_papers_table(conn: sqlite3.Connection) -> None:
@@ -674,12 +697,16 @@ def _row_to_report(row: sqlite3.Row) -> dict[str, Any]:
         "has_local_pdf": has_local_pdf,
         "summary": row["summary"],
         "content_text": row["content_text"],
+        "raw_html": row["raw_html"] if "raw_html" in row.keys() else None,
         "categories": json.loads(row["categories_json"]),
+        "keywords": json.loads(row["keywords_json"]) if row["keywords_json"] else [],
         "published_at": row["published_at"],
         "updated_at": row["updated_at"],
         "view_count": row["view_count"],
         "download_count": row["download_count"],
         "fetched_at": row["fetched_at"],
+        "ai_relevance_score": row["ai_relevance_score"] if "ai_relevance_score" in row.keys() else None,
+        "composite_score": row["composite_score"] if "composite_score" in row.keys() else None,
     }
 
 
@@ -709,6 +736,7 @@ class HorizonDB:
             conn.commit()
             _migrate_items_table(conn)
             _migrate_papers_table(conn)
+            _migrate_reports_table(conn)
             _migrate_topics_table(conn)
             _migrate_fts_tokenizer(conn)
             self._local.conn = conn
@@ -1318,11 +1346,11 @@ class HorizonDB:
                 """
                 INSERT INTO reports (
                     id, source, native_id, title, institution, author, url,
-                    pdf_urls_json, summary, content_text, categories_json,
+                    pdf_urls_json, summary, content_text, raw_html, categories_json, keywords_json,
                     published_at, updated_at, view_count, download_count,
-                    fetched_at, updated_row_at
+                    fetched_at, ai_relevance_score, composite_score, updated_row_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
                 ON CONFLICT(id) DO UPDATE SET
                     title=excluded.title,
                     institution=excluded.institution,
@@ -1331,11 +1359,15 @@ class HorizonDB:
                     pdf_urls_json=excluded.pdf_urls_json,
                     summary=excluded.summary,
                     content_text=excluded.content_text,
+                    raw_html=excluded.raw_html,
                     categories_json=excluded.categories_json,
+                    keywords_json=excluded.keywords_json,
                     updated_at=excluded.updated_at,
                     view_count=excluded.view_count,
                     download_count=excluded.download_count,
                     fetched_at=excluded.fetched_at,
+                    ai_relevance_score=excluded.ai_relevance_score,
+                    composite_score=excluded.composite_score,
                     updated_row_at=datetime('now')
                 """,
                 (
@@ -1349,12 +1381,16 @@ class HorizonDB:
                     json.dumps(r.pdf_urls, ensure_ascii=False),
                     r.summary,
                     r.content_text,
+                    r.raw_html,
                     json.dumps(r.categories, ensure_ascii=False),
+                    json.dumps(r.keywords, ensure_ascii=False),
                     _dt_iso(r.published_at),
                     _dt_iso(r.updated_at),
                     r.view_count,
                     r.download_count,
                     _dt_iso(r.fetched_at),
+                    r.ai_relevance_score,
+                    r.composite_score,
                 ),
             )
         self.conn.commit()
@@ -1404,16 +1440,24 @@ class HorizonDB:
         ).fetchone()
         total = count_row["cnt"] if count_row else 0
 
-        allowed_sort = {"published_at", "updated_at", "fetched_at"}
+        allowed_sort = {"published_at", "updated_at", "fetched_at", "composite_score"}
         sort_col = sort if sort in allowed_sort else "published_at"
         order_dir = "DESC" if order.lower() == "desc" else "ASC"
         offset = (page - 1) * per_page
 
+        # composite_score 可能为 NULL（历史报告未 backfill）——COALESCE 保证其垫底。
+        order_expr = f"COALESCE({sort_col}, 0)" if sort_col == "composite_score" else sort_col
         page_params = params + [per_page, offset]
         rows = self.conn.execute(
-            f"SELECT * {base_from} ORDER BY {sort_col} {order_dir} LIMIT ? OFFSET ?",
+            f"SELECT * {base_from} ORDER BY {order_expr} {order_dir} LIMIT ? OFFSET ?",
             page_params,
         ).fetchall()
+
+        # 报告库最近一次抓取时间（全局 MAX，不受分页/排序影响）。
+        latest = self.conn.execute(
+            "SELECT MAX(fetched_at) AS m FROM reports"
+        ).fetchone()
+        latest_fetched_at = latest["m"] if latest and latest["m"] else None
 
         return {
             "items": [_row_to_report(r) for r in rows],
@@ -1421,6 +1465,7 @@ class HorizonDB:
             "page": page,
             "per_page": per_page,
             "pages": max(1, (total + per_page - 1) // per_page),
+            "latest_fetched_at": latest_fetched_at,
         }
 
     def get_report(self, report_id: str) -> Optional[dict[str, Any]]:
@@ -1866,11 +1911,16 @@ class HorizonDB:
     def save_paper_topics(
         self, paper_id: str, topics_data: list[dict[str, Any]]
     ) -> int:
-        """Save topic associations for a paper.
+        """Replace a paper's topic associations.
 
         *topics_data* is a list of dicts with keys: slug, confidence, reason.
-        Upserts by (paper_id, topic_id).
+        Existing ``paper_topics`` rows for the paper are deleted first, so a
+        re-classification (e.g. after a rule change) clears stale associations
+        instead of leaving them to accumulate.
         """
+        self.conn.execute(
+            "DELETE FROM paper_topics WHERE paper_id = ?", (paper_id,)
+        )
         count = 0
         for td in topics_data:
             slug = td.get("slug", "").strip()

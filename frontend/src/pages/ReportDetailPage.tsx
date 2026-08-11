@@ -16,6 +16,11 @@ export default function ReportDetailPage() {
   if (error) return <EmptyState title="加载失败" description={error} />
   if (!report) return <EmptyState title="报告不存在" />
 
+  // aliyun 报告没有网页全文，正文都在本地 PDF 里 —— 全文区显示引导链接而非占位文本。
+  const localPdf = report.pdf_urls.find(p => p.local_path)
+  const showPdfFulltextHint =
+    report.source === 'aliyunreports' && report.has_local_pdf && !!localPdf
+
   return (
     <div className="max-w-[1180px] mx-auto">
       <BackLink
@@ -66,15 +71,10 @@ export default function ReportDetailPage() {
                 href={pdf.local_path ?? pdf.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 font-medium text-[var(--accent)] hover:opacity-80 transition-colors"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--accent)]/10 px-4 py-2 text-sm font-medium text-[var(--accent)] hover:bg-[var(--accent)]/20 transition-colors"
               >
                 查看PDF文件
-                {pdf.local_path && (
-                  <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded-full bg-[var(--accent)]/10 text-[var(--accent)]">
-                    本地
-                  </span>
-                )}
-                <ExternalLink className="w-3.5 h-3.5" strokeWidth={2} />
+                <ExternalLink className="w-4 h-4" strokeWidth={2} />
               </a>
             )
           )}
@@ -88,6 +88,19 @@ export default function ReportDetailPage() {
                 className="inline-block text-xs px-2 py-0.5 rounded-full bg-black/[.03] text-[var(--muted)]"
               >
                 {c}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {report.keywords && report.keywords.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mt-2">
+            {report.keywords.slice(0, 8).map(k => (
+              <span
+                key={k}
+                className="inline-block text-xs px-2 py-0.5 rounded-full bg-[var(--accent)]/10 text-[var(--accent)]"
+              >
+                {k}
               </span>
             ))}
           </div>
@@ -108,11 +121,26 @@ export default function ReportDetailPage() {
       {report.content_text && report.content_text.length > 0 && (
         <section className="glass rounded-[22px] p-6">
           <CardHeading>全文</CardHeading>
-          <div className="text-[17px] leading-[1.85] text-[var(--ink)] whitespace-pre-line space-y-4">
-            {report.content_text.split('\n').map((para, i) =>
-              para.trim() ? <p key={i}>{para}</p> : null
-            )}
-          </div>
+          {showPdfFulltextHint && localPdf ? (
+            <p className="text-[17px] leading-[1.85] text-[var(--ink)]">
+              请点击
+              <a
+                href={localPdf.local_path ?? localPdf.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mx-1 font-medium text-[var(--accent)] hover:opacity-80 transition-colors"
+              >
+                PDF文件
+              </a>
+              查看全文
+            </p>
+          ) : (
+            <div className="text-[17px] leading-[1.85] text-[var(--ink)] whitespace-pre-line space-y-4">
+              {report.content_text.split('\n').map((para, i) =>
+                para.trim() ? <p key={i}>{para}</p> : null
+              )}
+            </div>
+          )}
         </section>
       )}
 

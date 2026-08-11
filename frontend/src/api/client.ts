@@ -65,7 +65,7 @@ import type {
   TopicsResponse, TopicNewsResponse,
   DailyListResponse, DailyDetailResponse,
   Stats, Run, TopicPrefs, TopicPrefState, Paper, Report,
-  GlobalSearchResponse,
+  ReportsResponse, GlobalSearchResponse,
 } from './types'
 
 // ── Exported API ────────────────────────────────────────────────────────────
@@ -252,10 +252,10 @@ export function getTopicPapers(slug: string, params?: {
 export function getReports(params?: {
   source?: string; institution?: string; category?: string; search?: string;
   sort?: string; order?: string; page?: number; per_page?: number;
-}): Promise<PaginatedResponse<Report>> {
+}): Promise<ReportsResponse> {
   return STATIC_MODE
     ? staticClient.getReports(params)
-    : liveGet<PaginatedResponse<Report>>('/api/reports', params as Record<string, string | number | undefined>)
+    : liveGet<ReportsResponse>('/api/reports', params as Record<string, string | number | undefined>)
 }
 
 export function getReport(id: string): Promise<Report | null> {

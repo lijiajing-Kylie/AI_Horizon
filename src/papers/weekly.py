@@ -44,6 +44,7 @@ from .filters import (
 )
 from .models import Paper
 from .progress import run_progress
+from .topics import build_paper_topics, classify_paper_topics
 from .translator import translate_papers
 from .prompts import (
     ARXIV_CONCEPT_SYSTEM,
@@ -604,6 +605,14 @@ async def _run_group(
     saved_total = 0
     if db is not None:
         saved_total = db.save_papers(filtered)
+        # Topic classification (rule-based, zero AI cost) — same pattern as the
+        # classic/HF sources in cli.py, so arxiv / arxiv_fin papers can be
+        # filtered by topic on the frontend.
+        db.seed_paper_topics(build_paper_topics())
+        for p in filtered:
+            td = classify_paper_topics(p)
+            if td:
+                db.save_paper_topics(p.id, td)
 
     return WeeklyArxivResult(
         fetched=len(papers),

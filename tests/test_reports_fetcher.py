@@ -4,6 +4,7 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import httpx
+import pytest
 
 from src.models import ReportsConfig
 from src.reports.fetcher import fetch_all_reports
@@ -112,6 +113,8 @@ def test_fetch_all_reports_orchestrates_list_and_detail() -> None:
 
     assert len(reports) == 1
     assert reports[0].id == "aliresearch:591792162400768000"
+    # 抓取末尾统一计算综合分：无 AI 分（中性 0.6）、正文过短且无本地 PDF → 篇幅 0。
+    assert reports[0].composite_score == pytest.approx(0.5 * 0.6)
 
 
 def test_fetch_all_reports_skips_unknown_source() -> None:

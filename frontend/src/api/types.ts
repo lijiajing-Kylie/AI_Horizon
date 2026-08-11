@@ -193,6 +193,11 @@ export interface PaginatedResponse<T> {
   pages: number
 }
 
+/** 报告库分页响应：额外携带报告库最近一次抓取时间（UTC ISO）。 */
+export interface ReportsResponse extends PaginatedResponse<Report> {
+  latest_fetched_at?: string
+}
+
 // ---- Tags & Categories ----
 
 export interface TagCount {
@@ -284,7 +289,7 @@ export interface Run {
 }
 
 // ---- Papers ----
-// Standalone papers library (OpenAlex + Hugging Face sources) — no AI
+// Standalone papers library (OpenAlex + arXiv sources) — no AI
 // score/enrichment fields, unlike NewsItem.
 
 export interface ReportPdf {
@@ -318,12 +323,20 @@ export interface Report {
   pdf_urls: ReportPdf[]
   summary: string | null
   content_text: string
+  /** 原始 HTML（如微信文章正文），未清洗；仅 wxmp 源有值 */
+  raw_html: string | null
   categories: string[]
+  /** AI-extracted keywords (5-8), bilingual; 展示用，不用于过滤 */
+  keywords: string[]
   published_at: string
   updated_at: string
   view_count: number | null
   download_count: number | null
   fetched_at: string
+  /** 1-5 AI filter score; null when never evaluated (scored as neutral). */
+  ai_relevance_score: number | null
+  /** 0-1 综合分（0.5×AI 相关 + 0.5×篇幅）；仅用于排序，不展示数值。 */
+  composite_score: number | null
   /** Whether at least one PDF has been downloaded and is served locally. */
   has_local_pdf?: boolean
   /** Only present when the request carried X-User-Id (see utils/userId.ts). */

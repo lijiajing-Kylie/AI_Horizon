@@ -18,24 +18,22 @@ def test_dry_run_never_touches_the_database() -> None:
     empty_result = ClassicFetchResult(papers=[], match_results=[])
 
     with patch("src.papers.cli.OpenAlexFetcher") as MockOpenAlex, patch(
-        "src.papers.cli.HuggingFaceFetcher"
-    ) as MockHF, patch("src.papers.cli.HorizonDB") as MockDB:
+        "src.papers.cli.HorizonDB"
+    ) as MockDB:
         MockOpenAlex.return_value.fetch_classic = AsyncMock(return_value=empty_result)
-        MockHF.return_value.fetch = AsyncMock(return_value=[])
 
         asyncio.run(cli.run(_config(), dry_run=True))
 
     MockDB.assert_not_called()
 
 
-def test_real_run_saves_papers() -> None:
+def test_real_run_with_no_matched_papers_skips_save() -> None:
     empty_result = ClassicFetchResult(papers=[], match_results=[])
 
     with patch("src.papers.cli.OpenAlexFetcher") as MockOpenAlex, patch(
-        "src.papers.cli.HuggingFaceFetcher"
-    ) as MockHF, patch("src.papers.cli.HorizonDB") as MockDB:
+        "src.papers.cli.HorizonDB"
+    ) as MockDB:
         MockOpenAlex.return_value.fetch_classic = AsyncMock(return_value=empty_result)
-        MockHF.return_value.fetch = AsyncMock(return_value=[])
         db_instance = MockDB.return_value
         db_instance.save_papers.return_value = 0
 
@@ -43,22 +41,22 @@ def test_real_run_saves_papers() -> None:
 
     MockDB.assert_called_once()
     # OpenAlex with no matched papers skips save_papers (only matched papers
-    # are persisted). HuggingFace always calls save_papers.
-    assert db_instance.save_papers.call_count == 1
-    db_instance.save_papers.assert_called_with([])
+    # are persisted).
+    assert db_instance.save_papers.call_count == 0
 
 
-def test_only_source_openalex_skips_huggingface() -> None:
+def test_only_source_restricts_to_openalex() -> None:
     empty_result = ClassicFetchResult(papers=[], match_results=[])
 
     with patch("src.papers.cli.OpenAlexFetcher") as MockOpenAlex, patch(
-        "src.papers.cli.HuggingFaceFetcher"
-    ) as MockHF, patch("src.papers.cli.HorizonDB"):
+        "src.papers.cli.run_weekly_arxiv_all"
+    ) as MockArxiv, patch("src.papers.cli.HorizonDB"):
         MockOpenAlex.return_value.fetch_classic = AsyncMock(return_value=empty_result)
 
-        asyncio.run(cli.run(_config(), only_source="openalex", dry_run=True))
+        asyncio.run(cli.run(_arxiv_config(), only_source="openalex", dry_run=True))
 
-    MockHF.assert_not_called()
+    MockArxiv.assert_not_called()
+    MockOpenAlex.assert_called_once()
 
 
 def _arxiv_config() -> Config:
@@ -72,8 +70,8 @@ def test_source_arxiv_runs_weekly_pipeline_only() -> None:
     result = WeeklyArxivResult(fetched=0, after_filter=0, scored=0, featured=[], saved_total=0)
 
     with patch("src.papers.cli.OpenAlexFetcher") as MockOpenAlex, patch(
-        "src.papers.cli.HuggingFaceFetcher"
-    ) as MockHF, patch("src.papers.cli.HorizonDB"), patch(
+        "src.papers.cli.HorizonDB"
+    ), patch(
         "src.papers.cli.create_ai_client"
     ), patch(
         "src.papers.cli.run_weekly_arxiv_all", AsyncMock(return_value={"arxiv": result})
@@ -82,7 +80,6 @@ def test_source_arxiv_runs_weekly_pipeline_only() -> None:
 
     mock_run.assert_awaited_once()
     MockOpenAlex.assert_not_called()
-    MockHF.assert_not_called()
 
 
 def test_arxiv_dry_run_does_not_write_db() -> None:

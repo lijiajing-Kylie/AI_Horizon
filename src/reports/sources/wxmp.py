@@ -19,7 +19,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
 
 import httpx
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, NavigableString
 
 from ...config.constants import WXMP_REPORT_DEFAULTS
 from ...models import WxMpConfig, WxMpSourceConfig
@@ -44,6 +44,16 @@ _WEIXIN_CONTENT_END_MARKERS = [
     "微信扫一扫可打开此内容",
     "使用完整服务",
 ]
+
+# ── Inline tags: no newline between these when extracting text ───────────
+# WeChat wraps individual text fragments in <span>/<em>/<strong>, so a naive
+# ``get_text(separator="\n")`` shreds one paragraph into one fragment per line
+# (a ``（…）`` parenthetical on its own line, or a run of single commas).
+_INLINE_TAGS = {
+    "span", "em", "strong", "a", "b", "i", "u", "font", "small", "sub",
+    "sup", "code", "mark", "s", "strike", "del", "ins", "abbr", "cite",
+    "time", "label", "q", "tt", "var", "big", "kbd", "samp",
+}
 
 # ── WeChat keyword-gated PDF detection ───────────────────────────────────
 _QUOTED_KW_RE = _re.compile(
@@ -281,6 +291,7 @@ class WxMpReportFetcher(ReportSourceFetcher):
             url=article["link"],
             summary=article["description"],
             content_text=content_text or article["description"],
+            raw_html=article.get("content") or None,
             categories=[],
             published_at=published_at,
             updated_at=published_at,
@@ -395,7 +406,7 @@ class WxMpReportFetcher(ReportSourceFetcher):
 
         content_el = soup.select_one("#js_content")
         if content_el:
-            text = content_el.get_text(separator="\n", strip=True)
+            text = WxMpReportFetcher._block_level_text(content_el)
             if len(text) > 100:
                 return text
 
@@ -403,14 +414,14 @@ class WxMpReportFetcher(ReportSourceFetcher):
             els = soup.select(sel)
             if els:
                 text = "\n".join(
-                    el.get_text(separator="\n", strip=True) for el in els
+                    WxMpReportFetcher._block_level_text(el) for el in els
                 )
                 if len(text) > 100:
                     return text
 
         body = soup.find("body")
         if body:
-            text = body.get_text(separator="\n", strip=True)
+            text = WxMpReportFetcher._block_level_text(body)
             if len(text) > 100:
                 return text
 
@@ -484,9 +495,50 @@ class WxMpReportFetcher(ReportSourceFetcher):
         for tag in soup(["script", "style"]):
             tag.decompose()
 
-        text = soup.get_text(separator="\n", strip=True)
+        text = WxMpReportFetcher._block_level_text(soup)
 
         return WxMpReportFetcher._clean_article_text(text)
+
+    @staticmethod
+    def _block_level_text(container) -> str:
+        """Extract text with newlines only at block-level boundaries.
+
+        ``get_text(separator="\\n")`` is unsuitable: it uses
+        ``separator.join(strings)`` over *every* NavigableString, so the
+        inline ``<span>/<em>/<strong>`` wrappers WeChat uses to style single
+        fragments shred one paragraph into a fragment per line (a ``（…）``
+        parenthetical alone on its line, or a run of single commas).  This
+        recursion walks the DOM instead, emitting a newline only at block
+        boundaries and ``<br>`` while inline tags are joined seamlessly.
+        """
+        clone = BeautifulSoup(str(container), "html.parser")
+
+        def _collapse(s: str) -> str:
+            # Tag-separator whitespace (indentation/newlines between tags)
+            # lands in text nodes and must not become line breaks; collapse
+            # it to single spaces and drop pure-whitespace nodes.
+            return _re.sub(r"\s+", " ", s).strip()
+
+        def _walk(node) -> list:
+            frags: list[str] = []
+            if isinstance(node, NavigableString):
+                s = _collapse(str(node))
+                return [s] if s else []
+            inline = node.name in _INLINE_TAGS
+            for child in node.children:
+                if isinstance(child, NavigableString):
+                    s = _collapse(str(child))
+                    if s:
+                        frags.append(s)
+                elif child.name == "br":
+                    frags.append("\n")
+                else:
+                    frags.extend(_walk(child))
+                    if not inline and child.name not in _INLINE_TAGS:
+                        frags.append("\n")
+            return frags
+
+        return "".join(_walk(clone))
 
     @staticmethod
     def _clean_article_text(text: str) -> str:
@@ -535,6 +587,71 @@ class WxMpReportFetcher(ReportSourceFetcher):
             text = text[:cutoff].strip()
 
         return text
+
+    @staticmethod
+    def _merge_text_fragments(text: str) -> str:
+        """Re-join fragments shredded by the pre-``_block_level_text`` extractor.
+
+        Reports fetched under the old ``get_text(separator="\\n")`` logic kept
+        a ``content_text`` whose parentheticals and inline fragments were
+        split onto their own lines (e.g. ``自主实验室`` / ``（`` / ``SDL`` /
+        ``）``).  With only plain text left there is no HTML to re-parse, so
+        this re-flows heuristically: bracket fragments, bare punctuation
+        lines and continuation fragments are joined onto the adjacent body
+        line.  Only ever joins; a clean paragraph is left untouched.
+        """
+        lines = [ln.strip() for ln in text.split("\n")]
+        out: list[str] = []
+        i, n = 0, len(lines)
+        # 续写开头:属于上一句的延续(被拆碎的句子后半段)。
+        CONTINUATION = {"的", "了", "、", "。", "，", "；", "：", "）", ")"}
+
+        def append_frag(frag: str) -> None:
+            if out:
+                out[-1] += frag
+            else:
+                out.append(frag)
+
+        while i < n:
+            s = lines[i]
+            if not s:
+                i += 1
+                continue
+
+            # 左括号开跨行碎片:( … ) 收集完整后挂到上一行。
+            if s.startswith("（") and "）" not in s:
+                buf = s
+                i += 1
+                while i < n and "）" not in buf:
+                    nxt = lines[i].strip()
+                    if nxt:
+                        buf += nxt
+                    i += 1
+                append_frag(buf)
+                continue
+
+            # 单标点行。
+            if len(s) <= 2 and s in {"（", "）", "。", "，", "；", "：", "、", "(", ")", "."}:
+                append_frag(s)
+                i += 1
+                continue
+
+            # 独立完整括号行 (…),较短 → 属于上一句的括号注释。
+            if s.startswith("（") and s.endswith("）") and len(s) <= 60:
+                append_frag(s)
+                i += 1
+                continue
+
+            # 以续写词开头的行 → 上一句的后半段。
+            if s[0] in CONTINUATION:
+                append_frag(s)
+                i += 1
+                continue
+
+            out.append(s)
+            i += 1
+
+        return "\n".join(out)
 
     @staticmethod
     def _find_content_end(text: str) -> Optional[int]:

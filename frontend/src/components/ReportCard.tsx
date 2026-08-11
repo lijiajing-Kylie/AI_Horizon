@@ -42,6 +42,19 @@ export default function ReportCard({ report, backTo }: ReportCardProps) {
         return <p className="text-sm text-[var(--muted)] line-clamp-3">{displayText}</p>
       })()}
 
+      {report.keywords && report.keywords.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 mt-2">
+          {report.keywords.slice(0, 8).map(k => (
+            <span
+              key={k}
+              className="inline-block text-xs px-2 py-0.5 rounded-full bg-[var(--accent)]/10 text-[var(--accent)]"
+            >
+              {k}
+            </span>
+          ))}
+        </div>
+      )}
+
       <div className="flex items-center gap-3 mt-3 text-xs">
         <a
           href={report.url}

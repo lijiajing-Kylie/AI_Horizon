@@ -12,11 +12,11 @@ from pydantic import BaseModel
 
 
 class Paper(BaseModel):
-    """A single paper from one configured source (OpenAlex, Hugging Face, ...)."""
+    """A single paper from one configured source (OpenAlex, arXiv, ...)."""
 
     id: str               # f"{source}:{native_id}", e.g. "openalex:W2194775991"
-    source: str            # short source key, e.g. "openalex", "huggingface"
-    native_id: str          # the source's own id (OpenAlex work id, HF's arXiv id)
+    source: str            # short source key, e.g. "openalex", "arxiv"
+    native_id: str          # the source's own id (OpenAlex work id, arXiv id)
     title: str
     authors: List[str]
     abstract: str
@@ -28,7 +28,7 @@ class Paper(BaseModel):
     categories: List[str] = []
     # For classic-library papers (source="openalex"), one of the fixed v1
     # taxonomy categories from `src.papers.seed_data` — never derived from
-    # any API response. Unset for non-classic sources (e.g. Hugging Face).
+    # any API response.
     category: Optional[str] = None
     comment: Optional[str] = None
     journal_ref: Optional[str] = None
@@ -44,7 +44,7 @@ class Paper(BaseModel):
     open_access: Optional[bool] = None
     citation_count: Optional[int] = None       # raw citation count (OpenAlex cited_by_count)
     citation_percentile: Optional[float] = None  # OpenAlex citation_normalized_percentile.value
-    upvote_count: Optional[int] = None    # Hugging Face upvotes
+    upvote_count: Optional[int] = None    # popularity score (no active source fills it)
     raw_metadata: Optional[Dict[str, Any]] = None  # full raw source JSON, for re-parsing later
     # ---- translations -------------------------------------------------------
     title_zh: Optional[str] = None          # AI-translated Chinese title

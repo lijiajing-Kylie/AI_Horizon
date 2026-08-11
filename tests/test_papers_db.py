@@ -82,21 +82,12 @@ def test_get_papers_filter_by_source(tmp_path):
     db = HorizonDB(db_path=str(tmp_path / "test.db"))
     db.save_papers([
         _paper(id="openalex:W1", native_id="W1", source="openalex"),
-        _paper(
-            id="huggingface:2501.1",
-            native_id="2501.1",
-            source="huggingface",
-            url="https://huggingface.co/papers/2501.1",
-            category=None,
-            citation_count=None,
-            upvote_count=42,
-        ),
+        _paper(id="arxiv:2501.1", native_id="2501.1", source="arxiv"),
     ])
 
-    result = db.get_papers(source="huggingface")
+    result = db.get_papers(source="openalex")
     assert result["total"] == 1
-    assert result["items"][0]["id"] == "huggingface:2501.1"
-    assert result["items"][0]["upvote_count"] == 42
+    assert result["items"][0]["id"] == "openalex:W1"
 
 
 def test_get_papers_filter_by_category(tmp_path):

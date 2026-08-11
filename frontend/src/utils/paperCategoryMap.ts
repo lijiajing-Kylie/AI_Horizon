@@ -60,7 +60,7 @@ export const UNIFIED_LABELS_ZH: Record<UnifiedCategoryId, string> = {
 // ── Raw category → unified category ID ────────────────────────────────────
 
 const RAW_TO_UNIFIED: Record<string, UnifiedCategoryId> = {
-  // ── arXiv category codes (HuggingFace) ──
+  // ── arXiv category codes ──
   'cs.CV': 'computer-vision',
   'cs.CL': 'nlp-llm',
   'cs.LG': 'machine-learning',

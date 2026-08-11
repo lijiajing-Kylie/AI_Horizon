@@ -54,16 +54,17 @@ export default function HomePage() {
   const today = todayStr()
   const isOrganic = document.documentElement.getAttribute('data-theme') === 'organic'
   const { data: dailyData, loading, error } = useApi(() => getDailyDetail(today), [today])
-  const { data: reportsData } = useApi(() => getReports({ per_page: 3 }), [])
+  const { data: reportsData } = useApi(() => getReports({ sort: 'composite_score', order: 'desc', per_page: 3 }), [])
   const { data: papersData } = useApi(() => getPapers({ sort: 'published_at', order: 'desc', per_page: 3 }), [])
 
   const topItems: NewsItem[] = dailyData?.items?.slice(0, TOP_ITEMS_COUNT) || []
   const topReports: Report[] = reportsData?.items || []
   const topPapers: Paper[] = papersData?.items || []
 
-  // 列级轻量 meta：日报显示今日条数，论文显示库最近抓取时间。
+  // 列级轻量 meta：日报显示今日条数，论文/报告显示库最近抓取时间。
   const dailyCount = dailyData?.total ?? 0
   const latestPaperFetch = topPapers.reduce((max, p) => (p.fetched_at > max ? p.fetched_at : max), '')
+  const latestReportFetch = topReports.reduce((max, r) => (r.fetched_at > max ? r.fetched_at : max), '')
 
   if (loading && !dailyData) return <LoadingSkeleton />
   if (error) return <EmptyState title="加载失败" description={error} />
@@ -120,7 +121,8 @@ export default function HomePage() {
           )}
         </Column>
 
-        <Column eyebrow="REPORTS" title="报告" to="/reports" viewMoreTo="/reports">
+        <Column eyebrow="REPORTS" title="报告" to="/reports" viewMoreTo="/reports"
+          meta={latestReportFetch ? `更新于 ${latestReportFetch.slice(5, 10)}` : undefined}>
           {topReports.length > 0 ? (
             <div className="space-y-3">
               {topReports.map(report => (
@@ -132,10 +134,20 @@ export default function HomePage() {
                   >
                     {report.title}
                   </Link>
-                  <span className="text-xs text-[var(--muted)]">
-                    {report.institution}
-                    {report.published_at && <> · {report.published_at.slice(0, 10)}</>}
-                  </span>
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--muted)]">
+                    <span>
+                      {report.institution}
+                      {report.published_at && <> · {report.published_at.slice(0, 10)}</>}
+                    </span>
+                    {report.keywords && report.keywords.length > 0 && report.keywords.slice(0, 3).map(k => (
+                      <span
+                        key={k}
+                        className="inline-block text-[11px] px-1.5 py-0.5 rounded-full bg-[var(--accent)]/10 text-[var(--accent)]"
+                      >
+                        {k}
+                      </span>
+                    ))}
+                  </div>
                 </div>
               ))}
             </div>

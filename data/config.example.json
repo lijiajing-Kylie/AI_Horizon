@@ -197,11 +197,6 @@
     "enabled": false,
     "openalex": {
       "enabled": true
-    },
-    "huggingface": {
-      "enabled": true,
-      "top_n": 15,
-      "topics": []
     }
   },
   "reports": {

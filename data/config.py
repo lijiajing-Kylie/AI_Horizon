@@ -173,7 +173,7 @@ sources = {
 
     # ── 微信公众号（内置 we-mp-rss 核心抓取，无需外部服务）────────────────
     "wxmp": {
-        "enabled": not _IN_CI,     # CI 中无微信登录态，自动关闭
+        "enabled": False,          # 手动关闭微信公众号源（原: not _IN_CI）
         "gather_content": True,    # 抓取文章完整正文（需 Playwright chromium）
         "data_dir": "data/wxmp",   # 登录态 / 二维码存放目录
         "feeds": [
@@ -231,12 +231,11 @@ filtering = {
 papers = {
     "enabled": True,
     "openalex": {"enabled": True},          # 经典论文源（基于种子列表）
-    "huggingface": {"enabled": True, "top_n": 30},  # HF 每日热门论文
     # arXiv 每周精选：按分类抓最新论文 → 规则过滤 → AI 粗筛打分 → 精选 top N
     "arxiv": {
         "enabled": True,
         # 抓取分类（arXiv 分类码）
-        "categories": ["cs.AI", "cs.LG", "cs.CL"],
+        "categories": ["cs.AI", "cs.LG", "cs.CL", "cs.CV", "cs.MA", "cs.RO"],
         # 每分类抓取候选数
         "max_results_per_category": 50,
         # 回看窗口（天）。arXiv 发布/索引可能滞后数天，容忍回看 7 天
