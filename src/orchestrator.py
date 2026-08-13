@@ -181,8 +181,10 @@ class HorizonOrchestrator:
 
             # Backfill: when above-threshold items are fewer than max_items,
             # take the highest-scoring items below threshold to fill the gap.
+            backfilled = False
             important_items = above_threshold
             if max_items is not None and len(important_items) < max_items:
+                backfilled = True
                 needed = max_items - len(important_items)
                 important_items = important_items + below_threshold[:needed]
                 # Re-sort merged list
@@ -222,8 +224,11 @@ class HorizonOrchestrator:
             # 5.7 Topic classification: assign multi-dimensional topic tags
             await self._classify_topics(important_items)
 
-            # 5.8 Apply per-category and global digest limits before enrichment
-            balanced_result = self.apply_balanced_digest(important_items)
+            # 5.8 Apply global digest cap; source-type quotas only when backfilling
+            balanced_result = self.apply_balanced_digest(
+                important_items,
+                enable_group_quotas=backfilled,
+            )
             important_items = balanced_result.items
             final_ids = {item.id for item in important_items}
 
@@ -508,9 +513,16 @@ class HorizonOrchestrator:
         items: List[ContentItem],
         *,
         log: bool = True,
+        enable_group_quotas: bool = True,
     ) -> BalancedDigestResult:
         """Stable stage entry point for integrations such as MCP."""
-        return apply_balanced_digest(items, self.config.filtering, console=self.console, log=log)
+        return apply_balanced_digest(
+            items,
+            self.config.filtering,
+            console=self.console,
+            log=log,
+            enable_group_quotas=enable_group_quotas,
+        )
 
     async def _expand_twitter_discussion(self, items: List[ContentItem]) -> None:
         """Second-stage: fetch reply text for important Twitter items and re-analyze.

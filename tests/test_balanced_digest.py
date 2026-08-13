@@ -198,3 +198,51 @@ def test_run_applies_balanced_digest_before_enrichment(tmp_path, monkeypatch) ->
     asyncio.run(orchestrator.run())
 
     assert enriched_ids == ["ai"]
+
+
+def test_quotas_disabled_keeps_top_items_by_score() -> None:
+    """配额关闭(正常路径):只按分数全局截断,来源配额不生效。"""
+    filtering = FilteringConfig(
+        max_items=3,
+        category_groups={
+            "ai": CategoryGroupConfig(limit=1, categories=["ai"]),
+            "finance": CategoryGroupConfig(limit=1, categories=["finance"]),
+        },
+    )
+    items = [
+        make_item("ai-low", 6.0, "ai"),
+        make_item("ai-mid", 7.5, "ai"),
+        make_item("ai-high", 9.0, "ai"),
+        make_item("fin-high", 8.0, "finance"),
+    ]
+
+    result = make_orchestrator(filtering).apply_balanced_digest(
+        items,
+        enable_group_quotas=False,
+    )
+
+    # 配额关闭:即使 ai 类占了 3 个名额也全保留(按分数取前 max_items)
+    assert [item.id for item in result.items] == ["ai-high", "fin-high", "ai-mid"]
+
+
+def test_quotas_enabled_limits_source_type() -> None:
+    """配额开启(回填路径):按来源类型限流,同来源只留最高分。"""
+    filtering = FilteringConfig(
+        max_items=10,
+        category_groups={
+            "ai": CategoryGroupConfig(limit=1, categories=["ai"]),
+        },
+    )
+    items = [
+        make_item("ai-low", 6.0, "ai"),
+        make_item("ai-mid", 7.5, "ai"),
+        make_item("ai-high", 9.0, "ai"),
+        make_item("other-high", 8.5, "world"),
+    ]
+
+    result = make_orchestrator(filtering).apply_balanced_digest(
+        items,
+        enable_group_quotas=True,
+    )
+
+    assert [item.id for item in result.items] == ["ai-high", "other-high"]

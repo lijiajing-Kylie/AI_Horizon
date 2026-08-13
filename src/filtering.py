@@ -28,15 +28,35 @@ def apply_balanced_digest(
     *,
     console: Optional[Console] = None,
     log: bool = True,
+    enable_group_quotas: bool = True,
 ) -> BalancedDigestResult:
     """Apply configured category quotas and the final item cap.
 
     Categories are read from ``item.metadata["category"]``. If a category
     appears in more than one configured group, the first group in config
     order wins.
+
+    When ``enable_group_quotas`` is False, per-category limits are skipped and
+    only the global ``max_items`` cap applies (items sorted by score, best kept).
+    The orchestrator uses this so source-type quotas only kick in when
+    below-threshold items are backfilled, not in the normal path.
     """
-    groups = filtering.category_groups
     max_items = filtering.max_items
+
+    if not enable_group_quotas:
+        sorted_items = sorted(
+            items,
+            key=lambda item: item.ai_score or 0,
+            reverse=True,
+        )
+        if max_items is not None:
+            sorted_items = sorted_items[:max_items]
+        return BalancedDigestResult(
+            items=sorted_items,
+            enabled=max_items is not None,
+        )
+
+    groups = filtering.category_groups
 
     if not groups and max_items is None:
         return BalancedDigestResult(items=items)

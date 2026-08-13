@@ -135,7 +135,7 @@ sources = {
     },
 
     # ── Telegram（已关闭）──
-    "telegram": {"enabled": False, "channels": []},
+    "telegram": {"enabled": True, "channels": []},
 
     # ── OSS Insight 趋势（已关闭）──
     "ossinsight": {"enabled": False},
@@ -171,45 +171,44 @@ sources = {
         "fetch_reply_text": False,
     },
 
-    # ── 微信公众号（内置 we-mp-rss 核心抓取，无需外部服务）────────────────
+    # ── 微信公众号（we_read 纯 HTTP 通道，weread.111965.xyz 转发服务）────────
     "wxmp": {
-        "enabled": False,          # 手动关闭微信公众号源（原: not _IN_CI）
+        "enabled": False,         # 手动关闭微信公众号源（原: not _IN_CI）
         "gather_content": True,    # 抓取文章完整正文（需 Playwright chromium）
         "data_dir": "data/wxmp",   # 登录态 / 二维码存放目录
         "feeds": [
             # 加公众号就在这里加一条，feed_id 是公众号的 MP_WXS_ id
-            {"name": "36氪Pro",       "feed_id": "MP_WXS_3519073339"},
-            {"name": "AI前线",        "feed_id": "MP_WXS_3554086560"},
-            {"name": "APPSO",         "feed_id": "MP_WXS_2392024520"},
-            {"name": "Founder Park",  "feed_id": "MP_WXS_3895742803"},
-            {"name": "GitHubDaily",   "feed_id": "MP_WXS_3019715205"},
-            {"name": "PaperWeekly",   "feed_id": "MP_WXS_3201788143"},
-            {"name": "中国信通院CAICT","feed_id": "MP_WXS_2393546305"},
-            {"name": "乱翻书",        "feed_id": "MP_WXS_2390738373"},
-            {"name": "前端之巅",      "feed_id": "MP_WXS_3513713196"},
-            {"name": "夕小瑶科技说",  "feed_id": "MP_WXS_3207765945"},
-            {"name": "字节跳动",      "feed_id": "MP_WXS_3550827996"},
-            {"name": "字节跳动技术团队","feed_id": "MP_WXS_3253632141"},
-            {"name": "小米技术",      "feed_id": "MP_WXS_3510410326"},
-            {"name": "我爱计算机视觉", "feed_id": "MP_WXS_3201156411"},
-            {"name": "新智元",         "feed_id": "MP_WXS_3271041950"},
-            {"name": "晚点LatePost",   "feed_id": "MP_WXS_3572959446"},
-            {"name": "机器之心",       "feed_id": "MP_WXS_3073282833"},
-            {"name": "极客公园",       "feed_id": "MP_WXS_1304308441"},
-            {"name": "架构师之路",     "feed_id": "MP_WXS_2398610099"},
-            {"name": "海外独角兽",     "feed_id": "MP_WXS_3869640945"},
-            {"name": "深科技",         "feed_id": "MP_WXS_3218265689"},
-            {"name": "甲子光年",       "feed_id": "MP_WXS_3599245772"},
-            {"name": "腾讯技术工程",   "feed_id": "MP_WXS_2398602260"},
-            {"name": "腾讯玄武实验室", "feed_id": "MP_WXS_3094624240"},
-            {"name": "腾讯研究院",     "feed_id": "MP_WXS_2399148061"},
-            {"name": "计算机视觉life", "feed_id": "MP_WXS_3219739384"},
-            {"name": "通义实验室",     "feed_id": "MP_WXS_3911621034"},
-            {"name": "量子位",         "feed_id": "MP_WXS_3236757533"},
-            {"name": "钛媒体",         "feed_id": "MP_WXS_2398235760"},
-            {"name": "阿里云",         "feed_id": "MP_WXS_3086283381"},
-            {"name": "阿里技术",       "feed_id": "MP_WXS_3885737868"},
-            {"name": "阿里研究院",     "feed_id": "MP_WXS_2395844153"},
+            {"name": "36氪Pro", "feed_id": "MP_WXS_3519073339", "weread_mp_id": "MP_WXS_3519073339"},
+            {"name": "AI前线", "feed_id": "MP_WXS_3554086560", "weread_mp_id": "MP_WXS_3554086560"},
+            {"name": "APPSO", "feed_id": "MP_WXS_2392024520", "weread_mp_id": "MP_WXS_2392024520"},
+            {"name": "GitHubDaily", "feed_id": "MP_WXS_3019715205", "weread_mp_id": "MP_WXS_3019715205"},
+            {"name": "PaperWeekly", "feed_id": "MP_WXS_3201788143", "weread_mp_id": "MP_WXS_3201788143"},
+            {"name": "中国信通院CAICT", "feed_id": "MP_WXS_2393546305", "weread_mp_id": "MP_WXS_2393546305"},
+            {"name": "乱翻书", "feed_id": "MP_WXS_2390738373", "weread_mp_id": "MP_WXS_2390738373"},
+            {"name": "夕小瑶科技说", "feed_id": "MP_WXS_3207765945", "weread_mp_id": "MP_WXS_3207765945"},
+            {"name": "字节跳动", "feed_id": "MP_WXS_3550827996", "weread_mp_id": "MP_WXS_3550827996"},
+            {"name": "字节跳动技术团队", "feed_id": "MP_WXS_3253632141", "weread_mp_id": "MP_WXS_3253632141"},
+            {"name": "小米技术", "feed_id": "MP_WXS_3510410326", "weread_mp_id": "MP_WXS_3510410326"},
+            {"name": "我爱计算机视觉", "feed_id": "MP_WXS_3201156411", "weread_mp_id": "MP_WXS_3201156411"},
+            {"name": "新智元", "feed_id": "MP_WXS_3271041950", "weread_mp_id": "MP_WXS_3271041950"},
+            {"name": "晚点LatePost", "feed_id": "MP_WXS_3572959446", "weread_mp_id": "MP_WXS_3572959446"},
+            {"name": "机器之心", "feed_id": "MP_WXS_3073282833", "weread_mp_id": "MP_WXS_3073282833"},
+            {"name": "极客公园", "feed_id": "MP_WXS_1304308441", "weread_mp_id": "MP_WXS_1304308441"},
+            {"name": "架构师之路", "feed_id": "MP_WXS_2398610099", "weread_mp_id": "MP_WXS_2398610099"},
+            {"name": "海外独角兽", "feed_id": "MP_WXS_3869640945", "weread_mp_id": "MP_WXS_3869640945"},
+            {"name": "深科技", "feed_id": "MP_WXS_3218265689", "weread_mp_id": "MP_WXS_3218265689"},
+            {"name": "甲子光年", "feed_id": "MP_WXS_3599245772", "weread_mp_id": "MP_WXS_3599245772"},
+            {"name": "腾讯技术工程", "feed_id": "MP_WXS_2398602260", "weread_mp_id": "MP_WXS_2398602260"},
+            {"name": "腾讯玄武实验室", "feed_id": "MP_WXS_3094624240", "weread_mp_id": "MP_WXS_3094624240"},
+            {"name": "腾讯研究院", "feed_id": "MP_WXS_2399148061", "weread_mp_id": "MP_WXS_2399148061"},
+            {"name": "计算机视觉life", "feed_id": "MP_WXS_3219739384", "weread_mp_id": "MP_WXS_3219739384"},
+            {"name": "通义实验室", "feed_id": "MP_WXS_3911621034", "weread_mp_id": "MP_WXS_3911621034"},
+            {"name": "量子位", "feed_id": "MP_WXS_3236757533", "weread_mp_id": "MP_WXS_3236757533"},
+            {"name": "钛媒体", "feed_id": "MP_WXS_2398235760", "weread_mp_id": "MP_WXS_2398235760"},
+            {"name": "阿里云", "feed_id": "MP_WXS_3086283381", "weread_mp_id": "MP_WXS_3086283381"},
+            {"name": "阿里技术", "feed_id": "MP_WXS_3885737868", "weread_mp_id": "MP_WXS_3885737868"},
+            {"name": "阿里研究院", "feed_id": "MP_WXS_2395844153", "weread_mp_id": "MP_WXS_2395844153"},
+            {"name": "字节跳动Seed", "weread_mp_id": "MP_WXS_3930693616"},
         ],
     },
 }
@@ -222,6 +221,19 @@ filtering = {
     "ai_score_threshold": 7.0,   # AI 评分门槛（0-10），低于此分不进摘要
     "time_window_hours": 24,     # 每次抓取多少小时内的内容
     "max_items": 30,             # 摘要全局条目上限，None 为不限制
+    # 来源类型配额：仅在“回填”发生时生效（过线内容不足 max_items、需降格补位时），
+    # 防止某一类来源把简报灌满；正常情况下不启用，内容多样靠自然涌现。
+    # 分组依据是各源在 sources 配置里人工打的来源标签（category）。
+    "category_groups": {
+        "官方源":   {"categories": ["foreign-official"],                      "limit": 6},
+        "外媒":     {"categories": ["foreign-media"],                         "limit": 8},
+        "社区":     {"categories": ["foreign-community"],                     "limit": 8},
+        "聚合源":   {"categories": ["ai-aggregator", "chinese-aggregator"],   "limit": 6},
+        "中文媒体": {"categories": ["chinese-media"],                         "limit": 6},
+        "个人博客": {"categories": ["foreign-blogger"],                       "limit": 5},
+    },
+    "default_group": "other",    # 未匹配任何配额组的分类归入此组
+    "default_group_limit": 3,    # 默认组在回填时的条目上限，None 为不限制
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
