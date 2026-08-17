@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useParams } from 'react-router-dom'
 import { ExternalLink } from 'lucide-react'
 import { useApi } from '../hooks/useApi'
@@ -30,6 +30,8 @@ export default function PaperDetailPage() {
 
   // Hooks must be before early returns
   const [displayLang, setDisplayLang] = useState<'original' | 'zh'>('zh')
+  const [note, setNote] = useState<string | null | undefined>(paper?.note)
+  useEffect(() => setNote(paper?.note ?? null), [paper?.note])
 
   const toggleLang = useCallback(() => {
     setDisplayLang(prev => (prev === 'zh' ? 'original' : 'zh'))
@@ -105,7 +107,7 @@ export default function PaperDetailPage() {
               )}
             </h1>
           </div>
-          <FavoriteButton itemId={paper.id} initialFavorited={paper.is_favorited ?? false} type="paper" size="md" />
+          <FavoriteButton itemId={paper.id} initialFavorited={paper.is_favorited ?? false} type="paper" size="md" note={note} onNoteChange={setNote} />
         </div>
 
         {paper.keywords && paper.keywords.length > 0 && (
@@ -187,6 +189,13 @@ export default function PaperDetailPage() {
           })()}
         </div>
 
+        {/* Favorite note */}
+        {note && (
+          <div className="mt-4 rounded-lg bg-black/[.03] px-4 py-3">
+            <div className="text-xs font-medium text-[var(--muted)] mb-1">我的笔记</div>
+            <p className="text-sm text-[var(--ink)] leading-relaxed whitespace-pre-line">{note}</p>
+          </div>
+        )}
       </header>
 
       {hasAI && summary && (

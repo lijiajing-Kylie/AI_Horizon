@@ -41,6 +41,7 @@ export default function ItemCard({ item, showTopics = true, backTo }: ItemCardPr
   const defaultLang = contentBlock?.default_language ?? 'zh'
 
   const [displayLang, setDisplayLang] = useState(defaultLang)
+  const [note, setNote] = useState<string | null | undefined>(item.note)
 
   const toggleLang = useCallback(() => {
     setDisplayLang(prev => (prev === defaultLang ? originalLang : defaultLang))
@@ -109,7 +110,7 @@ export default function ItemCard({ item, showTopics = true, backTo }: ItemCardPr
             )}
           </h3>
         </div>
-        <FavoriteButton itemId={item.id} initialFavorited={item.is_favorited ?? false} />
+        <FavoriteButton itemId={item.id} initialFavorited={item.is_favorited ?? false} note={note} onNoteChange={setNote} />
       </div>
 
       {/* Meta row */}
@@ -186,6 +187,21 @@ export default function ItemCard({ item, showTopics = true, backTo }: ItemCardPr
               {t.name}
             </Link>
           ))}
+        </div>
+      )}
+
+      {/* Favorite note */}
+      {note && (
+        <div className="mt-3 rounded-lg bg-black/[.03] px-3 py-2">
+          <div className="flex items-center gap-2">
+            {item.note_hit && (
+              <span className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded-full bg-[var(--accent)]/10 text-[var(--accent)]">
+                笔记命中
+              </span>
+            )}
+            <span className="text-xs font-medium text-[var(--muted)]">我的笔记</span>
+          </div>
+          <p className="mt-1 text-sm text-[var(--ink)] leading-relaxed whitespace-pre-line">{note}</p>
         </div>
       )}
     </article>

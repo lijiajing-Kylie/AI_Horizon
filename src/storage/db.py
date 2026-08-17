@@ -121,6 +121,7 @@ CREATE TABLE IF NOT EXISTS user_item_state (
     user_id         TEXT NOT NULL,
     item_id         TEXT NOT NULL,
     state           TEXT NOT NULL,
+    note            TEXT,
     created_at      TEXT NOT NULL DEFAULT (datetime('now')),
     FOREIGN KEY (item_id) REFERENCES items(id) ON DELETE CASCADE,
     UNIQUE(user_id, item_id, state)
@@ -133,6 +134,7 @@ CREATE TABLE IF NOT EXISTS user_paper_favorites (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id         TEXT NOT NULL,
     paper_id        TEXT NOT NULL,
+    note            TEXT,
     created_at      TEXT NOT NULL DEFAULT (datetime('now')),
     UNIQUE(user_id, paper_id)
 );
@@ -144,6 +146,7 @@ CREATE TABLE IF NOT EXISTS user_report_favorites (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id         TEXT NOT NULL,
     report_id       TEXT NOT NULL,
+    note            TEXT,
     created_at      TEXT NOT NULL DEFAULT (datetime('now')),
     UNIQUE(user_id, report_id)
 );
@@ -298,6 +301,23 @@ def _migrate_reports_table(conn: sqlite3.Connection) -> None:
     for column, ddl in _REPORTS_COLUMN_MIGRATIONS:
         if column not in existing:
             conn.execute(f"ALTER TABLE reports ADD COLUMN {column} {ddl}")
+    conn.commit()
+
+
+# 收藏表的新增列（Pattern A：老库幂等 ALTER，新库 CREATE TABLE 已带列）。
+_FAVORITES_NOTE_MIGRATIONS: list[tuple[str, str, str]] = [
+    ("user_item_state", "note", "TEXT"),
+    ("user_paper_favorites", "note", "TEXT"),
+    ("user_report_favorites", "note", "TEXT"),
+]
+
+
+def _migrate_favorites_note(conn: sqlite3.Connection) -> None:
+    """Add the note column to the three favorites tables for existing DBs."""
+    for table, column, ddl in _FAVORITES_NOTE_MIGRATIONS:
+        existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+        if column not in existing:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
     conn.commit()
 
 
@@ -740,6 +760,7 @@ class HorizonDB:
             _migrate_items_table(conn)
             _migrate_papers_table(conn)
             _migrate_reports_table(conn)
+            _migrate_favorites_note(conn)
             _migrate_topics_table(conn)
             _migrate_fts_tokenizer(conn)
             self._local.conn = conn
@@ -1457,6 +1478,7 @@ class HorizonDB:
         order: str = "desc",
         page: int = 1,
         per_page: int = 20,
+        user_id: Optional[str] = None,
     ) -> dict[str, Any]:
         """Paginated reports query with optional filters."""
         where = []
@@ -1476,14 +1498,29 @@ class HorizonDB:
             )
             params.append(category)
 
+        search_pred: Optional[str] = None
+        search_params: list[Any] = []
+        like_pattern = ""
         if search:
             escaped = _escape_like(search)
-            where.append("(title LIKE ? ESCAPE '\\' OR content_text LIKE ? ESCAPE '\\')")
+            search_pred = "(title LIKE ? ESCAPE '\\' OR content_text LIKE ? ESCAPE '\\')"
             like_pattern = f"%{escaped}%"
-            params.extend([like_pattern, like_pattern])
+            search_params = [like_pattern, like_pattern]
 
         where_clause = " AND ".join(where) if where else "1=1"
-        base_from = f"FROM reports WHERE {where_clause}"
+        if user_id and search_pred:
+            note_pred = (
+                "EXISTS (SELECT 1 FROM user_report_favorites urf "
+                "WHERE urf.user_id = ? AND urf.report_id = reports.id AND urf.note LIKE ? ESCAPE '\\')"
+            )
+            base_from = f"FROM reports WHERE ({where_clause}) AND ({search_pred} OR {note_pred})"
+            params += search_params + [user_id, like_pattern]
+        else:
+            if search_pred:
+                where.append(search_pred)
+                params += search_params
+            where_clause = " AND ".join(where) if where else "1=1"
+            base_from = f"FROM reports WHERE {where_clause}"
 
         count_row = self.conn.execute(
             f"SELECT COUNT(*) as cnt {base_from}", params
@@ -1503,6 +1540,10 @@ class HorizonDB:
             page_params,
         ).fetchall()
 
+        reports = [_row_to_report(r) for r in rows]
+        if user_id and search_pred:
+            self._mark_note_hits("user_report_favorites", "report_id", user_id, reports, like_pattern)
+
         # 报告库最近一次抓取时间（全局 MAX，不受分页/排序影响）。
         latest = self.conn.execute(
             "SELECT MAX(fetched_at) AS m FROM reports"
@@ -1510,7 +1551,7 @@ class HorizonDB:
         latest_fetched_at = latest["m"] if latest and latest["m"] else None
 
         return {
-            "items": [_row_to_report(r) for r in rows],
+            "items": reports,
             "total": total,
             "page": page,
             "per_page": per_page,
@@ -1660,6 +1701,7 @@ class HorizonDB:
         order: str = "desc",
         selected_only: bool = True,
         blocked_topic_ids: Optional[Iterable[int]] = None,
+        user_id: Optional[str] = None,
     ) -> list[dict[str, Any]] | dict[str, Any]:
         """Substring search across title, summary, reason, and tags.
 
@@ -1677,28 +1719,43 @@ class HorizonDB:
             order: Sort direction — "asc" or "desc".
         """
         like = f"%{_escape_like(query)}%"
-        where = [
+        content_pred = (
             "(items_fts.title LIKE ? ESCAPE '\\' "
             "OR items_fts.ai_summary LIKE ? ESCAPE '\\' "
             "OR items_fts.ai_reason LIKE ? ESCAPE '\\' "
             "OR items_fts.ai_tags_json LIKE ? ESCAPE '\\')"
-        ]
-        params: list[Any] = [like, like, like, like]
+        )
 
+        # Non-search filters (AND-ed regardless of the note OR branch).
+        filters: list[str] = []
+        filter_params: list[Any] = []
         if selected_only:
-            where.append("items.selected = 1")
-
+            filters.append("items.selected = 1")
         if blocked_topic_ids:
             blocked_topic_ids = list(blocked_topic_ids)
             placeholders = ",".join("?" for _ in blocked_topic_ids)
-            where.append(
+            filters.append(
                 f"items.id NOT IN (SELECT news_id FROM news_topics WHERE topic_id IN ({placeholders}))"
             )
-            params.extend(blocked_topic_ids)
+            filter_params.extend(blocked_topic_ids)
+
+        params: list[Any] = list(filter_params)
+        if user_id:
+            # 收藏笔记命中：正文/标题不匹配但该用户收藏的笔记含关键词也算命中。
+            note_pred = (
+                "EXISTS (SELECT 1 FROM user_item_state uis "
+                "WHERE uis.user_id = ? AND uis.item_id = items.id "
+                "AND uis.state = 'favorited' AND uis.note LIKE ? ESCAPE '\\')"
+            )
+            where_sql = f"({' AND '.join(filters)}) AND ({content_pred} OR {note_pred})"
+            params += [like, like, like, like, user_id, like]
+        else:
+            where_sql = " AND ".join([content_pred, *filters])
+            params += [like, like, like, like]
 
         base_from = (
             f"FROM items JOIN items_fts ON items.rowid = items_fts.rowid "
-            f"WHERE {' AND '.join(where)}"
+            f"WHERE {where_sql}"
         )
 
         sort_col = "items.ai_score" if sort == "relevance" else "items.published_at"
@@ -1719,6 +1776,11 @@ class HorizonDB:
                 page_params,
             ).fetchall()
             items = [_row_to_item(r) for r in rows]
+            if user_id:
+                self._mark_note_hits(
+                    "user_item_state", "item_id", user_id, items, like,
+                    state_clause="AND state='favorited'",
+                )
             topics_map = self._batch_get_news_topics([item["id"] for item in items])
             for item in items:
                 item["topics"] = topics_map.get(item["id"], [])
@@ -1735,6 +1797,11 @@ class HorizonDB:
                 params,
             ).fetchall()
             items = [_row_to_item(r) for r in rows]
+            if user_id:
+                self._mark_note_hits(
+                    "user_item_state", "item_id", user_id, items, like,
+                    state_clause="AND state='favorited'",
+                )
             # Batch-fill topics
             topics_map = self._batch_get_news_topics([item["id"] for item in items])
             for item in items:
@@ -2283,6 +2350,36 @@ class HorizonDB:
         ).fetchall()
         return {r["item_id"] for r in rows}
 
+    def set_item_note(self, user_id: str, item_id: str, note: Optional[str]) -> int:
+        """Save (or clear, when blank) the note on a favorited item.
+
+        Returns the number of updated rows (0 means the favorite row doesn't
+        exist — caller should 404). Never INSERTs: the favorite row must already
+        exist (INSERT OR IGNORE semantics make an INSERT a silent no-op at best).
+        """
+        note = note.strip() if note else None
+        cur = self.conn.execute(
+            """UPDATE user_item_state SET note = ?
+               WHERE user_id = ? AND item_id = ? AND state = 'favorited'""",
+            (note, user_id, item_id),
+        )
+        self.conn.commit()
+        return cur.rowcount
+
+    def get_item_notes(self, user_id: str, item_ids: list[str]) -> dict[str, str]:
+        """Batch return {item_id: note} for favorited items that carry a note."""
+        if not item_ids:
+            return {}
+        placeholders = ",".join("?" for _ in item_ids)
+        rows = self.conn.execute(
+            f"""SELECT item_id, note FROM user_item_state
+                WHERE user_id = ? AND state = 'favorited'
+                  AND note IS NOT NULL AND note != ''
+                  AND item_id IN ({placeholders})""",
+            (user_id, *item_ids),
+        ).fetchall()
+        return {r["item_id"]: r["note"] for r in rows}
+
     def get_favorites(self, user_id: str, *, page: int = 1, per_page: int = 20) -> dict[str, Any]:
         """Paginated list of a user's favorited items, most recently favorited first."""
         offset = (page - 1) * per_page
@@ -2294,7 +2391,7 @@ class HorizonDB:
         total = count_row["cnt"] if count_row else 0
 
         rows = self.conn.execute(
-            """SELECT items.* FROM user_item_state
+            """SELECT items.*, user_item_state.note AS note FROM user_item_state
                JOIN items ON items.id = user_item_state.item_id
                WHERE user_item_state.user_id = ? AND user_item_state.state = 'favorited'
                ORDER BY user_item_state.created_at DESC
@@ -2304,9 +2401,11 @@ class HorizonDB:
 
         items = [_row_to_item(r) for r in rows]
         topics_map = self._batch_get_news_topics([item["id"] for item in items])
-        for item in items:
+        for item, r in zip(items, rows):
             item["topics"] = topics_map.get(item["id"], [])
             item["is_favorited"] = True
+            if r["note"]:
+                item["note"] = r["note"]
 
         return {
             "items": items,
@@ -2372,6 +2471,86 @@ class HorizonDB:
         ).fetchall()
         return {r["report_id"] for r in rows}
 
+    def set_paper_note(self, user_id: str, paper_id: str, note: Optional[str]) -> int:
+        """Save (or clear, when blank) the note on a favorited paper."""
+        note = note.strip() if note else None
+        cur = self.conn.execute(
+            """UPDATE user_paper_favorites SET note = ?
+               WHERE user_id = ? AND paper_id = ?""",
+            (note, user_id, paper_id),
+        )
+        self.conn.commit()
+        return cur.rowcount
+
+    def get_paper_notes(self, user_id: str, paper_ids: list[str]) -> dict[str, str]:
+        """Batch return {paper_id: note} for favorited papers that carry a note."""
+        if not paper_ids:
+            return {}
+        placeholders = ",".join("?" for _ in paper_ids)
+        rows = self.conn.execute(
+            f"""SELECT paper_id, note FROM user_paper_favorites
+                WHERE user_id = ?
+                  AND note IS NOT NULL AND note != ''
+                  AND paper_id IN ({placeholders})""",
+            (user_id, *paper_ids),
+        ).fetchall()
+        return {r["paper_id"]: r["note"] for r in rows}
+
+    def set_report_note(self, user_id: str, report_id: str, note: Optional[str]) -> int:
+        """Save (or clear, when blank) the note on a favorited report."""
+        note = note.strip() if note else None
+        cur = self.conn.execute(
+            """UPDATE user_report_favorites SET note = ?
+               WHERE user_id = ? AND report_id = ?""",
+            (note, user_id, report_id),
+        )
+        self.conn.commit()
+        return cur.rowcount
+
+    def get_report_notes(self, user_id: str, report_ids: list[str]) -> dict[str, str]:
+        """Batch return {report_id: note} for favorited reports that carry a note."""
+        if not report_ids:
+            return {}
+        placeholders = ",".join("?" for _ in report_ids)
+        rows = self.conn.execute(
+            f"""SELECT report_id, note FROM user_report_favorites
+                WHERE user_id = ?
+                  AND note IS NOT NULL AND note != ''
+                  AND report_id IN ({placeholders})""",
+            (user_id, *report_ids),
+        ).fetchall()
+        return {r["report_id"]: r["note"] for r in rows}
+
+    def _mark_note_hits(
+        self,
+        fav_table: str,
+        id_col: str,
+        user_id: str,
+        items: list[dict],
+        like: str,
+        state_clause: str = "",
+    ) -> None:
+        """Set item['note_hit'] = True for rows whose favorite note matches.
+
+        Runs *after* a search query returned ``items`` (a second pass, so the
+        main SELECT never needs a CASE column). ``state_clause`` is used by the
+        news path (``"AND state='favorited'"``) and left empty for papers/reports.
+        Every item gets an explicit ``note_hit`` boolean.
+        """
+        ids = [it["id"] for it in items]
+        if not ids:
+            return
+        placeholders = ",".join("?" for _ in ids)
+        rows = self.conn.execute(
+            f"SELECT {id_col} AS eid FROM {fav_table} "
+            f"WHERE user_id = ? {state_clause} AND {id_col} IN ({placeholders}) "
+            f"AND note LIKE ? ESCAPE '\\'",
+            (user_id, *ids, like),
+        ).fetchall()
+        hit_ids = {r["eid"] for r in rows}
+        for it in items:
+            it["note_hit"] = it["id"] in hit_ids
+
     def get_favorited_papers(self, user_id: str, *, page: int = 1, per_page: int = 20, source: str | None = None) -> dict[str, Any]:
         """Paginated list of a user's favorited papers, most recently favorited first."""
         offset = (page - 1) * per_page
@@ -2393,7 +2572,7 @@ class HorizonDB:
         total = count_row["cnt"] if count_row else 0
 
         rows = self.conn.execute(
-            f"""SELECT papers.* FROM user_paper_favorites
+            f"""SELECT papers.*, user_paper_favorites.note AS note FROM user_paper_favorites
                JOIN papers ON papers.id = user_paper_favorites.paper_id
                WHERE user_paper_favorites.user_id = ?{source_clause}
                ORDER BY user_paper_favorites.created_at DESC
@@ -2402,8 +2581,10 @@ class HorizonDB:
         ).fetchall()
 
         papers = [_row_to_paper(r) for r in rows]
-        for p in papers:
+        for p, r in zip(papers, rows):
             p["is_favorited"] = True
+            if r["note"]:
+                p["note"] = r["note"]
 
         return {
             "items": papers,
@@ -2424,7 +2605,7 @@ class HorizonDB:
         total = count_row["cnt"] if count_row else 0
 
         rows = self.conn.execute(
-            """SELECT reports.* FROM user_report_favorites
+            """SELECT reports.*, user_report_favorites.note AS note FROM user_report_favorites
                JOIN reports ON reports.id = user_report_favorites.report_id
                WHERE user_report_favorites.user_id = ?
                ORDER BY user_report_favorites.created_at DESC
@@ -2433,8 +2614,10 @@ class HorizonDB:
         ).fetchall()
 
         reports = [_row_to_report(r) for r in rows]
-        for r in reports:
+        for r, row in zip(reports, rows):
             r["is_favorited"] = True
+            if row["note"]:
+                r["note"] = row["note"]
 
         return {
             "items": reports,

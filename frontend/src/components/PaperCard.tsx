@@ -13,6 +13,7 @@ interface PaperCardProps {
 
 export default function PaperCard({ paper, backTo }: PaperCardProps) {
   const authors = paper.authors.slice(0, 3).join(', ') + (paper.authors.length > 3 ? ' 等' : '')
+  const [note, setNote] = useState<string | null | undefined>(paper.note)
 
   // ---- translation toggle ------------------------------------------------
   const hasTranslation = !!(
@@ -61,7 +62,7 @@ export default function PaperCard({ paper, backTo }: PaperCardProps) {
             )}
           </h3>
         </div>
-        <FavoriteButton itemId={paper.id} initialFavorited={paper.is_favorited ?? false} type="paper" />
+        <FavoriteButton itemId={paper.id} initialFavorited={paper.is_favorited ?? false} type="paper" note={note} onNoteChange={setNote} />
       </div>
 
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--muted)] mt-1 mb-3">
@@ -155,6 +156,20 @@ export default function PaperCard({ paper, backTo }: PaperCardProps) {
           </a>
         )}
       </div>
+
+      {note && (
+        <div className="mt-3 rounded-lg bg-black/[.03] px-3 py-2">
+          <div className="flex items-center gap-2">
+            {paper.note_hit && (
+              <span className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded-full bg-[var(--accent)]/10 text-[var(--accent)]">
+                笔记命中
+              </span>
+            )}
+            <span className="text-xs font-medium text-[var(--muted)]">我的笔记</span>
+          </div>
+          <p className="mt-1 text-sm text-[var(--ink)] leading-relaxed whitespace-pre-line">{note}</p>
+        </div>
+      )}
     </article>
   )
 }

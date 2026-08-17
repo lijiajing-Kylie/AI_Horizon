@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react'
 import { useParams } from 'react-router-dom'
 import { ExternalLink } from 'lucide-react'
 import { useApi } from '../hooks/useApi'
@@ -12,6 +13,10 @@ import CardHeading from '../components/CardHeading'
 export default function ReportDetailPage() {
   const { id } = useParams<{ id: string }>()
   const { data: report, loading, error } = useApi(() => getReport(id!), [id])
+
+  // Hooks must be before early returns
+  const [note, setNote] = useState<string | null | undefined>(report?.note)
+  useEffect(() => setNote(report?.note ?? null), [report?.note])
 
   if (loading && !report) return <LoadingSkeleton />
   if (error) return <EmptyState title="加载失败" description={error} />
@@ -44,7 +49,7 @@ export default function ReportDetailPage() {
               </a>
             </h1>
           </div>
-          <FavoriteButton itemId={report.id} initialFavorited={report.is_favorited ?? false} type="report" size="md" />
+          <FavoriteButton itemId={report.id} initialFavorited={report.is_favorited ?? false} type="report" size="md" note={note} onNoteChange={setNote} />
         </div>
 
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-[var(--muted)] mb-3">
@@ -103,6 +108,14 @@ export default function ReportDetailPage() {
                 {k}
               </span>
             ))}
+          </div>
+        )}
+
+        {/* Favorite note */}
+        {note && (
+          <div className="mt-4 rounded-lg bg-black/[.03] px-4 py-3">
+            <div className="text-xs font-medium text-[var(--muted)] mb-1">我的笔记</div>
+            <p className="text-sm text-[var(--ink)] leading-relaxed whitespace-pre-line">{note}</p>
           </div>
         )}
       </header>

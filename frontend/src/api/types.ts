@@ -110,6 +110,10 @@ export interface NewsItem {
   debug?: ScrapeDiagnostics
   /** Only present when the request carried X-User-Id (see utils/userId.ts). */
   is_favorited?: boolean
+  /** 收藏笔记（仅带 X-User-Id 且已收藏时出现；无笔记为 undefined）。 */
+  note?: string | null
+  /** 搜索命中来自笔记（正文/标题不匹配但笔记含关键词）时 True。 */
+  note_hit?: boolean
 }
 
 // ---- Scrape diagnostics (dev-only) ----
@@ -336,6 +340,10 @@ export interface Report {
   has_local_pdf?: boolean
   /** Only present when the request carried X-User-Id (see utils/userId.ts). */
   is_favorited?: boolean
+  /** 收藏笔记（仅带 X-User-Id 且已收藏时出现；无笔记为 undefined）。 */
+  note?: string | null
+  /** 搜索命中来自笔记（正文/标题不匹配但笔记含关键词）时 True。 */
+  note_hit?: boolean
 }
 
 export interface PaperTopic {
@@ -408,6 +416,10 @@ export interface Paper {
   topics?: PaperTopic[]
   /** Only present when the request carried X-User-Id (see utils/userId.ts). */
   is_favorited?: boolean
+  /** 收藏笔记（仅带 X-User-Id 且已收藏时出现；无笔记为 undefined）。 */
+  note?: string | null
+  /** 搜索命中来自笔记（正文/标题不匹配但笔记含关键词）时 True。 */
+  note_hit?: boolean
 
   // ── Featured / AI-enriched fields（arXiv 精选 + AI 解读）─────────────────
   /** 期刊 / 会议名。 */
@@ -442,4 +454,12 @@ export interface GlobalSearchResponse {
   news: GlobalSearchSection<NewsItem>
   papers: GlobalSearchSection<Paper>
   reports: GlobalSearchSection<Report>
+}
+
+// ---- Save to local knowledge base ----------------------------------------
+
+/** Rendered Markdown for a single news item, plus its download filename. */
+export interface ExportKnowledgeBaseResponse {
+  filename: string
+  markdown: string
 }

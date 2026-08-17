@@ -80,6 +80,9 @@ const LS_KEYS = {
   favorites: 'horizon_favorites',
   paperFavorites: 'horizon_paper_favorites',
   reportFavorites: 'horizon_report_favorites',
+  itemNotes: 'horizon_item_notes',
+  paperNotes: 'horizon_paper_notes',
+  reportNotes: 'horizon_report_notes',
   topicPrefs: 'horizon_topic_prefs',
 }
 
@@ -92,6 +95,22 @@ function getLocal<T>(key: string, fallback: T): T {
 
 function setLocal(key: string, value: any) {
   try { localStorage.setItem(key, JSON.stringify(value)) } catch { /* quota exceeded, ignore */ }
+}
+
+// ── favorite-notes helpers (localStorage mirror of the live note column) ─────
+
+type NotesMap = Record<string, string>
+
+function getNotes(key: string): NotesMap {
+  return getLocal<NotesMap>(key, {})
+}
+
+function saveNote(key: string, id: string, note: string | null): void {
+  const notes = getNotes(key)
+  const trimmed = note?.trim()
+  if (trimmed) notes[id] = trimmed
+  else delete notes[id]
+  setLocal(key, notes)
 }
 
 // ── filter & paginate helper ─────────────────────────────────────────────────
@@ -336,14 +355,26 @@ export async function putFavorite(itemId: string): Promise<{ item_id: string; is
 export async function deleteFavorite(itemId: string): Promise<{ item_id: string; is_favorited: boolean }> {
   const favs: string[] = getLocal(LS_KEYS.favorites, [])
   setLocal(LS_KEYS.favorites, favs.filter(id => id !== itemId))
+  saveNote(LS_KEYS.itemNotes, itemId, null)  // 笔记随收藏删除
   return { item_id: itemId, is_favorited: false }
 }
 
 export async function getFavorites(params?: { page?: number; per_page?: number }): Promise<PaginatedResponse<NewsItem>> {
   const favIds: string[] = getLocal(LS_KEYS.favorites, [])
+  const notes = getNotes(LS_KEYS.itemNotes)
   const all = await getAllItems()
-  const items = all.filter(it => favIds.includes(it.id))
+  const items = all
+    .filter(it => favIds.includes(it.id))
+    .map(it => ({ ...it, is_favorited: true, note: notes[it.id] ?? null }))
   return applyPagination(items, params?.page, params?.per_page)
+}
+
+export async function putItemNote(itemId: string, note: string | null): Promise<{ item_id: string; note: string | null }> {
+  const favs: string[] = getLocal(LS_KEYS.favorites, [])
+  if (!favs.includes(itemId)) throw new Error('未收藏，无法添加笔记')
+  const trimmed = note?.trim() ?? ''
+  saveNote(LS_KEYS.itemNotes, itemId, trimmed || null)
+  return { item_id: itemId, note: trimmed || null }
 }
 
 export async function putPaperFavorite(paperId: string): Promise<{ id: string; is_favorited: boolean }> {
@@ -355,14 +386,26 @@ export async function putPaperFavorite(paperId: string): Promise<{ id: string; i
 export async function deletePaperFavorite(paperId: string): Promise<{ id: string; is_favorited: boolean }> {
   const favs: string[] = getLocal(LS_KEYS.paperFavorites, [])
   setLocal(LS_KEYS.paperFavorites, favs.filter(id => id !== paperId))
+  saveNote(LS_KEYS.paperNotes, paperId, null)  // 笔记随收藏删除
   return { id: paperId, is_favorited: false }
 }
 
 export async function getPaperFavorites(params?: { page?: number; per_page?: number; source?: string }): Promise<PaginatedResponse<Paper>> {
   const favIds: string[] = getLocal(LS_KEYS.paperFavorites, [])
+  const notes = getNotes(LS_KEYS.paperNotes)
   const papers = await getPapers()
-  const items = (papers?.items || []).filter(p => favIds.includes(p.id))
+  const items = (papers?.items || [])
+    .filter(p => favIds.includes(p.id))
+    .map(p => ({ ...p, is_favorited: true, note: notes[p.id] ?? null }))
   return applyPagination(items, params?.page, params?.per_page)
+}
+
+export async function putPaperNote(paperId: string, note: string | null): Promise<{ id: string; note: string | null }> {
+  const favs: string[] = getLocal(LS_KEYS.paperFavorites, [])
+  if (!favs.includes(paperId)) throw new Error('未收藏，无法添加笔记')
+  const trimmed = note?.trim() ?? ''
+  saveNote(LS_KEYS.paperNotes, paperId, trimmed || null)
+  return { id: paperId, note: trimmed || null }
 }
 
 export async function putReportFavorite(reportId: string): Promise<{ id: string; is_favorited: boolean }> {
@@ -374,14 +417,26 @@ export async function putReportFavorite(reportId: string): Promise<{ id: string;
 export async function deleteReportFavorite(reportId: string): Promise<{ id: string; is_favorited: boolean }> {
   const favs: string[] = getLocal(LS_KEYS.reportFavorites, [])
   setLocal(LS_KEYS.reportFavorites, favs.filter(id => id !== reportId))
+  saveNote(LS_KEYS.reportNotes, reportId, null)  // 笔记随收藏删除
   return { id: reportId, is_favorited: false }
 }
 
 export async function getReportFavorites(params?: { page?: number; per_page?: number }): Promise<PaginatedResponse<Report>> {
   const favIds: string[] = getLocal(LS_KEYS.reportFavorites, [])
+  const notes = getNotes(LS_KEYS.reportNotes)
   const reports = await getReports()
-  const items = (reports?.items || []).filter(r => favIds.includes(r.id))
+  const items = (reports?.items || [])
+    .filter(r => favIds.includes(r.id))
+    .map(r => ({ ...r, is_favorited: true, note: notes[r.id] ?? null }))
   return applyPagination(items, params?.page, params?.per_page)
+}
+
+export async function putReportNote(reportId: string, note: string | null): Promise<{ id: string; note: string | null }> {
+  const favs: string[] = getLocal(LS_KEYS.reportFavorites, [])
+  if (!favs.includes(reportId)) throw new Error('未收藏，无法添加笔记')
+  const trimmed = note?.trim() ?? ''
+  saveNote(LS_KEYS.reportNotes, reportId, trimmed || null)
+  return { id: reportId, note: trimmed || null }
 }
 
 // ── Papers & Reports (read from static JSON) ────────────────────────────────

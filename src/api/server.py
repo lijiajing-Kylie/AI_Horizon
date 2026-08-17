@@ -74,6 +74,14 @@ class TopicPrefUpdate(BaseModel):
     state: Optional[Literal["subscribed", "blocked"]] = None
 
 
+class ExportNoteRequest(BaseModel):
+    note: Optional[str] = None
+
+
+class NoteUpdate(BaseModel):
+    note: Optional[str] = None
+
+
 # ── content object builder ──────────────────────────────────────────────
 
 
@@ -412,34 +420,47 @@ app.mount(
 
 
 def _attach_favorited(items: list[dict], user_id: Optional[str]) -> None:
-    """Mutate items in place, adding is_favorited=True/False when user_id is known.
+    """Mutate items in place, adding is_favorited and note when user_id is known.
 
-    No-op (items keep no ``is_favorited`` key at all) when the caller sent no
-    X-User-Id — this field is purely additive for callers that opt in.
+    No-op (items keep no ``is_favorited``/``note`` keys at all) when the caller
+    sent no X-User-Id — these fields are purely additive for callers that opt
+    in, keeping unauthenticated responses identical to before.
     """
     if not user_id or not items:
         return
-    favorited = db.get_favorited_ids(user_id, [item["id"] for item in items])
+    ids = [item["id"] for item in items]
+    favorited = db.get_favorited_ids(user_id, ids)
+    notes = db.get_item_notes(user_id, ids)
     for item in items:
         item["is_favorited"] = item["id"] in favorited
+        if item["id"] in notes:
+            item["note"] = notes[item["id"]]
 
 
 def _attach_paper_favorited(papers: list[dict], user_id: Optional[str]) -> None:
-    """Mutate papers in place, adding is_favorited=True/False when user_id is known."""
+    """Mutate papers in place, adding is_favorited and note when user_id is known."""
     if not user_id or not papers:
         return
-    favorited = db.get_favorited_paper_ids(user_id, [p["id"] for p in papers])
+    ids = [p["id"] for p in papers]
+    favorited = db.get_favorited_paper_ids(user_id, ids)
+    notes = db.get_paper_notes(user_id, ids)
     for p in papers:
         p["is_favorited"] = p["id"] in favorited
+        if p["id"] in notes:
+            p["note"] = notes[p["id"]]
 
 
 def _attach_report_favorited(reports: list[dict], user_id: Optional[str]) -> None:
-    """Mutate reports in place, adding is_favorited=True/False when user_id is known."""
+    """Mutate reports in place, adding is_favorited and note when user_id is known."""
     if not user_id or not reports:
         return
-    favorited = db.get_favorited_report_ids(user_id, [r["id"] for r in reports])
+    ids = [r["id"] for r in reports]
+    favorited = db.get_favorited_report_ids(user_id, ids)
+    notes = db.get_report_notes(user_id, ids)
     for r in reports:
         r["is_favorited"] = r["id"] in favorited
+        if r["id"] in notes:
+            r["note"] = notes[r["id"]]
 
 
 def _filter_blocked_topics(topics_result: dict, blocked_topic_ids: Optional[set[int]]) -> dict:
@@ -519,6 +540,35 @@ def get_item(
     if include_debug and _debug_env_enabled():
         item["debug"] = _build_debug_block(item)
     return item
+
+
+@app.post("/api/items/{item_id}/export")
+def export_item_to_knowledge_base(
+    item_id: str,
+    body: Optional[ExportNoteRequest] = None,
+) -> dict:
+    """Render a single item as Markdown for the browser to download.
+
+    No server-side storage — the response carries the rendered Markdown and a
+    download filename (derived from the title, sanitized); the frontend
+    triggers the actual browser download. The original ``url`` is kept for
+    provenance only; what's exported is Horizon's processed content (clean
+    text body, AI summary, tags).
+
+    An optional ``note`` body field appends a ``## 我的笔记`` section at the
+    end of the Markdown (blank notes are ignored, keeping the output identical
+    to a plain export).
+    """
+    item = db.get_item(item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Item not found")
+
+    item = _attach_content(item)  # 必须：生成 clean_content
+    note = body.note if body else None
+    return {
+        "filename": build_markdown_filename(item),
+        "markdown": build_item_markdown(item, note=note),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -698,6 +748,57 @@ def list_report_favorites(
     return db.get_favorited_reports(user_id, page=page, per_page=per_page)
 
 
+# -- favorite notes --
+
+def _note_or_none(value: Optional[str]) -> Optional[str]:
+    return value.strip() if value else None
+
+
+@app.put("/api/favorites/{item_id}/note")
+def set_item_note(
+    item_id: str,
+    body: NoteUpdate,
+    user_id: str = Depends(_get_user_id_required),
+) -> dict:
+    """Save (or clear, when note is empty) the note on a favorited item."""
+    if db.get_item(item_id) is None:
+        raise HTTPException(status_code=404, detail="Item not found")
+    note = _note_or_none(body.note)
+    if db.set_item_note(user_id, item_id, note) == 0:
+        raise HTTPException(status_code=404, detail="Item not favorited")
+    return {"item_id": item_id, "note": note}
+
+
+@app.put("/api/favorites/papers/{paper_id}/note")
+def set_paper_note(
+    paper_id: str,
+    body: NoteUpdate,
+    user_id: str = Depends(_get_user_id_required),
+) -> dict:
+    """Save (or clear, when note is empty) the note on a favorited paper."""
+    if db.get_paper(paper_id) is None:
+        raise HTTPException(status_code=404, detail="Paper not found")
+    note = _note_or_none(body.note)
+    if db.set_paper_note(user_id, paper_id, note) == 0:
+        raise HTTPException(status_code=404, detail="Paper not favorited")
+    return {"id": paper_id, "note": note}
+
+
+@app.put("/api/favorites/reports/{report_id}/note")
+def set_report_note(
+    report_id: str,
+    body: NoteUpdate,
+    user_id: str = Depends(_get_user_id_required),
+) -> dict:
+    """Save (or clear, when note is empty) the note on a favorited report."""
+    if db.get_report(report_id) is None:
+        raise HTTPException(status_code=404, detail="Report not found")
+    note = _note_or_none(body.note)
+    if db.set_report_note(user_id, report_id, note) == 0:
+        raise HTTPException(status_code=404, detail="Report not favorited")
+    return {"id": report_id, "note": note}
+
+
 # ---------------------------------------------------------------------------
 # Topic preferences (subscribe / block)
 # ---------------------------------------------------------------------------
@@ -849,9 +950,7 @@ def get_paper(
     paper = db.get_paper(paper_id)
     if paper is None:
         raise HTTPException(status_code=404, detail="Paper not found")
-    if user_id:
-        ids = db.get_favorited_paper_ids(user_id, [paper_id])
-        paper["is_favorited"] = paper_id in ids
+    _attach_paper_favorited([paper], user_id)
     return paper
 
 
@@ -932,6 +1031,7 @@ def list_reports(
         order=order,
         page=page,
         per_page=per_page,
+        user_id=user_id,
     )
     _attach_report_favorited(result["items"], user_id)
     return result
@@ -954,9 +1054,7 @@ def get_report(
     report = db.get_report(report_id)
     if report is None:
         raise HTTPException(status_code=404, detail="Report not found")
-    if user_id:
-        ids = db.get_favorited_report_ids(user_id, [report_id])
-        report["is_favorited"] = report_id in ids
+    _attach_report_favorited([report], user_id)
     return report
 
 
@@ -984,7 +1082,7 @@ def search_items(
 ) -> list[dict]:
     """Full-text search across items."""
     blocked_topic_ids = db.get_blocked_topic_ids(user_id) if user_id else None
-    items = db.search(q, limit=limit, blocked_topic_ids=blocked_topic_ids)
+    items = db.search(q, limit=limit, blocked_topic_ids=blocked_topic_ids, user_id=user_id)
     _attach_favorited(items, user_id)
     return items
 
@@ -1009,7 +1107,7 @@ def global_search(
     blocked_topic_ids = db.get_blocked_topic_ids(user_id) if user_id else None
     news_result = db.search(
         q, limit=per_page, page=news_page, sort=sort, order=order,
-        blocked_topic_ids=blocked_topic_ids,
+        blocked_topic_ids=blocked_topic_ids, user_id=user_id,
     )
     _attach_favorited(news_result["items"], user_id)
 
@@ -1029,6 +1127,7 @@ def global_search(
         search=q, page=reports_page, per_page=per_page,
         sort=sort,
         order=order,
+        user_id=user_id,
     )
     _attach_report_favorited(reports_result["items"], user_id)
 

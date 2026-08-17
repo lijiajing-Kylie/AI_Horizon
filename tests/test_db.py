@@ -5,11 +5,17 @@ from __future__ import annotations
 import json
 import sqlite3
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 
 from src.models import ContentItem, SourceType
-from src.storage.db import HorizonDB, _migrate_topics_table, _row_to_item
+from src.storage.db import (
+    HorizonDB,
+    _migrate_favorites_note,
+    _migrate_topics_table,
+    _row_to_item,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -489,6 +495,176 @@ class TestSearch:
         results = db.search("zzz_nonexistent_term_xyz")
         assert len(results) == 0
         db.close()
+
+
+# ---------------------------------------------------------------------------
+# Favorite notes
+# ---------------------------------------------------------------------------
+
+
+class TestFavoriteNotes:
+    """Favorite-note read/write, search coverage, and migration."""
+
+    @staticmethod
+    def _db(tmp_path: Path) -> HorizonDB:
+        from src.papers.models import Paper
+        from src.reports.models import Report
+
+        db = HorizonDB(db_path=str(tmp_path / "fav_notes.db"))
+        _seed_items(db)  # hn:top:1 / reddit:ml:2 / rss:blog:3
+        now = datetime.now(timezone.utc)
+        db.save_papers([
+            Paper(
+                id="arxiv:a", source="arxiv", native_id="a", title="Featured A",
+                authors=[], abstract="abstract a", url="https://arxiv.org/abs/a",
+                published_at=now, updated_at=now, categories=["cs.LG"], fetched_at=now,
+            ),
+        ])
+        db.save_reports([
+            Report(
+                id="ali:r1", source="aliyunreports", native_id="r1", title="Report One",
+                institution="阿里研究院", url="https://ali.report/r1", content_text="report body",
+                published_at=now, updated_at=now, fetched_at=now,
+            ),
+        ])
+        return db
+
+    def test_set_item_note_requires_favorite(self, tmp_path):
+        db = self._db(tmp_path)
+        assert db.set_item_note("u1", "hn:top:1", "笔记") == 0
+        db.close()
+
+    def test_set_item_note_roundtrip(self, tmp_path):
+        db = self._db(tmp_path)
+        db.set_favorite("u1", "hn:top:1", True)
+        assert db.set_item_note("u1", "hn:top:1", "我的想法") == 1
+        assert db.get_item_notes("u1", ["hn:top:1"]) == {"hn:top:1": "我的想法"}
+        db.close()
+
+    def test_set_item_note_empty_clears(self, tmp_path):
+        db = self._db(tmp_path)
+        db.set_favorite("u1", "hn:top:1", True)
+        db.set_item_note("u1", "hn:top:1", "有内容")
+        db.set_item_note("u1", "hn:top:1", "")
+        assert db.get_item_notes("u1", ["hn:top:1"]) == {}
+        db.close()
+
+    def test_set_item_note_whitespace_clears(self, tmp_path):
+        db = self._db(tmp_path)
+        db.set_favorite("u1", "hn:top:1", True)
+        db.set_item_note("u1", "hn:top:1", "有内容")
+        db.set_item_note("u1", "hn:top:1", "   ")
+        assert db.get_item_notes("u1", ["hn:top:1"]) == {}
+        db.close()
+
+    def test_delete_favorite_removes_note(self, tmp_path):
+        db = self._db(tmp_path)
+        db.set_favorite("u1", "hn:top:1", True)
+        db.set_item_note("u1", "hn:top:1", "会随收藏删除")
+        db.set_favorite("u1", "hn:top:1", False)
+        assert db.get_item_notes("u1", ["hn:top:1"]) == {}
+        db.close()
+
+    def test_get_item_notes_batch(self, tmp_path):
+        db = self._db(tmp_path)
+        for item_id in ("hn:top:1", "reddit:ml:2"):
+            db.set_favorite("u1", item_id, True)
+        db.set_item_note("u1", "hn:top:1", "只有这条有笔记")
+        assert db.get_item_notes("u1", ["hn:top:1", "reddit:ml:2", "rss:blog:3"]) == {
+            "hn:top:1": "只有这条有笔记"
+        }
+        db.close()
+
+    def test_search_note_match(self, tmp_path):
+        db = self._db(tmp_path)
+        db.set_favorite("u1", "hn:top:1", True)
+        db.set_item_note("u1", "hn:top:1", "与量子计算相关")
+        results = db.search("量子计算", user_id="u1")
+        assert [it["id"] for it in results] == ["hn:top:1"]
+        assert results[0]["note_hit"] is True
+        db.close()
+
+    def test_search_note_no_user_id(self, tmp_path):
+        db = self._db(tmp_path)
+        db.set_favorite("u1", "hn:top:1", True)
+        db.set_item_note("u1", "hn:top:1", "与量子计算相关")
+        assert db.search("量子计算") == []
+        db.close()
+
+    def test_search_note_like_special_chars(self, tmp_path):
+        db = self._db(tmp_path)
+        db.set_favorite("u1", "hn:top:1", True)
+        db.set_item_note("u1", "hn:top:1", "完成度 100% 且 a_b 达标")
+        assert any(it["note_hit"] for it in db.search("100%", user_id="u1"))
+        assert any(it["note_hit"] for it in db.search("a_b", user_id="u1"))
+        db.close()
+
+    def test_search_note_content_only_no_hit(self, tmp_path):
+        db = self._db(tmp_path)
+        db.set_favorite("u1", "hn:top:1", True)  # 无笔记
+        results = db.search("Alpha", user_id="u1")  # 标题命中
+        item = next(it for it in results if it["id"] == "hn:top:1")
+        assert item["note_hit"] is False
+        db.close()
+
+    def test_search_note_pagination_total(self, tmp_path):
+        db = self._db(tmp_path)
+        db.set_favorite("u1", "hn:top:1", True)
+        db.set_item_note("u1", "hn:top:1", "仅笔记命中的量子计算")
+        result = db.search("量子计算", page=1, limit=20, user_id="u1")
+        assert result["total"] == 1
+        assert result["items"][0]["id"] == "hn:top:1"
+        db.close()
+
+    def test_papers_search_note_match(self, tmp_path):
+        db = self._db(tmp_path)
+        db.set_paper_favorite("u1", "arxiv:a", True)
+        db.set_paper_note("u1", "arxiv:a", "论文笔记里的强化学习")
+        result = db.get_papers(search="强化学习", user_id="u1")
+        assert [p["id"] for p in result["items"]] == ["arxiv:a"]
+        assert result["items"][0]["note_hit"] is True
+        db.close()
+
+    def test_reports_search_note_match(self, tmp_path):
+        db = self._db(tmp_path)
+        db.set_report_favorite("u1", "ali:r1", True)
+        db.set_report_note("u1", "ali:r1", "报告笔记里的数据中心")
+        result = db.get_reports(search="数据中心", user_id="u1")
+        assert [r["id"] for r in result["items"]] == ["ali:r1"]
+        assert result["items"][0]["note_hit"] is True
+        db.close()
+
+    def test_favorites_list_includes_note(self, tmp_path):
+        db = self._db(tmp_path)
+        db.set_favorite("u1", "hn:top:1", True)
+        db.set_item_note("u1", "hn:top:1", "收藏列表应带笔记")
+        favs = db.get_favorites("u1")
+        assert favs["items"][0]["note"] == "收藏列表应带笔记"
+        db.close()
+
+    def test_migrate_favorites_note_idempotent(self, tmp_path):
+        conn = sqlite3.connect(str(tmp_path / "old.db"))
+        conn.row_factory = sqlite3.Row
+        conn.executescript("""
+            CREATE TABLE user_item_state (
+                id INTEGER PRIMARY KEY, user_id TEXT, item_id TEXT, state TEXT, created_at TEXT
+            );
+            CREATE TABLE user_paper_favorites (
+                id INTEGER PRIMARY KEY, user_id TEXT, paper_id TEXT, created_at TEXT
+            );
+            CREATE TABLE user_report_favorites (
+                id INTEGER PRIMARY KEY, user_id TEXT, report_id TEXT, created_at TEXT
+            );
+        """)
+        _migrate_favorites_note(conn)
+        for table in ("user_item_state", "user_paper_favorites", "user_report_favorites"):
+            cols = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+            assert "note" in cols
+        _migrate_favorites_note(conn)  # 幂等
+        for table in ("user_item_state", "user_paper_favorites", "user_report_favorites"):
+            cols = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+            assert "note" in cols
+        conn.close()
 
 
 # ---------------------------------------------------------------------------

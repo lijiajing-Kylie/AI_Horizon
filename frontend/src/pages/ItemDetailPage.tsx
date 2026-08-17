@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { ExternalLink } from 'lucide-react'
 import { useApi } from '../hooks/useApi'
@@ -6,6 +6,7 @@ import { getItem } from '../api/client'
 import ScoreBadge from '../components/ScoreBadge'
 import ScoreBreakdown from '../components/ScoreBreakdown'
 import FavoriteButton from '../components/FavoriteButton'
+import SaveToKnowledgeBaseButton from '../components/SaveToKnowledgeBaseButton'
 import LoadingSkeleton from '../components/LoadingSkeleton'
 import EmptyState from '../components/EmptyState'
 import BackLink from '../components/BackLink'
@@ -66,11 +67,19 @@ function resolveItemContent(
 // stripped server-side). Deliberately does NOT fall back to raw_content —
 // that field is the untouched scrape, which for comment-fetching sources
 // (HN/Reddit/Twitter) still contains the "--- Top Comments ---" section —
-// nor to the AI summary, which belongs in its own "完整摘要" section and
+// nor to the AI summary, which belongs in its own "摘要" section and
 // must never be presented as if it were the article body.
 function resolveArticleBody(item: { clean_content: string | null }): string {
   if (item.clean_content && item.clean_content.trim()) return item.clean_content
   return ''
+}
+
+// Some AI-generated reasons carry a stray "推荐理由：" prefix (the enricher
+// prompt's writing-structure example starts that way) even though this card
+// already labels the section 推荐理由. Strip it so the body reads clean.
+function stripReasonPrefix(reason: string | null): string {
+  if (!reason) return ''
+  return reason.replace(/^推荐理由\s*[:：]\s*/, '').trim()
 }
 
 // display_html (structured, sanitized article HTML) is preferred when
@@ -106,6 +115,8 @@ export default function ItemDetailPage() {
   const originalLang = contentBlock?.original_language ?? 'unknown'
   const defaultLang = contentBlock?.default_language ?? 'zh'
   const [displayLang, setDisplayLang] = useState(defaultLang)
+  const [note, setNote] = useState<string | null | undefined>(item?.note)
+  useEffect(() => setNote(item?.note ?? null), [item?.note])
 
   const toggleLang = useCallback(() => {
     setDisplayLang(prev => (prev === defaultLang ? originalLang : defaultLang))
@@ -162,7 +173,10 @@ export default function ItemDetailPage() {
           <h1 className="flex-1 text-xl font-semibold text-[var(--ink)] leading-snug">
             {content.title}
           </h1>
-          <FavoriteButton itemId={item.id} initialFavorited={item.is_favorited ?? false} size="md" />
+          <div className="flex items-center gap-2 shrink-0">
+            <SaveToKnowledgeBaseButton itemId={item.id} note={note} />
+            <FavoriteButton itemId={item.id} initialFavorited={item.is_favorited ?? false} size="md" note={note} onNoteChange={setNote} />
+          </div>
         </div>
 
         {/* Translation toggle */}
@@ -225,18 +239,26 @@ export default function ItemDetailPage() {
             ))}
           </div>
         )}
+
+        {/* Favorite note */}
+        {note && (
+          <div className="mt-4 rounded-lg bg-black/[.03] px-4 py-3">
+            <div className="text-xs font-medium text-[var(--muted)] mb-1">我的笔记</div>
+            <p className="text-sm text-[var(--ink)] leading-relaxed whitespace-pre-line">{note}</p>
+          </div>
+        )}
       </header>
 
       {/* ===== Two-column body ===== */}
       <div className="grid grid-cols-1 lg:grid-cols-[7fr_3fr] gap-6 items-start">
         {/* ---- Left: long-form reading ---- */}
         <div className="min-w-0 space-y-6">
-          {/* 完整摘要 */}
-          {content.summary && (
+          {/* 推荐理由 */}
+          {content.reason && (
             <section className="glass rounded-[22px] p-6">
-              <CardHeading>完整摘要</CardHeading>
+              <CardHeading>推荐理由</CardHeading>
               <div className="text-[17px] leading-[1.85] text-[var(--ink)] whitespace-pre-line">
-                {content.summary}
+                {stripReasonPrefix(content.reason)}
               </div>
             </section>
           )}
@@ -309,11 +331,11 @@ export default function ItemDetailPage() {
 
         {/* ---- Right: reasoning / scoring / sources, sticky ---- */}
         <aside className="lg:sticky lg:top-[86px] lg:self-start space-y-6">
-          {/* 推荐理由 */}
-          {content.reason && (
+          {/* 摘要 */}
+          {content.summary && (
             <section className="glass rounded-[22px] p-5">
-              <CardHeading>推荐理由</CardHeading>
-              <p className="text-sm leading-relaxed text-[var(--ink)]">{content.reason}</p>
+              <CardHeading>摘要</CardHeading>
+              <p className="text-sm leading-relaxed text-[var(--ink)] whitespace-pre-line">{content.summary}</p>
             </section>
           )}
 

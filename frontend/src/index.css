@@ -53,6 +53,7 @@
   --dropdown-hover: #f5f7fa;
   --settings-text: #59677c;
   --settings-hover-bg: #edf3fa;
+  --overlay: rgba(20, 24, 32, .45);
   --body-font: Arial, "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
   --nav-shadow: rgba(67, 83, 105, .05);
 }
@@ -88,6 +89,7 @@
   --dropdown-hover: rgba(219, 205, 183, .5);
   --settings-text: #8B7E6E;
   --settings-hover-bg: rgba(219, 205, 183, .35);
+  --overlay: rgba(74, 63, 53, .45);
   --body-font: "Fraunces", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", serif;
   --nav-shadow: rgba(74, 63, 53, .06);
 }
@@ -193,6 +195,12 @@ body {
 [data-theme="organic"] .news-card:hover {
   transform: translateY(-3px);
   box-shadow: 0 10px 28px rgba(74, 63, 53, .1);
+}
+
+/* Save-note dialog scrim. Native <dialog> provides ::backdrop for the
+   :modal layer; tinted via the theme-aware --overlay token. */
+dialog::backdrop {
+  background: var(--overlay);
 }
 
 /* Structured article body (ItemDetailPage's display_html rendering). Kept

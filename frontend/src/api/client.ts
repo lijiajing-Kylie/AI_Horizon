@@ -13,6 +13,10 @@ import { getOrCreateUserId } from '../utils/userId'
 
 const STATIC_MODE = import.meta.env.VITE_STATIC_MODE === 'true'
 
+/** Build-time static-mode flag, exported for UI components that must hide
+ * features unavailable on GitHub Pages (e.g. save-to-knowledge-base). */
+export const IS_STATIC_MODE = STATIC_MODE
+
 // ── Live API client (original) ──────────────────────────────────────────────
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? ''
@@ -42,7 +46,7 @@ async function liveGet<T>(path: string, params?: Record<string, string | number 
   return handle<T>(res, path)
 }
 
-async function liveMutate<T>(method: 'PUT' | 'DELETE', path: string, body?: unknown): Promise<T> {
+async function liveMutate<T>(method: 'PUT' | 'DELETE' | 'POST', path: string, body?: unknown): Promise<T> {
   const res = await fetch(buildUrl(path), {
     method,
     headers: {
@@ -65,7 +69,7 @@ import type {
   TopicsResponse, TopicNewsResponse,
   DailyListResponse, DailyDetailResponse,
   Stats, Run, TopicPrefs, TopicPrefState, Paper, Report,
-  ReportsResponse, GlobalSearchResponse,
+  ReportsResponse, GlobalSearchResponse, ExportKnowledgeBaseResponse,
 } from './types'
 
 // ── Exported API ────────────────────────────────────────────────────────────
@@ -159,6 +163,16 @@ export function globalSearch(params: {
     : liveGet<GlobalSearchResponse>('/api/global-search', params as Record<string, string | number | undefined>)
 }
 
+// Save-to-knowledge-base (single item → local Markdown file on the server)
+
+export function exportItemToKnowledgeBase(itemId: string, note?: string): Promise<ExportKnowledgeBaseResponse> {
+  if (STATIC_MODE) {
+    return Promise.reject(new Error('静态模式下不支持保存到知识库'))
+  }
+  // note 为空时不传 body —— 请求与无笔记导出完全一致
+  return liveMutate('POST', `/api/items/${itemId}/export`, note ? { note } : undefined)
+}
+
 // Favorites
 
 export function putFavorite(itemId: string): Promise<{ item_id: string; is_favorited: boolean }> {
@@ -213,6 +227,26 @@ export function getReportFavorites(params?: { page?: number; per_page?: number }
   return STATIC_MODE
     ? staticClient.getReportFavorites(params)
     : liveGet<PaginatedResponse<Report>>('/api/favorites/reports', params as Record<string, string | number | undefined>)
+}
+
+// Favorite notes (persisted per favorite)
+
+export function putItemNote(itemId: string, note: string | null): Promise<{ item_id: string; note: string | null }> {
+  return STATIC_MODE
+    ? staticClient.putItemNote(itemId, note)
+    : liveMutate('PUT', `/api/favorites/${itemId}/note`, { note })
+}
+
+export function putPaperNote(paperId: string, note: string | null): Promise<{ id: string; note: string | null }> {
+  return STATIC_MODE
+    ? staticClient.putPaperNote(paperId, note)
+    : liveMutate('PUT', `/api/favorites/papers/${paperId}/note`, { note })
+}
+
+export function putReportNote(reportId: string, note: string | null): Promise<{ id: string; note: string | null }> {
+  return STATIC_MODE
+    ? staticClient.putReportNote(reportId, note)
+    : liveMutate('PUT', `/api/favorites/reports/${reportId}/note`, { note })
 }
 
 // Papers & Reports

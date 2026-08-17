@@ -788,3 +788,148 @@ def test_api_papers_featured_filter(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     assert c.get("/api/papers/arxiv:c").status_code == 404
 
     db.close()
+
+
+# ---------------------------------------------------------------------------
+# Favorite notes
+# ---------------------------------------------------------------------------
+
+
+class TestFavoriteNotes:
+    """Favorite-note API: write endpoints, note attachment, search coverage."""
+
+    def _put_note(self, client, item_id: str = "hn:top:1", note: str = "量子计算"):
+        return client.put(
+            f"/api/favorites/{item_id}/note",
+            headers={"X-User-Id": "u1"},
+            json={"note": note},
+        )
+
+    def test_put_note_requires_user_id(self, client):
+        r = client.put("/api/favorites/hn:top:1/note", json={"note": "x"})
+        assert r.status_code == 400
+
+    def test_put_note_item_not_found(self, client):
+        r = client.put(
+            "/api/favorites/nonexistent/note",
+            headers={"X-User-Id": "u1"}, json={"note": "x"},
+        )
+        assert r.status_code == 404
+
+    def test_put_note_not_favorited(self, client):
+        r = client.put(
+            "/api/favorites/hn:top:1/note",
+            headers={"X-User-Id": "u1"}, json={"note": "x"},
+        )
+        assert r.status_code == 404
+        assert r.json()["detail"] == "Item not favorited"
+
+    def test_put_note_roundtrip(self, client):
+        client.put("/api/favorites/hn:top:1", headers={"X-User-Id": "u1"})
+        r = self._put_note(client, note="我的笔记内容")
+        assert r.status_code == 200
+        assert r.json()["note"] == "我的笔记内容"
+        # 带 header 读到 note 与收藏状态
+        got = client.get("/api/items/hn:top:1", headers={"X-User-Id": "u1"}).json()
+        assert got["note"] == "我的笔记内容"
+        assert got["is_favorited"] is True
+        # 无 header 时 note 字段完全不存在（缺省行为与无功能一致）
+        got2 = client.get("/api/items/hn:top:1").json()
+        assert "note" not in got2
+
+    def test_put_note_empty_clears(self, client):
+        client.put("/api/favorites/hn:top:1", headers={"X-User-Id": "u1"})
+        self._put_note(client, note="有内容")
+        r = self._put_note(client, note="")
+        assert r.status_code == 200
+        assert r.json()["note"] is None
+        got = client.get("/api/items/hn:top:1", headers={"X-User-Id": "u1"}).json()
+        assert "note" not in got
+
+    def test_favorites_list_includes_note(self, client):
+        client.put("/api/favorites/hn:top:1", headers={"X-User-Id": "u1"})
+        self._put_note(client, note="列表里的笔记")
+        favs = client.get("/api/favorites", headers={"X-User-Id": "u1"}).json()
+        assert favs["items"][0]["note"] == "列表里的笔记"
+
+    def test_global_search_note_hit(self, client):
+        client.put("/api/favorites/hn:top:1", headers={"X-User-Id": "u1"})
+        self._put_note(client, note="与量子计算相关")
+        r = client.get("/api/global-search", params={"q": "量子计算"}, headers={"X-User-Id": "u1"})
+        news = r.json()["news"]["items"]
+        assert any(it["id"] == "hn:top:1" and it["note_hit"] is True for it in news)
+
+    def test_global_search_note_hit_no_user_id(self, client):
+        client.put("/api/favorites/hn:top:1", headers={"X-User-Id": "u1"})
+        self._put_note(client, note="与量子计算相关")
+        r = client.get("/api/global-search", params={"q": "量子计算"})  # 无 header
+        assert not any(it["id"] == "hn:top:1" for it in r.json()["news"]["items"])
+
+    def test_api_search_note_hit(self, client):
+        client.put("/api/favorites/hn:top:1", headers={"X-User-Id": "u1"})
+        self._put_note(client, note="与量子计算相关")
+        items = client.get(
+            "/api/search", params={"q": "量子计算"}, headers={"X-User-Id": "u1"},
+        ).json()
+        assert any(it["id"] == "hn:top:1" and it["note_hit"] is True for it in items)
+
+    def test_unfavorite_removes_note(self, client):
+        client.put("/api/favorites/hn:top:1", headers={"X-User-Id": "u1"})
+        self._put_note(client, note="会随收藏删除")
+        client.delete("/api/favorites/hn:top:1", headers={"X-User-Id": "u1"})
+        r = client.put(
+            "/api/favorites/hn:top:1/note", headers={"X-User-Id": "u1"}, json={"note": "x"},
+        )
+        assert r.status_code == 404
+        got = client.get("/api/items/hn:top:1", headers={"X-User-Id": "u1"}).json()
+        assert "note" not in got
+
+    def test_put_paper_note_and_report_note(self, tmp_path, monkeypatch):
+        from src.papers.models import Paper
+        from src.reports.models import Report
+        import src.api.server as server_module
+
+        db = HorizonDB(db_path=str(tmp_path / "test.db"))
+        now = datetime.now(timezone.utc)
+        db.save_papers([
+            Paper(
+                id="arxiv:a", source="arxiv", native_id="a", title="Featured A",
+                authors=[], abstract="abstract a", url="https://arxiv.org/abs/a",
+                published_at=now, updated_at=now, categories=["cs.LG"], fetched_at=now,
+            ),
+        ])
+        db.save_reports([
+            Report(
+                id="ali:r1", source="aliyunreports", native_id="r1", title="Report One",
+                institution="阿里研究院", url="https://ali.report/r1", content_text="report body",
+                published_at=now, updated_at=now, fetched_at=now,
+            ),
+        ])
+        monkeypatch.setattr(server_module, "db", db)
+        c = TestClient(app)
+
+        # paper note
+        c.put("/api/favorites/papers/arxiv:a", headers={"X-User-Id": "u1"})
+        r = c.put(
+            "/api/favorites/papers/arxiv:a/note",
+            headers={"X-User-Id": "u1"}, json={"note": "论文笔记"},
+        )
+        assert r.status_code == 200 and r.json()["note"] == "论文笔记"
+        assert c.get("/api/papers/arxiv:a", headers={"X-User-Id": "u1"}).json()["note"] == "论文笔记"
+
+        # report note
+        c.put("/api/favorites/reports/ali:r1", headers={"X-User-Id": "u1"})
+        r = c.put(
+            "/api/favorites/reports/ali:r1/note",
+            headers={"X-User-Id": "u1"}, json={"note": "报告笔记"},
+        )
+        assert r.status_code == 200 and r.json()["note"] == "报告笔记"
+        assert c.get("/api/reports/ali:r1", headers={"X-User-Id": "u1"}).json()["note"] == "报告笔记"
+
+        # 三库全局搜索的笔记命中
+        gs = c.get("/api/global-search", params={"q": "论文笔记"}, headers={"X-User-Id": "u1"}).json()
+        assert any(p["id"] == "arxiv:a" and p["note_hit"] for p in gs["papers"]["items"])
+        gs2 = c.get("/api/global-search", params={"q": "报告笔记"}, headers={"X-User-Id": "u1"}).json()
+        assert any(r2["id"] == "ali:r1" and r2["note_hit"] for r2 in gs2["reports"]["items"])
+
+        db.close()
