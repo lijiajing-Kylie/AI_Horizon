@@ -27,13 +27,15 @@ dependencies = [
     "nh3>=0.3.6",
     "huggingface-hub>=0.27.0",
     "json5",
-    # Bundled we-mp-rss core (src/we_mp_rss) — WeChat MP scraping
+    "segno>=1.6",  # WeRead login QR rendering (src/we_read)
+    # DEPRECATED — we-mp-rss (rachelos) scraping removed; kept for other users
     "requests>=2.31",
     "PyYAML>=6.0",
     "playwright>=1.40",
     "pillow>=10",
     "colorama>=0.4",
     "pypdf>=6.15.0",
+    "pyzbar>=0.1.9",
 ]
 
 [project.optional-dependencies]

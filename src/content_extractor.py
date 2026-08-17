@@ -372,7 +372,12 @@ _ALLOWED_URL_SCHEMES = {"http", "https"}
 _HEAD_RANK_TO_TAG = {"h1": "h2", "h2": "h3", "h3": "h4", "h4": "h4"}
 
 
-def sanitize_article_html(raw_html: Optional[str]) -> str:
+def sanitize_article_html(
+    raw_html: Optional[str],
+    *,
+    tags: Optional[set] = None,
+    attributes: Optional[dict] = None,
+) -> str:
     """Whitelist-sanitize a structured article HTML fragment for safe rendering.
 
     Strips everything outside a small block/inline tag whitelist (no
@@ -384,6 +389,11 @@ def sanitize_article_html(raw_html: Optional[str]) -> str:
 
     Args:
         raw_html: Untrusted HTML fragment (typically ``ExtractedArticle.raw_html``).
+        tags: Optional override of the whitelisted tags. Passing a value
+            REPLACES the default set — callers must include every tag from
+            ``_ALLOWED_HTML_TAGS`` they need.
+        attributes: Optional override of the allowed attributes. Same
+            replace-not-merge semantics as ``tags``.
 
     Returns:
         Sanitized HTML safe to render via e.g. React's ``dangerouslySetInnerHTML``.
@@ -393,8 +403,8 @@ def sanitize_article_html(raw_html: Optional[str]) -> str:
     try:
         return nh3.clean(
             raw_html,
-            tags=_ALLOWED_HTML_TAGS,
-            attributes=_ALLOWED_HTML_ATTRIBUTES,
+            tags=tags if tags is not None else _ALLOWED_HTML_TAGS,
+            attributes=attributes if attributes is not None else _ALLOWED_HTML_ATTRIBUTES,
             url_schemes=_ALLOWED_URL_SCHEMES,
             link_rel="noopener noreferrer nofollow",
         )

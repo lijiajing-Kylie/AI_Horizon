@@ -70,6 +70,33 @@ def test_report_raw_html_defaults_to_none(tmp_path):
     assert got["raw_html"] is None
 
 
+def test_report_display_html_round_trip(tmp_path):
+    db = HorizonDB(db_path=str(tmp_path / "test.db"))
+    html = "<p>清洗后的正文</p>"
+    db.save_reports([
+        _report(
+            id="wxmp:123",
+            source="wxmp",
+            native_id="123",
+            content_text="纯文本",
+            raw_html="<p>原始正文</p>",
+            display_html=html,
+        )
+    ])
+
+    got = db.get_report("wxmp:123")
+    assert got["display_html"] == html
+    assert got["raw_html"] == "<p>原始正文</p>"
+
+
+def test_report_display_html_defaults_to_none(tmp_path):
+    db = HorizonDB(db_path=str(tmp_path / "test.db"))
+    db.save_reports([_report()])
+
+    got = db.get_report("aliresearch:591792162400768000")
+    assert got["display_html"] is None
+
+
 def test_get_report_not_found(tmp_path):
     db = HorizonDB(db_path=str(tmp_path / "test.db"))
     assert db.get_report("does-not-exist") is None
@@ -200,6 +227,7 @@ def test_reports_table_migration_adds_score_columns(tmp_path):
     cols = {row["name"] for row in db.conn.execute("PRAGMA table_info(reports)")}
     assert "ai_relevance_score" in cols
     assert "composite_score" in cols
+    assert "display_html" in cols
 
     # 迁移后 save/get 完整可用。
     db.save_reports([_report(ai_relevance_score=4.0, composite_score=0.8)])

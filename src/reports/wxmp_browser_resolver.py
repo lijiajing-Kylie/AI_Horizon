@@ -1,16 +1,20 @@
 """Playwright-based PDF resolution for WeChat MP (公众号) articles.
 
-Opens each article in a headless browser and attempts, in order:
+Opens each article in a headless browser and decodes the footer QR-code
+(report downloads are exposed this way, not via a "阅读原文" link):
 
-1. **阅读原文** — find the "read original" link at the bottom of the article,
-   follow it, and intercept any PDF download.
-2. **二维码** — detect QR-code images embedded in the article, decode the
-   embedded URL, visit it, and attempt PDF download.
+1. scroll to the article footer — this triggers WeChat's lazy-loaded
+   images (``data-src`` → ``src``);
+2. locate the QR image by the CTA text anchor ("扫描二维码，获完整报告"):
+   a bare ``<img>`` (or a single-image block) adjacent to that text;
+3. decode it (pyzbar) and follow the embedded URL, extracting the real
+   PDF from the target page (which may be a preview page, e.g. 草料
+   ``view.html?url=<pdf>``) and saving it to ``pdf_output_dir``.
 
-Both strategies are completely independent — failure in one does not affect
-the other.  When neither yields a result, the report is returned unchanged
-so the caller can decide how to handle it (e.g. log a warning or escalate
-to a WeChatFerry-based fallback).
+When nothing yields a result, the report is returned unchanged with an
+empty ``pdf_urls`` list; the caller can decide how to handle it.  No
+WeChat keyword-gating hint is added — the frontend shows only the
+original article link in that case.
 
 Usage::
 
@@ -28,6 +32,7 @@ from __future__ import annotations
 import asyncio
 import io
 import logging
+import os
 import re as _re
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -55,42 +60,171 @@ try:
 
     _QR_AVAILABLE = True
 except ImportError:
-    _QR_AVAILABLE = False
-    _PILImage = None  # type: ignore[assignment]
-    _pyzbar_decode = None  # type: ignore[assignment]
+    # macOS Homebrew 的 zbar 装在 /opt/homebrew/lib，不在 ctypes.util.find_library
+    # 的默认搜索路径（Python 3.14 探测不到）。进程内把它加进 DYLD_LIBRARY_PATH
+    # 后重试一次，避免二维码策略（删除阅读原文后的唯一策略）静默失效。
+    _zbar_lib_dirs = [d for d in ("/opt/homebrew/lib", "/usr/local/lib")
+                      if os.path.isdir(d)]
+    if _zbar_lib_dirs:
+        _cur = os.environ.get("DYLD_LIBRARY_PATH", "")
+        os.environ["DYLD_LIBRARY_PATH"] = ":".join(
+            dict.fromkeys(_zbar_lib_dirs + ([_cur] if _cur else []))
+        )
+        try:
+            from PIL import Image as _PILImage
+            from pyzbar.pyzbar import decode as _pyzbar_decode
 
-# ═══════════════════════════════════════════════════════════════════════
-#  WeChat keyword-gating detection (same logic as WxMpReportFetcher)
-# ═══════════════════════════════════════════════════════════════════════
+            _QR_AVAILABLE = True
+        except ImportError:
+            _QR_AVAILABLE = False
+            _PILImage = None  # type: ignore[assignment]
+            _pyzbar_decode = None  # type: ignore[assignment]
+    else:
+        _QR_AVAILABLE = False
+        _PILImage = None  # type: ignore[assignment]
+        _pyzbar_decode = None  # type: ignore[assignment]
 
-# Quoted keyword near reply verb: 回复「xxx」/ 关键词"xxx" etc.
-_BROWSER_QUOTED_KW_RE = _re.compile(
-    '(?:回复|输入|发送|关键词)\\s*[：:\\s]*'
-    '(?:'
-    '"([^"]{1,40})"'           # ASCII double
-    '|'
-    '「([^」]{1,40})」'
-    '|'
-    '『([^』]{1,40})』'
-    '|'
-    '“([^“]{1,40})”'
-    "|"
-    '‘([^‘]{1,40})’'
-    ')'
+# ── Footer QR-code CTA anchors ─────────────────────────────────────────
+# 报告文章文末通常有「扫描二维码，获完整报告」这类提示 + 相邻的二维码图。
+# 报告专属 marker 优先于「关注公众号」，避免先撞上运营二维码。
+_QR_CTA_MARKERS = [
+    "扫描二维码", "长按识别二维码", "识别二维码", "扫码获取", "扫码下载",
+    "扫码阅读", "扫码查看", "获取完整报告", "获取全文报告", "获完整报告",
+]
+_QR_CTA_MARKERS_SECONDARY = ["关注公众号", "关注我们"]
+
+# 尾部扫描的块级节点上限：只检查文章最后 30 个块，避免正文中段偶然出现
+# 运营词时误定位（与 src/scrapers/wxmp.py 的策略一致）。
+_QR_FOOTER_SCAN_BLOCKS = 30
+_QR_FOOTER_BLOCK_TAGS = (
+    "p", "div", "section", "li", "blockquote",
+    "h1", "h2", "h3", "h4", "h5", "h6",
+    "figure", "table",
 )
+# 兜底候选取用上限：无 CTA 锚点时只试文末最后几张近似正方形的图。
+_QR_FALLBACK_CANDIDATES = 6
+_QR_MIN_DIM = 80
+_QR_MAX_DIM = 700
+_QR_ASPECT_MAX = 1.8
 
-# Unquoted: 回复xxx获取 + PDF
-_BROWSER_UNQUOTED_KW_RE = _re.compile(
-    '(?:回复|输入|发送)\\s*'
-    '(?P<keyword>(?!关键词)[^，。、\\s"\'“”‘’'
-    '「『」』]{2,30}?)'
-    '\\s*(?:获取|下载|领取).*?(?:PDF|报告)'
-)
 
-# Gating context: 关注XX公众号
-_BROWSER_GATE_CONTEXT_RE = _re.compile(
-    '关注\\s*(?P<account>[^，。\\s]{2,20}?)\\s*(?:公众号|微信公众号|微信)'
-)
+def _qr_cta_marker_hit(text: str) -> Optional[str]:
+    """文本命中哪个 CTA marker（优先报告专属，其次关注类）。"""
+    for marker in (*_QR_CTA_MARKERS, *_QR_CTA_MARKERS_SECONDARY):
+        if marker in text:
+            return marker
+    return None
+
+
+def _qr_leaf_footer_blocks(container) -> list:
+    """收集不含块级后代的块级元素（真正承载内容的 leaf 块）。"""
+    return [
+        el for el in container.find_all(_QR_FOOTER_BLOCK_TAGS)
+        if el.find(_QR_FOOTER_BLOCK_TAGS) is None
+    ]
+
+
+def _qr_img_from_block(tag) -> Optional[object]:
+    """tag 是裸 ``<img>``、或「无文字且仅含 1 张 img」的块 → 返回该 img。
+
+    穿透 ``<a>`` 包裹（二维码链接常见形态）。
+    """
+    if tag is None:
+        return None
+    if tag.name == "img":
+        return tag
+    if tag.get_text("", strip=True):
+        return None
+    imgs = tag.find_all("img")
+    return imgs[0] if len(imgs) == 1 else None
+
+
+def _qr_adjacent_img(blk) -> Optional[object]:
+    """取 CTA 文案块前/后一个相邻兄弟里的二维码图（覆盖图片在文案前/后两种变体）。"""
+    for adj in (blk.find_previous_sibling(), blk.find_next_sibling()):
+        img = _qr_img_from_block(adj)
+        if img is not None:
+            return img
+    return None
+
+
+def _qr_img_src(img) -> Optional[str]:
+    """返回 img 的可访问 URL（src 优先，回退 data-src）；非 http 占位返回 None。"""
+    if img is None:
+        return None
+    src = img.get("src") or img.get("data-src") or ""
+    return src if src.startswith("http") else None
+
+
+def _qr_img_squareish(img) -> bool:
+    """从内联 style ``width/height: Npx`` 或 width 属性近似判断是否接近正方形。
+
+    纯 HTML 拿不到渲染尺寸，只能按 style 里的宽高近似；任一维度缺失时不
+    否决（真实尺寸由页面 CSS 决定，例如微信图 ``height: auto``）。
+    """
+    style = img.get("style") or ""
+
+    def _px(prop: str) -> Optional[float]:
+        m = _re.search(rf"{prop}\s*:\s*(\d+(?:\.\d+)?)px", style)
+        return float(m.group(1)) if m else None
+
+    w = _px("width")
+    h = _px("height")
+    if w is None:
+        attr = (img.get("width") or "").strip()
+        try:
+            w = float(attr)
+        except (TypeError, ValueError):
+            w = None
+    if w is None:
+        return True  # 未知宽度不否决
+    if not (_QR_MIN_DIM <= w <= _QR_MAX_DIM):
+        return False
+    if h is not None and max(w, h) / max(min(w, h), 1) > _QR_ASPECT_MAX:
+        return False  # 长宽比过大 → 非二维码
+    return True
+
+
+def _footer_qr_candidate_urls(html: str) -> List[str]:
+    """从渲染后的文章 HTML 里定位文末二维码图片的 URL（src/data-src）。
+
+    返回候选 URL 列表：
+    1. **主路径（CTA 锚点）**：最后 ``_QR_FOOTER_SCAN_BLOCKS`` 个 leaf 块里找
+       命中 ``_QR_CTA_MARKERS*`` 的块，取其前/后相邻兄弟里的单图 → src。
+    2. **兜底（文末正方形扫描）**：无 CTA 命中时，收集全部 img，正方形过滤，
+       只取文档位置最后的 ``_QR_FALLBACK_CANDIDATES`` 张。
+
+    过滤 ``data:`` 占位图与空 URL，去重。纯函数，便于单测。
+    """
+    from bs4 import BeautifulSoup
+
+    soup = BeautifulSoup(html, "html.parser")
+    content = soup.select_one("#js_content") or soup
+
+    # 主路径：CTA 锚点（收集所有命中的相邻图，逐个试解码）
+    tail = _qr_leaf_footer_blocks(content)[-_QR_FOOTER_SCAN_BLOCKS:]
+    cta_urls: List[str] = []
+    for blk in tail:
+        text = blk.get_text(" ", strip=True)
+        if not text or _qr_cta_marker_hit(text) is None:
+            continue
+        img = _qr_adjacent_img(blk)
+        src = _qr_img_src(img)
+        if src:
+            cta_urls.append(src)
+    if cta_urls:
+        return list(dict.fromkeys(cta_urls))
+
+    # 兜底：文末近似正方形图
+    urls: List[str] = []
+    for img in content.find_all("img"):
+        src = _qr_img_src(img)
+        if not src:
+            continue
+        if not _qr_img_squareish(img):
+            continue
+        urls.append(src)
+    return list(dict.fromkeys(urls))[-_QR_FALLBACK_CANDIDATES:]
 
 # ═══════════════════════════════════════════════════════════════════════
 #  Resolver
@@ -122,10 +256,10 @@ class WxMpBrowserResolver:
     # ── Public API ──────────────────────────────────────────────────────
 
     async def resolve(self, report: Report) -> Report:
-        """Try both browser-based strategies for a single wxmp article.
+        """Decode the footer QR-code of a single wxmp article and fetch its PDF.
 
-        Returns the *report* unchanged if neither strategy succeeds (the
-        caller should not treat this as an error).
+        Returns the *report* unchanged if no PDF is obtainable (the caller
+        should not treat this as an error).
         """
         if not _PLAYWRIGHT_AVAILABLE:
             logger.error(
@@ -156,49 +290,13 @@ class WxMpBrowserResolver:
                 logger.warning("Failed to load article %s: %s", report.id, exc)
                 return report
 
-            # ── Strategy 1: "阅读原文" link ─────────────────────────────
-            read_url = await self._find_read_original_url(article_page)
-            if read_url:
-                logger.info("Found 阅读原文 link for %s: %s", report.id, read_url)
-
-                # Use a fresh page so we don't navigate away from the article —
-                # Strategy 2 (QR code) still needs it.
-                dl_page = await ctx.new_page()  # type: ignore[union-attr]
-                try:
-                    pdf_urls = await self._download_from_url(
-                        read_url, dl_page, report
-                    )
-                    if pdf_urls:
-                        report.pdf_urls = pdf_urls
-                        return report
-                finally:
-                    await dl_page.close()
-
-            # ── Strategy 2: QR-code images ─────────────────────────────
+            # ── 唯一策略：解码文末二维码（CTA 锚点定位）────────────────
             pdf_urls = await self._try_qr_code(article_page, report)
             if pdf_urls:
                 report.pdf_urls = pdf_urls
                 return report
 
-            # ── Strategy 3: scan page text for WeChat keyword-gating ──
-            # When neither direct download strategy works, check whether
-            # the article says "关注公众号，回复关键词获取PDF".  If so,
-            # add a wechat_keyword entry so the frontend can guide the
-            # user instead of showing a broken download link.
-            if not any(e.get("type") == "wechat_keyword" for e in report.pdf_urls):
-                kw_info = await self._detect_wechat_keyword_on_page(article_page)
-                if kw_info:
-                    kw_info["url"] = report.url
-                    report.pdf_urls = list(report.pdf_urls) + [kw_info]
-                    logger.info(
-                        "Detected WeChat keyword gate for %s: "
-                        "account=%r keyword=%r",
-                        report.id, kw_info.get("account", ""),
-                        kw_info.get("keyword", ""),
-                    )
-                    return report
-
-            logger.info("No PDF found for %s via any browser strategy", report.id)
+            logger.info("No PDF found for %s via browser QR strategy", report.id)
             return report
 
         except Exception as exc:
@@ -241,127 +339,39 @@ class WxMpBrowserResolver:
                 pass
             self._playwright = None
 
-    # ── Strategy 1: "阅读原文" ─────────────────────────────────────────
-
-    @staticmethod
-    async def _find_read_original_url(page) -> Optional[str]:
-        """Locate the *href* of the "阅读原文" link inside a WeChat article.
-
-        Returns ``None`` when no suitable link is found.
-        """
-        try:
-            return await page.evaluate("""() => {
-                const selectors = [
-                    '#js_view_source a[href]',
-                    '.rich_media_area_extra_inner a[href]',
-                    'a.rich_media_tool_btn[href]',
-                    '.rich_media_content a[href]',
-                ];
-                // Try common selectors first.
-                for (const sel of selectors) {
-                    const el = document.querySelector(sel);
-                    if (el && el.href && el.href !== '#') return el.href;
-                }
-                // Fallback: scan all links for 阅读原文 text.
-                for (const a of document.querySelectorAll('a[href]')) {
-                    const t = a.innerText.trim();
-                    if (t === '阅读原文'  || t === '查看原文' ||
-                        t === '阅读全文'  || t === 'Read more') {
-                        if (a.href && a.href !== '#') return a.href;
-                    }
-                }
-                return null;
-            }""")
-        except Exception as exc:
-            logger.debug("Failed to find 阅读原文 link: %s", exc)
-            return None
-
-    # ── Strategy 2: QR code ────────────────────────────────────────────
+    # ── QR code 策略（文末 CTA 锚点定位）─────────────────────────────
 
     async def _try_qr_code(self, page, report: Report) -> Optional[List[dict]]:
-        """Find QR-code images in the article body and decode them.
+        """滚动到文末 → 定位二维码图（CTA 锚点 / 兜底正方形）→ 解码 → 下载。
 
-        Requires ``pyzbar`` + ``Pillow`` — silently skipped when unavailable.
+        Requires ``pyzbar`` + ``Pillow`` + 系统 zbar 库。
         """
         if not _QR_AVAILABLE:
-            logger.debug("QR-code decoding unavailable (install pyzbar + Pillow)")
+            logger.warning(
+                "QR-code decoding unavailable — install pyzbar + zbar "
+                "(macOS: brew install zbar; Debian: apt-get install libzbar0)"
+            )
             return None
 
         try:
-            # Collect candidate image positions in the article content area.
-            candidates: List[dict] = await page.evaluate("""() => {
-                const results = [];
-                const container = document.querySelector('#js_content')
-                    || document.querySelector('.rich_media_content')
-                    || document;
-                const imgs = container.querySelectorAll('img');
-                imgs.forEach((img, i) => {
-                    const src = img.src || img.getAttribute('data-src') || '';
-                    if (!src) return;
-                    const r = img.getBoundingClientRect();
-                    // QR codes tend to be roughly square, 100-600 px.
-                    const minDim = Math.min(r.width, r.height);
-                    const maxDim = Math.max(r.width, r.height);
-                    if (minDim < 80 || maxDim > 700) return;
-                    if (maxDim / minDim > 1.8) return;  // too oblong
-                    results.push({index: i, src, width: r.width, height: r.height});
-                });
-                return results;
-            }""")
-
+            await self._scroll_to_footer(page)
+            html = await page.content()
+            candidates = _footer_qr_candidate_urls(html)
             if not candidates:
+                logger.debug("No footer QR candidates in %s", report.id)
                 return None
-
             logger.debug(
-                "Found %d candidate QR images in %s", len(candidates), report.id
+                "Found %d QR candidates in %s: %s",
+                len(candidates), report.id, candidates,
             )
 
-            container_sel = (
-                "#js_content"
-                if await page.query_selector("#js_content")
-                else ".rich_media_content"
-            )
-            img_elements = page.locator(f"{container_sel} img")
-
-            for c in candidates:
+            for src in candidates:
                 try:
-                    el = img_elements.nth(c["index"])
-                    if not await el.is_visible():
-                        continue
-
-                    screenshot_bytes = await el.screenshot(timeout=10000)
-                    if not screenshot_bytes or len(screenshot_bytes) < 200:
-                        continue
-
-                    img = _PILImage.open(io.BytesIO(screenshot_bytes))
-                    decoded = _pyzbar_decode(img)
-                    for code in decoded:
-                        url = code.data.decode("utf-8").strip()
-                        if not url.startswith(("http://", "https://")):
-                            continue
-
-                        logger.info(
-                            "Decoded QR code URL for %s: %s", report.id, url
-                        )
-
-                        dl_page = await page.context.new_page()
-                        try:
-                            output_dir = (
-                                self.pdf_output_dir
-                                / report.source
-                                / report.native_id
-                            )
-                            output_dir.mkdir(parents=True, exist_ok=True)
-                            pdf_urls = await self._download_from_url(
-                                url, dl_page, report, output_dir
-                            )
-                            if pdf_urls:
-                                return pdf_urls
-                        finally:
-                            await dl_page.close()
-
+                    pdf_urls = await self._decode_qr_src(page, src, report)
+                    if pdf_urls:
+                        return pdf_urls
                 except Exception as exc:
-                    logger.debug("Failed to decode QR image for %s: %s", report.id, exc)
+                    logger.debug("Failed to decode QR candidate %s: %s", src, exc)
                     continue
 
         except Exception as exc:
@@ -369,78 +379,106 @@ class WxMpBrowserResolver:
 
         return None
 
-    # ── Strategy 3: WeChat keyword gate detection ───────────────────────
+    async def _scroll_to_footer(self, page) -> None:
+        """滚动到底部触发微信图片懒加载（``data-src`` → ``src``）。
 
-    @staticmethod
-    async def _detect_wechat_keyword_on_page(page) -> Optional[dict]:
-        """Scan the rendered page text for "回复关键词获取PDF" patterns.
-
-        Returns the same dict shape as ``_detect_wechat_keyword()`` in
-        ``wxmp.py``, or ``None`` when no gating pattern is detected.
+        ``#js_content`` 初始 ``visibility:hidden``，滚动会同时触发可见化。
+        采用「跳底 → 回拉半屏 → 再跳底」确保页脚贴近视口。
         """
         try:
-            text = await page.evaluate("document.body.innerText")
+            await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            await page.wait_for_timeout(1200)
+            await page.evaluate(
+                "window.scrollTo(0, "
+                "Math.max(0, document.body.scrollHeight - window.innerHeight))"
+            )
+            await page.wait_for_timeout(1200)
+            await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            await page.wait_for_timeout(800)
         except Exception as exc:
-            logger.info("Failed to get page text for keyword detection: %s", exc)
+            logger.debug("Scroll-to-footer failed: %s", exc)
+
+    async def _find_img_by_src(self, page, src: str):
+        """按 src 前缀在 ``#js_content`` 里定位 img，返回 locator 或 None。"""
+        idx = await page.evaluate("""(prefix) => {
+            const imgs = document.querySelectorAll('#js_content img');
+            for (let i = 0; i < imgs.length; i++) {
+                const s = imgs[i].currentSrc || imgs[i].src
+                    || imgs[i].getAttribute('data-src') || '';
+                if (s.startsWith(prefix)) return i;
+            }
+            return -1;
+        }""", src[:60])
+        if idx < 0:
             return None
+        return page.locator("#js_content img").nth(idx)
 
-        if not text:
-            logger.info("Empty page text for keyword detection")
-            return None
-        if len(text) < 15:
-            logger.info(
-                "Page text too short (%d chars) for keyword detection",
-                len(text),
-            )
-            return None
+    async def _decode_qr_src(
+        self, page, src: str, report: Report
+    ) -> Optional[List[dict]]:
+        """对候选二维码图：优先截图解码；失败则 httpx 直抓 PNG 解码。"""
+        el = await self._find_img_by_src(page, src)
+        if el is not None:
+            try:
+                if await el.is_visible():
+                    screenshot_bytes = await el.screenshot(timeout=10000)
+                    if screenshot_bytes and len(screenshot_bytes) >= 200:
+                        img = _PILImage.open(io.BytesIO(screenshot_bytes))
+                        url = self._qr_decode_first(img)
+                        if url:
+                            logger.info(
+                                "Decoded QR code URL for %s: %s", report.id, url
+                            )
+                            return await self._download_decoded_url(
+                                page, url, report
+                            )
+            except Exception as exc:
+                logger.debug("Screenshot decode failed for %s: %s", report.id, exc)
 
-        logger.info(
-            "Scanning %d chars of page text for WeChat keyword gate …",
-            len(text),
-        )
-
-        keyword: Optional[str] = None
-        account: str = ""
-
-        # Pass 1: quoted keyword near reply verb.
-        m = _BROWSER_QUOTED_KW_RE.search(text)
-        if m and m.lastindex is not None:
-            kw = m.group(m.lastindex)
-            if kw:
-                keyword = kw.strip()
-                logger.info(
-                    "Browser found quoted keyword: %r", keyword,
+        # 兜底：httpx 直抓 PNG（带微信 Referer 绕过防盗链）再解码。
+        try:
+            async with httpx.AsyncClient(follow_redirects=True, timeout=20.0) as hc:
+                resp = await hc.get(
+                    src,
+                    headers={
+                        "Referer": "https://mp.weixin.qq.com/",
+                        "User-Agent": "Mozilla/5.0",
+                    },
                 )
-        else:
-            # Pass 2: unquoted keyword + download verb.
-            m = _BROWSER_UNQUOTED_KW_RE.search(text)
-            if m:
-                keyword = (m.group("keyword") or "").strip()
-                logger.info(
-                    "Browser found unquoted keyword: %r", keyword,
-                )
+            if resp.status_code == 200 and resp.content[:4] == b"\x89PNG":
+                img = _PILImage.open(io.BytesIO(resp.content))
+                url = self._qr_decode_first(img)
+                if url:
+                    logger.info(
+                        "Decoded QR code URL for %s (via PNG fetch): %s",
+                        report.id, url,
+                    )
+                    return await self._download_decoded_url(page, url, report)
+        except Exception as exc:
+            logger.debug("PNG-fetch decode failed for %s: %s", report.id, exc)
 
-        if not keyword:
-            logger.info(
-                "No keyword pattern found in browser page text "
-                "(last 200 chars: %r)", text[-200:],
-            )
-            return None
+        return None
 
-        # Extract account from gating context.
-        m = _BROWSER_GATE_CONTEXT_RE.search(text)
-        if m:
-            acct = (m.group("account") or "").strip()
-            if acct:
-                account = acct
-                logger.info("Browser found gating account: %r", account)
+    @staticmethod
+    def _qr_decode_first(img) -> Optional[str]:
+        """pyzbar 解码图片，返回第一个 http(s) URL；无则 None。"""
+        for code in _pyzbar_decode(img):
+            url = code.data.decode("utf-8").strip()
+            if url.startswith(("http://", "https://")):
+                return url
+        return None
 
-        return {
-            "name": f"微信关键词：{keyword}",
-            "type": "wechat_keyword",
-            "account": account,
-            "keyword": keyword,
-        }
+    async def _download_decoded_url(
+        self, page, url: str, report: Report
+    ) -> Optional[List[dict]]:
+        """解码出的 URL 交给下载逻辑；新开页面避免污染文章页。"""
+        dl_page = await page.context.new_page()
+        try:
+            output_dir = self.pdf_output_dir / report.source / report.native_id
+            output_dir.mkdir(parents=True, exist_ok=True)
+            return await self._download_from_url(url, dl_page, report, output_dir)
+        finally:
+            await dl_page.close()
 
     # ── PDF download helpers ────────────────────────────────────────────
 
@@ -518,6 +556,21 @@ class WxMpBrowserResolver:
 
         current_url = page.url
 
+        # ── B0: URL query 里内嵌的 .pdf（预览页模式，如 草料 view.html?url=<pdf>）──
+        pdf_from_query = self._extract_pdf_from_url_query(current_url)
+        if pdf_from_query:
+            async with httpx.AsyncClient(follow_redirects=True, timeout=30.0) as hc:
+                try:
+                    resp = await hc.get(pdf_from_query)
+                    saved = await self._save_if_valid_pdf(
+                        resp, output_dir, safe_name,
+                        pdf_from_query, report, pdf_urls,
+                    )
+                    if saved:
+                        return True
+                except Exception as exc:
+                    logger.debug("Query-PDF download failed: %s", exc)
+
         # ── B1: Check if current page IS a PDF ─────────────────────────
         if _re.search(r"\.pdf([?#]|$)", current_url):
             try:
@@ -546,22 +599,56 @@ class WxMpBrowserResolver:
             except Exception as exc:
                 logger.debug("Browser fetch failed: %s", exc)
 
-        # ── B2: Try to click a download button ─────────────────────────
-        try:
-            async with page.expect_download(timeout=12000) as dl_info:
-                for btn_text in ("下载", "下载报告", "下载 PDF", "保存", "Download"):
-                    btn = page.locator(f'button:has-text("{btn_text}"), a:has-text("{btn_text}")').first
-                    if await btn.is_visible(timeout=2000):
-                        await btn.click()
-                        break
-            dl = await dl_info.value
-            out = output_dir / f"{safe_name}.pdf"
-            await dl.save_as(str(out))
-            logger.info("PDF downloaded via click (%s) -> %s", dl.suggested_filename, out)
-            pdf_urls.append(self._entry(safe_name, current_url, report))
-            return True
-        except Exception:
-            pass
+        # ── B2: Click a download / 查看 button ─────────────────────────
+        # 「查看」按钮（草料预览页等）不触发下载，而是跳转到带真实 PDF 的
+        # 预览页（view.html?url=<pdf>）——点击后从新 URL 提取。
+        for btn_text in ("下载", "下载报告", "下载 PDF", "保存", "Download", "查看"):
+            try:
+                btn = page.locator(
+                    f'button:has-text("{btn_text}"), a:has-text("{btn_text}")'
+                ).first
+                if not await btn.is_visible(timeout=2000):
+                    continue
+            except Exception:
+                continue
+            # 尝试触发浏览器下载
+            try:
+                async with page.expect_download(timeout=8000) as dl_info:
+                    await btn.click()
+                dl = await dl_info.value
+                out = output_dir / f"{safe_name}.pdf"
+                await dl.save_as(str(out))
+                logger.info(
+                    "PDF downloaded via click (%s) -> %s",
+                    dl.suggested_filename, out,
+                )
+                pdf_urls.append(self._entry(safe_name, page.url, report))
+                return True
+            except Exception:
+                pass  # 不是下载 → 可能是页面跳转，下面从新 URL 提取
+            # 点击导致导航：轮询等待 URL 里出现内嵌 .pdf（如草料 view.html?url=<pdf>）
+            try:
+                await page.wait_for_function(
+                    "() => /[?&](url|src|pdf|file)=[^&]*\\.pdf/i.test(location.href)",
+                    timeout=10000,
+                )
+            except Exception:
+                pass  # 未跳转或跳转不带 pdf → 交给下一个按钮 / 下一轮
+            pdf_from_query = self._extract_pdf_from_url_query(page.url)
+            if pdf_from_query:
+                async with httpx.AsyncClient(
+                    follow_redirects=True, timeout=30.0
+                ) as hc:
+                    try:
+                        resp = await hc.get(pdf_from_query)
+                        saved = await self._save_if_valid_pdf(
+                            resp, output_dir, safe_name,
+                            pdf_from_query, report, pdf_urls,
+                        )
+                        if saved:
+                            return True
+                    except Exception as exc:
+                        logger.debug("Query-PDF download failed: %s", exc)
 
         # ── B3: Scan the rendered page for PDF links ──────────────────
         pdf_links: List[str] = await page.evaluate("""() => {
@@ -589,6 +676,33 @@ class WxMpBrowserResolver:
         return False
 
     # ── Misc helpers ────────────────────────────────────────────────────
+
+    @staticmethod
+    def _extract_pdf_from_url_query(url: str) -> Optional[str]:
+        """从 URL query 参数里提取内嵌的 .pdf 地址。
+
+        覆盖「预览页」模式：解码出的短链接跳转后形如
+        ``...view.html?url=https%3A%2F%2F...pdf&filename=...``，
+        真实 PDF 藏在 ``url``/``src`` 等参数里（URL-encoded）。
+        """
+        from urllib.parse import parse_qs, unquote, urlparse
+
+        parsed = urlparse(url)
+        if not parsed.query:
+            return None
+        try:
+            qs = parse_qs(parsed.query)
+        except Exception:
+            qs = {}
+        for key in ("url", "src", "pdf", "file"):
+            for val in qs.get(key) or []:
+                if _re.search(r"\.pdf([?#]|$)", val, _re.IGNORECASE):
+                    return val
+        # 兜底：直接扫描 query 里的 .pdf 形态（某些站用裸参数）
+        m = _re.search(r"([^?&=]+\.pdf[^&]*)", parsed.query, _re.IGNORECASE)
+        if m:
+            return unquote(m.group(1))
+        return None
 
     @staticmethod
     def _entry(name: str, url: str, report: Report) -> dict:

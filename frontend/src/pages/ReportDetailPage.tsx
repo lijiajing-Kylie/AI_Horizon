@@ -2,6 +2,7 @@ import { useParams } from 'react-router-dom'
 import { ExternalLink } from 'lucide-react'
 import { useApi } from '../hooks/useApi'
 import { getReport } from '../api/client'
+import ArticleHtml from '../components/ArticleHtml'
 import LoadingSkeleton from '../components/LoadingSkeleton'
 import EmptyState from '../components/EmptyState'
 import BackLink from '../components/BackLink'
@@ -55,29 +56,28 @@ export default function ReportDetailPage() {
           {report.download_count != null && <span>· {report.download_count}次下载</span>}
         </div>
 
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm mb-3">
-          {report.pdf_urls.map(pdf =>
-            pdf.type === 'wechat_keyword' ? (
-              <div
-                key={pdf.keyword ?? pdf.url}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--line)] px-3 py-1.5 text-sm text-[var(--muted)]"
-              >
-                关注 <strong className="font-semibold text-[var(--ink)]">{pdf.account || report.institution}</strong> 公众号
-                回复 <strong className="font-semibold text-[var(--accent)]">「{pdf.keyword ?? pdf.name}」</strong> 获取 PDF
-              </div>
-            ) : (
-              <a
-                key={pdf.url}
-                href={pdf.local_path ?? pdf.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--accent)]/10 px-4 py-2 text-sm font-medium text-[var(--accent)] hover:bg-[var(--accent)]/20 transition-colors"
-              >
-                查看PDF文件
-                <ExternalLink className="w-4 h-4" strokeWidth={2} />
-              </a>
-            )
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm mb-3">
+          {report.url && (
+            <a
+              href={report.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-medium text-[var(--accent)] hover:opacity-80 transition-colors"
+            >
+              阅读原文 <ExternalLink className="w-3.5 h-3.5 inline" strokeWidth={2} />
+            </a>
           )}
+          {report.pdf_urls.map(pdf => (
+            <a
+              key={pdf.url}
+              href={pdf.local_path ?? pdf.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-medium text-[var(--accent)] hover:opacity-80 transition-colors"
+            >
+              PDF <ExternalLink className="w-3.5 h-3.5 inline" strokeWidth={2} />
+            </a>
+          ))}
         </div>
 
         {report.categories.length > 0 && (
@@ -118,7 +118,7 @@ export default function ReportDetailPage() {
       )}
 
       {/* ── Full text ── */}
-      {report.content_text && report.content_text.length > 0 && (
+      {((report.content_text && report.content_text.length > 0) || report.display_html) ? (
         <section className="glass rounded-[22px] p-6">
           <CardHeading>全文</CardHeading>
           {showPdfFulltextHint && localPdf ? (
@@ -134,6 +134,11 @@ export default function ReportDetailPage() {
               </a>
               查看全文
             </p>
+          ) : report.display_html ? (
+            <ArticleHtml
+              html={report.display_html}
+              className="article-html text-[17px] leading-[1.85] text-[var(--ink)]"
+            />
           ) : (
             <div className="text-[17px] leading-[1.85] text-[var(--ink)] whitespace-pre-line space-y-4">
               {report.content_text.split('\n').map((para, i) =>
@@ -142,7 +147,7 @@ export default function ReportDetailPage() {
             </div>
           )}
         </section>
-      )}
+      ) : null}
 
       <hr className="my-8 border-[var(--line)]" />
 

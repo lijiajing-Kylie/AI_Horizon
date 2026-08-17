@@ -173,7 +173,7 @@ sources = {
 
     # ── 微信公众号（we_read 纯 HTTP 通道，weread.111965.xyz 转发服务）────────
     "wxmp": {
-        "enabled": False,         # 手动关闭微信公众号源（原: not _IN_CI）
+        "enabled": True,          # 启用微信公众号源（原: not _IN_CI）
         "gather_content": True,    # 抓取文章完整正文（需 Playwright chromium）
         "data_dir": "data/wxmp",   # 登录态 / 二维码存放目录
         "feeds": [
@@ -300,7 +300,7 @@ reports = {
     "sources": [
         "aliyunreports",                                # 阿里云报告
         {"name": "wxmp", "ai_filter": True,             # 微信公众号报告
-         "account_names": ["腾讯研究院", "阿里研究院", "__featured__"]},
+         "account_names": ["腾讯研究院", "阿里研究院"]},
     ],
     "aliyunreports_year": "2025年",  # 阿里云报告筛选年份
 }

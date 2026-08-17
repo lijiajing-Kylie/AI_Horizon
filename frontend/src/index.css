@@ -198,6 +198,22 @@ body {
 /* Structured article body (ItemDetailPage's display_html rendering). Kept
    as plain CSS rather than pulling in @tailwindcss/typography for one use
    site. */
+.article-html {
+  overflow-x: auto;
+}
+/* WeChat body keeps <section>/<div> as block containers — nh3 no longer
+   strips them, so keep them block-level (they carry no inline styles). */
+.article-html section,
+.article-html div {
+  display: block;
+}
+.article-html img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin-left: auto;
+  margin-right: auto;
+}
 .article-html h2 {
   font-size: 1.125rem;
   font-weight: 600;
@@ -270,6 +286,44 @@ body {
   font-size: 0.75rem;
   color: #9ca3af;
   text-align: center;
+}
+/* Report display_html extras: h1/h5/h6 + data tables. Borders come from here —
+   nh3 strips inline style, so WeChat's per-cell borders get normalized. */
+.article-html h1 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #111827;
+  margin-top: 1.75rem;
+  margin-bottom: 0.5rem;
+}
+.article-html h5,
+.article-html h6 {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #374151;
+  margin-top: 0.875rem;
+  margin-bottom: 0.375rem;
+}
+.article-html table {
+  border-collapse: collapse;
+  width: 100%;
+  max-width: 100%;
+  /* 内容窄时铺满可用宽度；内容过宽时按内容宽度撑开，由 .article-html 的
+     overflow-x: auto 提供横向滚动，而不是把单元格压扁。 */
+  min-width: max-content;
+  margin: 1rem 0;
+  font-size: 0.875rem;
+}
+.article-html th,
+.article-html td {
+  border: 1px solid #d1d5db;
+  padding: 6px 10px;
+  text-align: left;
+  vertical-align: top;
+}
+.article-html th {
+  background: rgba(0, 0, 0, 0.03);
+  font-weight: 600;
 }
 
 /* Accessible focus indicator — visible only for keyboard/assistive navigation */

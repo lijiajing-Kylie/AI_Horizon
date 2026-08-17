@@ -52,9 +52,8 @@ async def download_report_pdfs(
         if not url:
             continue
 
-        # Skip entries explicitly marked as non-PDF (e.g. web readers,
-        # WeChat keyword-gated downloads).
-        if entry.get("type") in ("reader", "wechat_keyword"):
+        # Skip entries explicitly marked as non-PDF (e.g. web readers).
+        if entry.get("type") == "reader":
             logger.debug("Skipping %s-type entry: %s", entry["type"], url)
             continue
 

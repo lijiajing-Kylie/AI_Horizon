@@ -64,31 +64,21 @@ export default function ReportCard({ report, backTo }: ReportCardProps) {
         >
           查看原文
         </a>
-        {report.pdf_urls.length > 0 && (() => {
-          const first = report.pdf_urls[0]
-          if (first.type === 'wechat_keyword') {
-            return (
-              <span className="inline-flex items-center gap-1.5 text-sm text-[var(--muted)]">
-                微信获取
+        {report.pdf_urls.length > 0 && (
+          <a
+            href={report.pdf_urls[0].local_path ?? report.pdf_urls[0].url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 text-[var(--accent)] hover:opacity-80 font-medium"
+          >
+            查看PDF文件
+            {report.has_local_pdf && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-[var(--accent)]/10 text-[var(--accent)]">
+                本地
               </span>
-            )
-          }
-          return (
-            <a
-              href={first.local_path ?? first.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 text-[var(--accent)] hover:opacity-80 font-medium"
-            >
-              查看PDF文件
-              {report.has_local_pdf && (
-                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-[var(--accent)]/10 text-[var(--accent)]">
-                  本地
-                </span>
-              )}
-            </a>
-          )
-        })()}
+            )}
+          </a>
+        )}
       </div>
     </article>
   )

@@ -169,6 +169,7 @@ def _row_to_report(row: sqlite3.Row) -> dict:
         "has_local_pdf": has_local_pdf,
         "summary": row["summary"],
         "content_text": row["content_text"],
+        "display_html": row["display_html"] if "display_html" in row.keys() else None,
         "categories": json.loads(row["categories_json"]),
         "published_at": row["published_at"],
         "updated_at": row["updated_at"],

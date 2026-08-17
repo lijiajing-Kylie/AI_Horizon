@@ -297,18 +297,11 @@ export interface ReportPdf {
   url: string
   local_path?: string
   /**
-   * Entry type.  ``"direct"`` (default) is a regular PDF link; any entry
-   * without a ``type`` field is treated as direct for backward compatibility.
-   *
-   * ``"wechat_keyword"`` means the PDF is gated behind following a WeChat
-   * Official Account and replying with a specific keyword — there is no
-   * direct download URL available.
+   * Entry type marker.  ``"direct"`` (default) is a regular PDF link; any
+   * entry without a ``type`` field is treated as direct for backward
+   * compatibility.
    */
-  type?: 'direct' | 'wechat_keyword'
-  /** WeChat Official Account name (present on ``wechat_keyword`` entries). */
-  account?: string
-  /** Reply keyword (present on ``wechat_keyword`` entries). */
-  keyword?: string
+  type?: string
 }
 
 export interface Report {
@@ -325,6 +318,8 @@ export interface Report {
   content_text: string
   /** 原始 HTML（如微信文章正文），未清洗；仅 wxmp 源有值 */
   raw_html: string | null
+  /** nh3 清洗后的微信正文 HTML（表格/图片/标题层级/段落）；仅 wxmp 源有值，可直接渲染 */
+  display_html: string | null
   categories: string[]
   /** AI-extracted keywords (5-8), bilingual; 展示用，不用于过滤 */
   keywords: string[]

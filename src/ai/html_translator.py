@@ -46,6 +46,30 @@ _ALLOWED_INLINE_TAGS = {"strong", "em", "br"}
 _ALLOWED_INLINE_ATTRIBUTES: dict[str, set[str]] = {}
 _ALLOWED_URL_SCHEMES = {"http", "https"}
 
+# 最终重组后消毒保留的结构标签：``display_html`` 输入本身已 nh3 清洗过，
+# 这里多放行微信正文的 section/div/table 等块级容器，避免翻译后的
+# display_html_zh 把块级边界剥掉、正文连成一片。AI 只能改写 inline 片段
+# （见 ``_clean_inline_fragment``），无法借翻译注入这些结构标签。
+_TRANSLATED_STRUCTURE_TAGS = {
+    "div", "section", "p",
+    "h1", "h2", "h3", "h4", "h5", "h6",
+    "blockquote", "ul", "ol", "li",
+    "strong", "b", "em", "i", "a",
+    "figure", "img", "figcaption",
+    "table", "thead", "tbody", "tfoot", "tr", "th", "td", "caption",
+    "br", "hr",
+}
+_TRANSLATED_STRUCTURE_ATTRIBUTES = {
+    # referrerpolicy="no-referrer" 必须透传，否则微信 mmbiz 图在翻译版
+    # display_html_zh 里会被剥掉属性、仍因防盗链 403 无法显示。
+    "img": {"src", "alt", "width", "height", "referrerpolicy"},
+    "a": {"href"},
+    "table": {"align", "border", "cellpadding", "cellspacing", "width"},
+    "td": {"colspan", "rowspan", "align", "valign", "width"},
+    "th": {"colspan", "rowspan", "align", "valign", "width"},
+    "ol": {"start"},
+}
+
 # Batching keeps individual prompts small enough to stay reliable and fast;
 # a long article's blocks are translated across multiple sequential calls.
 _MAX_BLOCKS_PER_BATCH = 20
@@ -155,7 +179,11 @@ async def translate_display_html(client: AIClient, display_html: str) -> Optiona
                 el.append(child)
 
     result = str(soup)
-    sanitized = sanitize_article_html(result)
+    sanitized = sanitize_article_html(
+        result,
+        tags=_TRANSLATED_STRUCTURE_TAGS,
+        attributes=_TRANSLATED_STRUCTURE_ATTRIBUTES,
+    )
     if not sanitized:
         return None
 

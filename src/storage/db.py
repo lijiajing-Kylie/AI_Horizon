@@ -221,6 +221,7 @@ CREATE TABLE IF NOT EXISTS reports (
     summary             TEXT,
     content_text        TEXT NOT NULL,
     raw_html            TEXT,
+    display_html        TEXT,
     categories_json     TEXT NOT NULL DEFAULT '[]',
     keywords_json       TEXT NOT NULL DEFAULT '[]',
     published_at        TEXT NOT NULL,
@@ -285,6 +286,7 @@ _PAPERS_COLUMN_MIGRATIONS: list[tuple[str, str]] = [
 _REPORTS_COLUMN_MIGRATIONS: list[tuple[str, str]] = [
     ("keywords_json", "TEXT NOT NULL DEFAULT '[]'"),
     ("raw_html", "TEXT"),
+    ("display_html", "TEXT"),
     ("ai_relevance_score", "REAL"),
     ("composite_score", "REAL"),
 ]
@@ -698,6 +700,7 @@ def _row_to_report(row: sqlite3.Row) -> dict[str, Any]:
         "summary": row["summary"],
         "content_text": row["content_text"],
         "raw_html": row["raw_html"] if "raw_html" in row.keys() else None,
+        "display_html": row["display_html"] if "display_html" in row.keys() else None,
         "categories": json.loads(row["categories_json"]),
         "keywords": json.loads(row["keywords_json"]) if row["keywords_json"] else [],
         "published_at": row["published_at"],
@@ -1391,11 +1394,11 @@ class HorizonDB:
                 """
                 INSERT INTO reports (
                     id, source, native_id, title, institution, author, url,
-                    pdf_urls_json, summary, content_text, raw_html, categories_json, keywords_json,
+                    pdf_urls_json, summary, content_text, raw_html, display_html, categories_json, keywords_json,
                     published_at, updated_at, view_count, download_count,
                     fetched_at, ai_relevance_score, composite_score, updated_row_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
                 ON CONFLICT(id) DO UPDATE SET
                     title=excluded.title,
                     institution=excluded.institution,
@@ -1405,6 +1408,7 @@ class HorizonDB:
                     summary=excluded.summary,
                     content_text=excluded.content_text,
                     raw_html=excluded.raw_html,
+                    display_html=excluded.display_html,
                     categories_json=excluded.categories_json,
                     keywords_json=excluded.keywords_json,
                     updated_at=excluded.updated_at,
@@ -1427,6 +1431,7 @@ class HorizonDB:
                     r.summary,
                     r.content_text,
                     r.raw_html,
+                    r.display_html,
                     json.dumps(r.categories, ensure_ascii=False),
                     json.dumps(r.keywords, ensure_ascii=False),
                     _dt_iso(r.published_at),

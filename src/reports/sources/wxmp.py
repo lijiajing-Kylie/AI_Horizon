@@ -1,17 +1,18 @@
 """WeChat MP reports source for the research-reports pipeline.
 
-Fetches WeChat MP articles as research reports via the bundled we-mp-rss core
-(``src.we_mp_rss``) — no external we-mp-rss Docker service.  Registered in
-``_SOURCE_REGISTRY`` when ``wxmp`` is listed in config's ``reports.sources``.
+Fetches WeChat MP articles as research reports via the WeRead channel
+(``src.we_read``) — pure HTTP, no Playwright, no external we-mp-rss service.
+Registered in ``_SOURCE_REGISTRY`` when ``wxmp`` is listed in config's
+``reports.sources``.
 
 Article data is gathered during ``fetch_native_ids`` and cached; ``fetch_detail``
-returns Reports from cache with we-mp-rss's content-cleanup + keyword-gated PDF
-detection applied (no extra API calls needed).
+returns Reports from cache with the WeChat content-cleanup applied and an empty
+``pdf_urls`` list left for the browser resolver to fill (no extra API calls
+needed).
 """
 
 from __future__ import annotations
 
-import asyncio
 import json as json_mod
 import logging
 import re as _re
@@ -23,7 +24,9 @@ from bs4 import BeautifulSoup, NavigableString
 
 from ...config.constants import WXMP_REPORT_DEFAULTS
 from ...models import WxMpConfig, WxMpSourceConfig
-from ...scrapers.wxmp import faker_id_from_feed_id
+from ...scrapers.wxmp import fix_wechat_images, sanitize_wxmp_display_html
+from ...we_read import build_client_from_wxmp_config, ensure_login, with_empty_retry
+from ...we_read.errors import WeReadAuthError, WeReadError
 from ..models import Report
 from .base import ReportSourceFetcher
 
@@ -54,34 +57,6 @@ _INLINE_TAGS = {
     "sup", "code", "mark", "s", "strike", "del", "ins", "abbr", "cite",
     "time", "label", "q", "tt", "var", "big", "kbd", "samp",
 }
-
-# ── WeChat keyword-gated PDF detection ───────────────────────────────────
-_QUOTED_KW_RE = _re.compile(
-    '(?:回复|输入|发送|关键词)\\s*[：:\\s]*'
-    '(?:'
-    '"([^"]{1,40})"'           # "keyword" (ASCII double)
-    '|'
-    '「([^」]{1,40})」'        # 「keyword」(corner)
-    '|'
-    '『([^』]{1,40})』'        # 『keyword』(white corner)
-    '|'
-    '“([^“]{1,40})”'   # "keyword" (smart double)
-    '|'
-    '‘([^‘]{1,40})’'   # 'keyword' (smart single)  # noqa: RUF001
-    ')'
-)
-
-_UNQUOTED_KW_RE = _re.compile(
-    '(?:回复|输入|发送)\\s*'
-    '(?P<keyword>(?!关键词)[^，。、\\s"\'“”‘’'
-    '「『」』]{2,30}?)'
-    '\\s*(?:获取|下载|领取).*?(?:PDF|报告)'
-)
-
-_GATE_CONTEXT_RE = _re.compile(
-    '关注\\s*(?P<account>[^，。\\s]{2,20}?)\\s*(?:公众号|微信公众号|微信)'
-)
-
 
 class WxMpReportConfig:
     """微信报告源配置：从内置 we-mp-rss 核心获取公众号文章作为报告。
@@ -129,9 +104,7 @@ class WxMpReportFetcher(ReportSourceFetcher):
         self._wxmp_config: Optional[WxMpConfig] = None
 
     def _ensure_init(self) -> WxMpConfig:
-        """Seed the bundled we-mp-rss core with a WxMpConfig (idempotent)."""
-        import src.we_mp_rss
-
+        """Resolve the wxmp config (no we-mp-rss core seeding anymore)."""
         if self._wxmp_config is None:
             if self.cfg.wxmp is not None:
                 self._wxmp_config = self.cfg.wxmp
@@ -144,54 +117,75 @@ class WxMpReportFetcher(ReportSourceFetcher):
                     feeds=feeds,
                     data_dir=self.cfg.data_dir,
                     gather_content=self.cfg.gather_content,
-                    max_page=self.cfg.max_page,
-                    gather_interval=self.cfg.gather_interval,
                 )
-        src.we_mp_rss.init(self._wxmp_config, self._wxmp_config.data_dir)
         return self._wxmp_config
 
-    def _resolve_feed_ids(self) -> Dict[str, str]:
-        """Map account names to feed IDs from known_feeds (+ configured feeds)."""
-        mapping: Dict[str, str] = dict(self.cfg.known_feeds or {})
+    def _resolve_weread_mp_ids(self) -> Dict[str, str]:
+        """Map account names to weread mp_ids from configured feeds."""
+        mapping: Dict[str, str] = {}
         if self._wxmp_config and self._wxmp_config.feeds:
             for f in self._wxmp_config.feeds:
-                if f.feed_id and f.name not in mapping:
-                    mapping[f.name] = f.feed_id
+                if f.weread_mp_id and f.name not in mapping:
+                    mapping[f.name] = f.weread_mp_id
         return mapping
 
     async def fetch_native_ids(self, client: httpx.AsyncClient) -> List[str]:
-        """Gather article IDs from configured accounts within the time window,
-        caching full article data for ``fetch_detail``."""
-        self._ensure_init()
-        from src.we_mp_rss.driver.success import CanGetToken
+        """Gather article IDs from configured accounts via the WeRead channel,
+        caching full article data for ``fetch_detail``.
 
-        if not CanGetToken():
+        When the WeRead token is missing or has gone invalid (401), an
+        interactive run pops the QR login window and retries once with the
+        fresh token; CI / non-interactive runs skip the source fail-open.
+        """
+        self._ensure_init()
+        wc = build_client_from_wxmp_config(self._wxmp_config, http_client=client)
+        if not await ensure_login(wc):
             logger.warning(
-                "WeChat MP 未登录或登录态已过期，跳过报告源。运行 `horizon-wxmp login` 后重试。"
+                "微信读书未登录或登录失效，跳过报告源。可运行 `horizon-wxmp login` 扫码。"
             )
             return []
 
-        name_to_id = self._resolve_feed_ids()
+        login_retried = False
+        while True:
+            try:
+                return await self._fetch_ids(wc)
+            except WeReadAuthError as exc:
+                if login_retried:
+                    logger.warning("微信读书登录失效，跳过报告源: %s", exc)
+                    return []
+                login_retried = True
+                logger.warning("微信读书登录失效，正在弹出扫码窗口重新登录…")
+                if await ensure_login(wc, force=True):
+                    continue  # 新 token，重试全部账号
+                return []
+
+    async def _fetch_ids(self, wc) -> List[str]:
+        """List each configured account's articles; 401 propagates up to
+        ``fetch_native_ids`` so it can trigger a re-login."""
+        name_to_mp = self._resolve_weread_mp_ids()
         cutoff = datetime.now(timezone.utc) - timedelta(days=self.cfg.max_age_days)
         cutoff_ts = cutoff.timestamp()
         all_ids: List[str] = []
         self._article_cache = {}
 
         for name in self.cfg.account_names:
-            feed_id = name_to_id.get(name)
-            if not feed_id:
-                logger.warning("Unknown WeChat account %r — skipping", name)
+            mp_id = name_to_mp.get(name)
+            if not mp_id:
+                logger.warning("账号 %r 缺少 weread_mp_id — 跳过", name)
                 continue
-            faker_id = faker_id_from_feed_id(feed_id)
-            if not faker_id:
-                logger.warning(
-                    "无法从 feed_id %r 推导 fakeid（特殊 feed，跳过）", feed_id
+            try:
+                arts = await with_empty_retry(
+                    lambda: self._gather_feed_weread(wc, name, mp_id),
+                    waits=self._wxmp_config.weread.empty_retry_waits,
+                    max_empties=self._wxmp_config.weread.empty_max_retries,
+                    log=logger,
+                    ctx=f"报告源 {name}",
                 )
+            except WeReadAuthError:
+                raise  # 401 → 交回 fetch_native_ids() 处理重新登录
+            except WeReadError as exc:
+                logger.warning("抓取报告源 %r 失败: %s", name, exc)
                 continue
-
-            arts = await asyncio.to_thread(
-                self._gather_feed_sync, faker_id, feed_id, name
-            )
             for art in arts:
                 ts = art.get("publish_time")
                 if ts is None:
@@ -212,26 +206,33 @@ class WxMpReportFetcher(ReportSourceFetcher):
 
         return all_ids
 
-    def _gather_feed_sync(
-        self, faker_id: str, feed_id: str, name: str
-    ) -> List[dict]:
-        """Gather one account's articles through the vendored we-mp-rss core."""
-        from src.we_mp_rss.core.wx.base import WxGather
-
-        def collect(_art: dict) -> bool:
-            return True
-
-        wx = WxGather().Model("web")
-        wx.get_Articles(
-            faker_id=faker_id,
-            Mps_id=feed_id,
-            Mps_title=name,
-            CallBack=collect,
-            MaxPage=self.cfg.max_page,
-            interval=self.cfg.gather_interval,
-            Gather_Content=self.cfg.gather_content,
-        )
-        return getattr(wx, "articles", []) or []
+    async def _gather_feed_weread(self, wc, name: str, mp_id: str) -> List[dict]:
+        """List one account's articles via we_read, normalized to art-dict shape."""
+        arts: List[dict] = []
+        for art in await wc.list_articles(mp_id, page=1):
+            content = ""
+            if self.cfg.gather_content and art.url:
+                try:
+                    raw = await wc.fetch_article_html(art.url)
+                    content = fix_wechat_images(raw)
+                except WeReadError as exc:
+                    # 单篇正文失败(302/风控/失效/网络) → 正文留空、报告保留。
+                    logger.warning(
+                        "报告源 %r 正文抓取失败，跳过正文: %s", name, exc
+                    )
+            arts.append(
+                {
+                    "id": art.id,
+                    "mp_id": mp_id,
+                    "title": art.title,
+                    "url": art.url,
+                    "pic_url": art.pic_url,
+                    "publish_time": art.publish_time,
+                    "description": "",
+                    "content": content,
+                }
+            )
+        return arts
 
     def _cache_article(self, article_id: str, art: dict, feed_name: str) -> None:
         """Store a single gathered article in ``_article_cache``."""
@@ -264,6 +265,9 @@ class WxMpReportFetcher(ReportSourceFetcher):
         if published_at is None:
             published_at = datetime.now(timezone.utc)
 
+        raw = article.get("content") or None
+        display_html = sanitize_wxmp_display_html(raw) if raw else ""
+
         content_text = self._extract_text(article["content"])
         content_fallback = False
 
@@ -273,11 +277,14 @@ class WxMpReportFetcher(ReportSourceFetcher):
             if fetched and len(fetched) > len(content_text):
                 content_text = self._clean_article_text(fetched)
                 content_fallback = True
+                # 回退路径的缓存 HTML 是不可信的短 stub，生成 display_html 只会
+                # 更差 —— 置空，前端自动回退到 content_text 纯文本渲染。
+                display_html = ""
 
         # When content is still empty/short after fallback, the browser
-        # resolver can still load the article and detect any
-        # "回复关键词获取PDF" pattern — skip the AI relevance filter so
-        # the article isn't discarded before reaching that stage.
+        # resolver can still load the article and try the 阅读原文 /
+        # QR-code strategies — skip the AI relevance filter so the article
+        # isn't discarded before reaching that stage.
         needs_browser = bool(
             not content_text or len(content_text) < 100
         ) if not content_fallback else False
@@ -291,101 +298,15 @@ class WxMpReportFetcher(ReportSourceFetcher):
             url=article["link"],
             summary=article["description"],
             content_text=content_text or article["description"],
-            raw_html=article.get("content") or None,
+            raw_html=raw,
+            display_html=display_html or None,
             categories=[],
             published_at=published_at,
             updated_at=published_at,
             fetched_at=datetime.now(timezone.utc),
             skip_ai_filter=article.get("is_featured", False) or needs_browser,
-            pdf_urls=self._build_pdf_urls(content_text, article),
+            pdf_urls=[],
         )
-
-    @staticmethod
-    def _detect_wechat_keyword(
-        text: str, channel_name: str = ""
-    ) -> Optional[dict]:
-        """Scan *text* for patterns like "关注XX公众号，回复关键词获取PDF"."""
-        if not text:
-            logger.info(
-                "Empty text for channel=%r — skipping keyword detection",
-                channel_name,
-            )
-            return None
-        if len(text) < 15:
-            logger.info(
-                "Text too short (%d chars) for channel=%r — skipping keyword detection",
-                len(text),
-                channel_name,
-            )
-            return None
-
-        keyword: Optional[str] = None
-        account = channel_name
-
-        m = _QUOTED_KW_RE.search(text)
-        if m:
-            if m.lastindex is not None:
-                kw = m.group(m.lastindex)
-                if kw:
-                    keyword = kw.strip()
-        else:
-            m = _UNQUOTED_KW_RE.search(text)
-            if m:
-                keyword = (m.group("keyword") or "").strip()
-
-        if not keyword:
-            logger.info(
-                "No wechat keyword pattern in %d chars of text, channel=%r",
-                len(text),
-                channel_name,
-            )
-            return None
-
-        m = _GATE_CONTEXT_RE.search(text)
-        if m:
-            acct = (m.group("account") or "").strip()
-            if acct:
-                account = acct
-
-        logger.info(
-            "Detected WeChat keyword gate: account=%r keyword=%r", account, keyword
-        )
-        return {
-            "name": f"微信关键词：{keyword}",
-            "type": "wechat_keyword",
-            "account": account,
-            "keyword": keyword,
-        }
-
-    def _build_pdf_urls(self, content_text: str, article: dict) -> List[dict]:
-        """Build ``pdf_urls`` list, prepending a ``wechat_keyword`` entry if
-        the article text contains a keyword-gating pattern."""
-        pdf_urls: List[dict] = []
-
-        keyword_info = self._detect_wechat_keyword(
-            content_text, article.get("channel_name", "")
-        )
-        if keyword_info:
-            keyword_info["url"] = article.get("link", "")
-            pdf_urls.append(keyword_info)
-        else:
-            brief = article.get("title", "")[:60]
-            if content_text:
-                logger.info(
-                    "No wechat keyword in %d-char content for %r; "
-                    "last 300 chars: %r",
-                    len(content_text),
-                    brief,
-                    content_text[-300:],
-                )
-            else:
-                logger.info(
-                    "Empty content_text for %r — bundled we-mp-rss content may "
-                    "be truncated or missing",
-                    brief,
-                )
-
-        return pdf_urls
 
     @staticmethod
     async def _fetch_content_from_url(

@@ -7,18 +7,22 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Any, Literal, Optional
+from urllib.parse import urlparse
+from urllib.request import getproxies
 
+import httpx
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.responses import HTMLResponse, FileResponse, Response
 from pydantic import BaseModel
 
 from ..ai.content_selection import build_analysis_input, build_enrichment_input
 from ..ai.utils import split_content_and_comments
 from ..content_extractor import clean_article_content
+from ..knowledge_base import build_item_markdown, build_markdown_filename
 from ..models import ContentItem
 from ..storage.db import HorizonDB
 
@@ -355,7 +359,26 @@ def _build_debug_block(item: dict) -> dict:
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
     """Startup / shutdown lifecycle for the Horizon API."""
+    # 微信图片代理共用连接池（见 wechat_img_proxy）：直连 client +
+    # 走系统代理的 client。Clash 等代理工具下直连微信图片 CDN 常被拦，
+    # 后端抓图时先直连、失败自动走系统代理重试（与浏览器路径一致）。
+    common = {
+        "timeout": 25.0,
+        "follow_redirects": True,
+        "headers": {
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+        },
+    }
+    app.state.wechat_img_client = httpx.AsyncClient(**common)
+    proxy_url = _system_proxy_url()
+    app.state.wechat_img_proxy_client = (
+        httpx.AsyncClient(proxy=proxy_url, **common) if proxy_url else None
+    )
     yield
+    await app.state.wechat_img_client.aclose()
+    if app.state.wechat_img_proxy_client is not None:
+        await app.state.wechat_img_proxy_client.aclose()
     db.close()
 
 
@@ -1153,6 +1176,67 @@ _DEBUG_FRONTEND = Path(__file__).resolve().parent.parent.parent / "debug-fronten
 def debug_dashboard() -> FileResponse:
     """Serve the debug frontend dashboard (same-origin — no CORS needed)."""
     return FileResponse(str(_DEBUG_FRONTEND / "index.html"))
+
+
+# ── WeChat image proxy ────────────────────────────────────────────────────
+# mmbiz.qpic.cn 有 Referer 防盗链：前端带非微信域名 Referer 加载一律 403，
+# referrerpolicy="no-referrer" 对部分请求也不放行。后端带微信域名 Referer
+# 抓图转发是最可靠方案（实时转发、不落盘，非图片本地化）。display_html 里
+# 微信图片的 src 在清洗时被替换为 /api/img-proxy?url=<encoded>（见
+# src/scrapers/wxmp.py 的 _proxy_wechat_img_src）。
+
+_WEIXIN_IMG_DOMAINS = ("mmbiz.qpic.cn", "qpic.cn", "wx.qlogo.cn")
+
+
+def _system_proxy_url() -> Optional[str]:
+    """读取 macOS 系统代理（Clash/Surge 等）或环境变量代理。"""
+    for env in ("https_proxy", "HTTPS_PROXY", "http_proxy", "HTTP_PROXY"):
+        if os.environ.get(env):
+            return os.environ[env]
+    try:
+        proxies = getproxies()
+        return proxies.get("https") or proxies.get("http")
+    except Exception:
+        return None
+
+
+@app.get("/api/img-proxy")
+async def wechat_img_proxy(url: str, request: Request) -> Response:
+    """Fetch a WeChat CDN image server-side (with a weixin Referer) and relay it.
+
+    Only accepts http(s) URLs on Horizon's WeChat image CDN whitelist to keep
+    the proxy from becoming an open SSRF vector. Tries the direct client first,
+    then falls back to the system-proxy client (some networks block the CDN
+    unless the request goes through the local proxy tool).
+    """
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
+    if parsed.scheme not in ("http", "https") or not any(
+        host == d or host.endswith("." + d) for d in _WEIXIN_IMG_DOMAINS
+    ):
+        raise HTTPException(status_code=400, detail="only WeChat image CDN URLs are proxied")
+
+    headers = {"Referer": "https://mp.weixin.qq.com/"}
+    clients = [request.app.state.wechat_img_client]
+    if request.app.state.wechat_img_proxy_client is not None:
+        clients.append(request.app.state.wechat_img_proxy_client)
+
+    last_error = "no route to upstream"
+    for client in clients:
+        try:
+            resp = await client.get(url, headers=headers)
+        except httpx.HTTPError as exc:
+            last_error = str(exc) or type(exc).__name__
+            continue
+        if resp.status_code != 200:
+            last_error = f"upstream returned {resp.status_code}"
+            continue
+        media_type = resp.headers.get("content-type") or "image/jpeg"
+        if not media_type.startswith("image/"):
+            media_type = "application/octet-stream"
+        return Response(content=resp.content, media_type=media_type)
+
+    raise HTTPException(status_code=502, detail=f"upstream fetch failed: {last_error}")
 
 
 def main() -> None:

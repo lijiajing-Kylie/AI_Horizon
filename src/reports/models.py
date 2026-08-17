@@ -28,6 +28,7 @@ class Report(BaseModel):
     summary: Optional[str] = None
     content_text: str      # cleaned plain text of the report body
     raw_html: Optional[str] = None  # original HTML as fetched (e.g. WeChat MP article body), not cleaned
+    display_html: Optional[str] = None  # nh3-清洗后的微信正文 HTML（表格/图片/标题层级/段落），供前端直接渲染
     categories: List[str] = []
     keywords: List[str] = []   # AI-extracted keywords (5-8), bilingual
     published_at: datetime

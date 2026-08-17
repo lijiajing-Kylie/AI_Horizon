@@ -490,28 +490,56 @@ class ReportsConfig(BaseModel):
         return any(s.ai_filter for s in self.sources)
 
 
+class WeReadConfigModel(BaseModel):
+    """微信读书（weread）通道的可调参数，覆盖 ``we_read.WeReadConfig`` 默认值。"""
+
+    base_url: str = Field(default="https://weread.111965.xyz")
+    request_interval: float = Field(default=20.0, ge=1.0, description="转发服务请求间隔(秒)")
+    jitter: float = Field(default=5.0)
+    empty_retry_waits: List[float] = Field(default_factory=lambda: [15.0, 30.0])
+    empty_max_retries: int = Field(default=3, ge=1, le=5)
+    backoff_waits: List[float] = Field(default_factory=lambda: [15.0, 30.0, 60.0])
+    timeout: float = Field(default=20.0)
+    token_max_age_days: int = Field(default=30, description="仅 status 提醒用，不强制删除 token")
+
+
 class WxMpSourceConfig(BaseModel):
-    """一个微信公众号的订阅配置（内置 we-mp-rss 核心抓取）。"""
+    """一个微信公众号的订阅配置（微信读书通道，纯 HTTP 采集）。"""
 
     name: str = Field(description="公众号显示名称，例如 机器之心")
-    feed_id: Optional[str] = Field(default=None, description="公众号 mp_id（MP_WXS_ 开头）")
+    feed_id: Optional[str] = Field(
+        default=None,
+        description="DEPRECATED — rachelos 公众平台 feed_id（微信读书接口返回 400）。仅历史/兜底用，勿在新配置使用。",
+    )
     enabled: bool = True
     category: Optional[str] = None
-    faker_id: Optional[str] = Field(default=None, description="微信侧 fakeid。留空则自动由 feed_id 推导")
+    faker_id: Optional[str] = Field(
+        default=None, description="DEPRECATED — rachelos 专属 fakeid，迁移后不再使用。"
+    )
+    weread_mp_id: Optional[str] = Field(
+        default=None,
+        description="ACTIVE — 微信读书侧公众号 mp_id，由 `horizon-wxmp subscribe/migrate` 解析分享链接写入。",
+    )
 
 
 class WxMpConfig(BaseModel):
-    """微信公众号源配置（内置 we-mp-rss 核心抓取，无需外部服务）。"""
+    """微信公众号源配置（微信读书通道，经 weread.111965.xyz 转发服务采集）。"""
 
     enabled: bool = True
     feeds: List[WxMpSourceConfig] = Field(default_factory=list, description="订阅的公众号列表")
-    gather_content: bool = Field(default=True, description="是否抓取文章完整正文（Playwright 无头浏览器）")
+    gather_content: bool = Field(default=True, description="是否抓取文章完整正文（公开链接纯 HTTP）")
     clean_html: bool = Field(default=False, description="是否对抓取的正文做 HTML 清洗")
     proxy: Optional[str] = Field(default=None, description="HTTP 代理地址（可选）")
-    lic_key: Optional[str] = Field(default=None, description="cookie 加密密钥。默认取环境变量 WXMP_LIC_KEY")
-    data_dir: str = Field(default="data/wxmp", description="登录态 / 二维码文件存储目录")
-    max_page: int = Field(default=1, description="每个公众号抓取的页数（每页约 5 篇）")
-    gather_interval: int = Field(default=3, description="抓取间隔秒数（随机 0~N，用于反爬）")
+    lic_key: Optional[str] = Field(
+        default=None,
+        description="DEPRECATED — rachelos cookie 加密密钥，迁移后不再使用。默认取环境变量 WXMP_LIC_KEY。",
+    )
+    data_dir: str = Field(default="data/wxmp", description="历史登录态 / 二维码文件目录（微信读书 token 存 data/auth/）")
+    max_page: int = Field(default=1, description="DEPRECATED — rachelos 分页，微信读书单页即全量。")
+    gather_interval: int = Field(default=3, description="DEPRECATED — rachelos 抓取间隔，微信读书由 we_read 内部节流。")
+    weread: WeReadConfigModel = Field(
+        default_factory=WeReadConfigModel, description="微信读书通道可调参数"
+    )
 
 
 class SourcesConfig(BaseModel):

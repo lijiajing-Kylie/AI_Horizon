@@ -316,6 +316,52 @@ def test_sanitize_article_html_empty_input():
     assert sanitize_article_html("   ") == ""
 
 
+def test_sanitize_article_html_default_still_strips_table():
+    # 新闻端默认白名单不含 table —— 传表格会被剥掉但保留文本（回归保护）。
+    clean = sanitize_article_html(
+        '<table><tr><td style="border:1px solid">cell</td></tr></table>'
+    )
+    assert "<table" not in clean
+    assert "<td" not in clean
+    assert "style=" not in clean
+    assert "cell" in clean
+
+
+def test_sanitize_article_html_optional_tags_keeps_table():
+    from src.content_extractor import _ALLOWED_HTML_TAGS, _ALLOWED_HTML_ATTRIBUTES
+
+    tags = _ALLOWED_HTML_TAGS | {
+        "h1", "h5", "h6", "table", "thead", "tbody", "tr", "td", "th", "caption",
+    }
+    attributes = dict(_ALLOWED_HTML_ATTRIBUTES)
+    attributes["table"] = {"align", "border", "cellpadding", "cellspacing", "width"}
+    attributes["td"] = {"colspan", "rowspan", "align", "valign", "width"}
+    attributes["th"] = {"colspan", "rowspan", "align", "valign", "width"}
+
+    clean = sanitize_article_html(
+        '<p>标题</p><table border="1"><tr><td colspan="2" '
+        'style="border:1px solid">数据</td></tr></table>',
+        tags=tags,
+        attributes=attributes,
+    )
+    assert "<table" in clean
+    assert "<td" in clean
+    assert 'colspan="2"' in clean
+    assert "style=" not in clean  # style 始终不放行
+    assert "数据" in clean
+
+
+def test_sanitize_article_html_optional_params_default_to_global():
+    from src.content_extractor import _ALLOWED_HTML_TAGS, _ALLOWED_HTML_ATTRIBUTES
+
+    dirty = "<h2>H</h2><p>p</p><div>x</div>"
+    assert sanitize_article_html(dirty) == sanitize_article_html(
+        dirty,
+        tags=_ALLOWED_HTML_TAGS,
+        attributes=_ALLOWED_HTML_ATTRIBUTES,
+    )
+
+
 # ── boilerplate container removal ─────────────────────────────────────────
 
 
