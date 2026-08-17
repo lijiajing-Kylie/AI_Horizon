@@ -137,7 +137,14 @@ def test_enrich_existing_backfills_featured_missing_summary() -> None:
     rows = [
         _paper_row("arxiv:1", is_featured=True, ai_summary=None),
         _paper_row("arxiv:2", is_featured=True, ai_summary={"background": "背景"}),
-        _paper_row("arxiv:3", is_featured=True, ai_summary={"one_sentence_summary": "新格式", "interpretation_version": AI_SUMMARY_VERSION}),
+        _paper_row("arxiv:3", is_featured=True, ai_summary={
+            "one_sentence_summary": "新格式",
+            "core_idea": "核心",
+            "technical_details": "细节",
+            "experimental_evidence": "证据",
+            "limitations": "局限",
+            "interpretation_version": AI_SUMMARY_VERSION,
+        }),
         _paper_row("arxiv:4", is_featured=False, ai_summary=None),
     ]
     mock_ai = AsyncMock()
@@ -164,7 +171,14 @@ def test_enrich_existing_backfills_featured_missing_summary() -> None:
 
 def test_enrich_existing_nothing_missing() -> None:
     rows = [
-        _paper_row("arxiv:1", is_featured=True, ai_summary={"one_sentence_summary": "新格式", "interpretation_version": AI_SUMMARY_VERSION}),
+        _paper_row("arxiv:1", is_featured=True, ai_summary={
+            "one_sentence_summary": "新格式",
+            "core_idea": "核心",
+            "technical_details": "细节",
+            "experimental_evidence": "证据",
+            "limitations": "局限",
+            "interpretation_version": AI_SUMMARY_VERSION,
+        }),
     ]
     with patch("src.papers.cli.HorizonDB") as MockDB, patch(
         "src.papers.cli.create_ai_client"
@@ -218,7 +232,14 @@ def test_ai_summary_stale_versions() -> None:
 def test_enrich_existing_single_paper_id_forces_regen() -> None:
     """--paper-id 强制重生成指定论文，即使它已是当前版本。"""
     rows = [
-        _paper_row("arxiv:1", is_featured=True, ai_summary={"one_sentence_summary": "新格式", "interpretation_version": AI_SUMMARY_VERSION}),
+        _paper_row("arxiv:1", is_featured=True, ai_summary={
+            "one_sentence_summary": "新格式",
+            "core_idea": "核心",
+            "technical_details": "细节",
+            "experimental_evidence": "证据",
+            "limitations": "局限",
+            "interpretation_version": AI_SUMMARY_VERSION,
+        }),
         _paper_row("arxiv:2", is_featured=True, ai_summary={"one_sentence_summary": "旧", "interpretation_version": 1}),
     ]
     mock_ai = AsyncMock()
