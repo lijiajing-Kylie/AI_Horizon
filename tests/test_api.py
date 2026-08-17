@@ -750,13 +750,21 @@ def test_api_papers_featured_filter(tmp_path: Path, monkeypatch: pytest.MonkeyPa
             authors=[], abstract="abstract a", url="https://arxiv.org/abs/a",
             published_at=now, updated_at=now, categories=["cs.LG"],
             is_featured=True, featured_date=now, ai_relevance_score=9.0,
-            keywords=["transformer"], ai_reason="good", fetched_at=now,
+            keywords=["transformer"], ai_reason="good",
+            title_zh="精选A", ai_summary={"one_sentence_summary": "一句话总结"},
+            fetched_at=now,
         ),
         Paper(
             id="arxiv:b", source="arxiv", native_id="b", title="Plain B",
             authors=[], abstract="abstract b", url="https://arxiv.org/abs/b",
             published_at=now, updated_at=now, categories=["cs.LG"],
             is_featured=False, fetched_at=now,
+        ),
+        Paper(
+            id="arxiv:c", source="arxiv", native_id="c", title="Scoring Failed C",
+            authors=[], abstract="abstract c", url="https://arxiv.org/abs/c",
+            published_at=now, updated_at=now, categories=["cs.LG"],
+            is_featured=False, ai_reason="scoring failed", fetched_at=now,
         ),
     ])
     monkeypatch.setattr(server_module, "db", db)
@@ -774,5 +782,9 @@ def test_api_papers_featured_filter(tmp_path: Path, monkeypatch: pytest.MonkeyPa
 
     all_arxiv = c.get("/api/papers", params={"source": "arxiv"}).json()
     assert all_arxiv["total"] == 2
+    # 打分失败论文(exclude_failed)被过滤,不出现在列表/精选/搜索
+    assert all(p["id"] != "arxiv:c" for p in all_arxiv["items"])
+    assert all(p["id"] != "arxiv:c" for p in data["items"])
+    assert c.get("/api/papers/arxiv:c").status_code == 404
 
     db.close()

@@ -172,3 +172,25 @@ def apply_venue_signals(papers: List[Paper]) -> List[Paper]:
 def truncate(papers: List[Paper], limit: int) -> List[Paper]:
     """Keep the first *limit* papers (call after venue-signal sorting)."""
     return papers[:limit]
+
+
+def is_paper_failed(paper: Paper, *, no_translate: bool = False) -> bool:
+    """True when a paper failed AI processing and must not be persisted.
+
+    Covers the three "失败不入库" cases:
+    1. AI pre-screen scoring failed (``ai_reason == "scoring failed"``);
+    2. A featured paper whose AI interpretation is *completely* empty — a
+       partial interpretation (``ai_summary`` non-empty with an
+       ``[enrich detail failed: partial: …]`` marker) is a success;
+    3. A featured paper missing its Chinese translation — a Chinese-origin
+       paper has ``title_zh`` copied from ``title`` (non-empty), so
+       ``title_zh is None`` means a genuine failure. Only enforced when
+       translation was attempted (``no_translate=False``).
+    """
+    if paper.ai_reason == "scoring failed":
+        return True
+    if paper.is_featured and paper.ai_summary is None:
+        return True
+    if not no_translate and paper.is_featured and paper.title_zh is None:
+        return True
+    return False

@@ -804,6 +804,8 @@ def list_papers(
         order=order,
         page=page,
         per_page=per_page,
+        exclude_failed=True,
+        user_id=user_id,
     )
     _attach_paper_favorited(result["items"], user_id)
     return result
@@ -994,6 +996,8 @@ def global_search(
         search=q, page=papers_page, per_page=per_page,
         sort=sort,
         order=order,
+        exclude_failed=True,
+        user_id=user_id,
     )
     _attach_paper_favorited(papers_result["items"], user_id)
 

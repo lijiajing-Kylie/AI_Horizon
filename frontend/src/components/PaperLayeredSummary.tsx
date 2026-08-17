@@ -2,31 +2,31 @@ import { useState, useRef, useEffect } from 'react'
 import { ChevronDown } from 'lucide-react'
 import type { PaperLayeredSummary } from '../api/types'
 
-/** 详细解读 accordion 的条目配置（title 固定；fields 对应 PaperLayeredSummary 字段）。 */
-const ACCORDION_ITEMS: {
-  title: string
-  fields: { key: keyof PaperLayeredSummary; label: string }[]
-  muted?: boolean
-}[] = [
-  {
-    title: '为什么会有这个问题？',
-    fields: [
-      { key: 'background', label: '背景' },
-      { key: 'previous_problem', label: '过去方法的不足' },
-    ],
-  },
-  {
-    title: '作者提出了什么方法？',
-    fields: [
-      { key: 'core_idea', label: '核心创新' },
-      { key: 'how_it_works', label: '如何实现' },
-    ],
-  },
-  { title: '技术细节', fields: [{ key: 'technical_details', label: '' }], muted: true },
-  { title: '实验结果', fields: [{ key: 'experimental_evidence', label: '' }] },
-  { title: '实际影响', fields: [{ key: 'real_world_impact', label: '' }] },
-  { title: '局限性', fields: [{ key: 'limitations', label: '' }] },
-]
+/**
+ * 详细解读 accordion 条目配置（title 固定；fields 对应 PaperLayeredSummary 字段）。
+ * 第一组「为什么会有这个问题？」v3 起用合并的 background_problem；旧行
+ * （v<3）只有 background/previous_problem，回退渲染这两个。
+ */
+function buildAccordionItems(
+  summary: PaperLayeredSummary,
+): { title: string; fields: { key: keyof PaperLayeredSummary; label: string }[]; muted?: boolean }[] {
+  const text = (k: keyof PaperLayeredSummary) =>
+    typeof summary[k] === 'string' ? (summary[k] as string).trim() : ''
+  const problemFields: { key: keyof PaperLayeredSummary; label: string }[] = []
+  if (text('background_problem')) {
+    problemFields.push({ key: 'background_problem', label: '背景与问题' })
+  } else {
+    if (text('background')) problemFields.push({ key: 'background', label: '背景' })
+    if (text('previous_problem')) problemFields.push({ key: 'previous_problem', label: '过去方法的不足' })
+  }
+  return [
+    { title: '为什么会有这个问题？', fields: problemFields },
+    { title: '作者提出了什么方法？', fields: [{ key: 'core_idea', label: '' }] },
+    { title: '实验结果', fields: [{ key: 'experimental_evidence', label: '' }] },
+    { title: '技术细节', fields: [{ key: 'technical_details', label: '' }], muted: true },
+    { title: '局限性', fields: [{ key: 'limitations', label: '' }] },
+  ]
+}
 
 /**
  * 通用「默认截断 + 展开/收起」文本。默认最多显示 3 行，超长时显示「展开」按钮；
@@ -133,17 +133,17 @@ function AccordionItem({
 }
 
 /**
- * 论文 AI 解读的分层展示（仅新 11 字段格式）：
+ * 论文 AI 解读的分层展示（仅新格式）：
  * Part 1 首屏「30秒理解」+ Part 2「展开详细解读」可折叠区。
  */
 export default function PaperLayeredSummary({ summary }: { summary: PaperLayeredSummary }) {
   const [detailOpen, setDetailOpen] = useState(false)
+  const accordionItems = buildAccordionItems(summary)
   const oneSentence = summary.one_sentence_summary?.trim()
-  const why = summary.why_it_matters?.trim()
-  const coreIdea = summary.core_idea?.trim()
+  const impact = summary.real_world_impact?.trim()
 
   // 任一 accordion 条目有内容才显示总开关。
-  const hasDetail = ACCORDION_ITEMS.some(item =>
+  const hasDetail = accordionItems.some(item =>
     item.fields.some(f => {
       const raw = summary[f.key]
       return typeof raw === 'string' && raw.trim().length > 0
@@ -163,25 +163,13 @@ export default function PaperLayeredSummary({ summary }: { summary: PaperLayered
           </div>
         )}
 
-        {why && (
+        {impact && (
           <div>
-            <div className="text-[11px] font-bold tracking-[.14em] text-[var(--eyebrow)] mb-2">为什么值得关注？</div>
+            <div className="text-[11px] font-bold tracking-[.14em] text-[var(--eyebrow)] mb-2">可能带来什么改变</div>
             <ClampText
-              text={why}
+              text={impact}
               className="text-[15px] leading-[1.85] text-[var(--ink)] whitespace-pre-line"
             />
-          </div>
-        )}
-
-        {coreIdea && (
-          <div>
-            <div className="text-[11px] font-bold tracking-[.14em] text-[var(--eyebrow)] mb-2">核心创新</div>
-            <div className="rounded-xl bg-[var(--accent)]/5 border border-[var(--accent)]/15 px-4 py-3">
-              <ClampText
-                text={coreIdea}
-                className="text-sm leading-relaxed text-[var(--ink)] whitespace-pre-line"
-              />
-            </div>
           </div>
         )}
       </div>
@@ -202,7 +190,7 @@ export default function PaperLayeredSummary({ summary }: { summary: PaperLayered
           </button>
           {detailOpen && (
             <div className="divide-y divide-[var(--line)] mt-2">
-              {ACCORDION_ITEMS.map(item => (
+              {accordionItems.map(item => (
                 <AccordionItem
                   key={item.title}
                   title={item.title}

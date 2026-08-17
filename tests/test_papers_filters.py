@@ -10,6 +10,7 @@ from src.papers.filters import (
     detect_venue,
     exclude_withdrawn,
     extract_github_url,
+    is_paper_failed,
     reject_short_abstracts,
     truncate,
 )
@@ -185,3 +186,56 @@ def test_apply_venue_signals_sorts_venue_first():
 def test_truncate():
     papers = [_paper(id=f"arxiv:{i}") for i in range(5)]
     assert [p.id for p in truncate(papers, 2)] == ["arxiv:0", "arxiv:1"]
+
+
+# ── is_paper_failed ──────────────────────────────────────────────────────────
+
+
+def _featured(**overrides) -> Paper:
+    """A healthy featured paper: Chinese title + non-empty ai_summary."""
+    base = dict(
+        is_featured=True,
+        title_zh="一篇论文",
+        ai_summary={"one_sentence_summary": "一句话总结"},
+    )
+    base.update(overrides)
+    return _paper(**base)
+
+
+def test_scoring_failed_is_failed_regardless_of_featured():
+    assert is_paper_failed(_paper(ai_reason="scoring failed")) is True
+    assert is_paper_failed(_paper(is_featured=True, ai_reason="scoring failed")) is True
+
+
+def test_featured_without_summary_is_failed():
+    assert is_paper_failed(_featured(ai_summary=None)) is True
+
+
+def test_partial_summary_is_not_failed():
+    # partial 解读:ai_summary 非空,带 [enrich detail failed: partial: …] 标记
+    paper = _featured(
+        ai_summary={"one_sentence_summary": "一句话"},
+        ai_reason="reason [enrich detail failed: partial: evaluation]",
+    )
+    assert is_paper_failed(paper) is False
+
+
+def test_featured_missing_translation_failed_unless_no_translate():
+    paper = _featured(title_zh=None)
+    assert is_paper_failed(paper) is True
+    assert is_paper_failed(paper, no_translate=True) is False
+
+
+def test_healthy_featured_not_failed():
+    assert is_paper_failed(_featured()) is False
+
+
+def test_non_featured_never_failed():
+    # 非 featured:打分成功未入选的候选、未翻译的候选都不算失败
+    assert is_paper_failed(_paper(ai_summary=None, title_zh=None)) is False
+    assert is_paper_failed(_paper(ai_reason="good", ai_relevance_score=7.0)) is False
+
+
+def test_zh_origin_paper_not_failed():
+    # 中文论文 title_zh=原文,非空,不算翻译失败
+    assert is_paper_failed(_featured(title_zh="中文原文标题", original_language="zh")) is False

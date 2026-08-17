@@ -55,9 +55,11 @@ class Paper(BaseModel):
     # the classic/HF sources unless a paper was also selected there.
     keywords: List[str] = []                # AI-extracted keywords
     # Single-language (Chinese) layered editorial breakdown:
-    # one_sentence_summary / why_it_matters / background / previous_problem /
+    # one_sentence_summary / why_it_matters / background_problem /
     # core_idea / how_it_works / technical_details / experimental_evidence /
     # real_world_impact / limitations / innovation_level({level, reason}).
+    # Older rows may still hold background + previous_problem instead of the
+    # merged background_problem (v<3); frontend falls back gracefully.
     # Older pre-monolingual rows may still hold {en:{...}, zh:{...}} (kept as-is).
     ai_summary: Optional[Dict[str, Any]] = None
     github_url: Optional[str] = None        # code link extracted from arXiv comment

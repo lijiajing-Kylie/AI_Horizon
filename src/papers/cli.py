@@ -11,7 +11,10 @@ appear in the CLI report only.
 
 import argparse
 import asyncio
+import shutil
 import sys
+from datetime import datetime
+from pathlib import Path
 from typing import Dict, Optional
 
 import httpx
@@ -24,8 +27,9 @@ from ..models import Config
 from ..storage.db import HorizonDB
 from ..storage.manager import ConfigError, StorageManager
 from ..ai.client import create_ai_client
-from .weekly import WeeklyArxivResult, enrich_featured, run_weekly_arxiv_all
+from .weekly import AI_SUMMARY_VERSION, WeeklyArxivResult, enrich_featured, run_weekly_arxiv_all
 from .keywords import _get_concurrency, extract_paper_keywords
+from .latex import latex_to_unicode
 from .models import ClassicFetchResult, Paper
 from .sources.openalex import OpenAlexFetcher
 from .topics import build_paper_topics, classify_paper_topics
@@ -43,12 +47,42 @@ _ENRICHMENT_EMOJI = {
 }
 
 
+# 一段完整解读（v3）必须含有的字段。版本号达标但缺其中任一（如某分段生成
+# 失败被整体丢弃）视为不完整，同样进入 --enrich-existing 的重生成队列。
+_SUMMARY_COMPLETENESS_FIELDS = (
+    "core_idea",
+    "technical_details",
+    "experimental_evidence",
+    "limitations",
+)
+
+
 def _ai_summary_stale(raw) -> bool:
-    """True when a stored ai_summary is missing or predates the current
-    11-layer monolingual format (which always has one_sentence_summary)."""
-    if not raw:
+    """True when a stored ai_summary is missing, predates the current
+    interpretation format/version, or is incomplete (a segment failed).
+
+    Stale if:
+    - raw is missing / not a dict (e.g. legacy string, list);
+    - it lacks one_sentence_summary (the pre-monolingual bilingual {en, zh}
+      format, or an old single-layer summary);
+    - it has one_sentence_summary but interpretation_version < AI_SUMMARY_VERSION
+      (missing version defaults to 0, so every row written before the version
+      bump becomes re-enrichable);
+    - it has a current version but is missing any of _SUMMARY_COMPLETENESS_FIELDS
+      (a failed segment, e.g. method/evaluation dropping core_idea or
+      experimental_evidence; the 4096-token budget bug once produced exactly
+      this shape).
+    """
+    if not isinstance(raw, dict):
         return True
-    return not (isinstance(raw, dict) and "one_sentence_summary" in raw)
+    if "one_sentence_summary" not in raw:
+        return True
+    if raw.get("interpretation_version", 0) < AI_SUMMARY_VERSION:
+        return True
+    return any(
+        not (isinstance(raw.get(f), str) and raw[f].strip())
+        for f in _SUMMARY_COMPLETENESS_FIELDS
+    )
 
 
 async def run(
@@ -60,9 +94,13 @@ async def run(
     classify_topics: bool = False,
     translate_existing: bool = False,
     extract_keywords: bool = False,
+    clean_latex: bool = False,
     featured_count: Optional[int] = None,
     enrich_existing: bool = False,
     enrich_limit: Optional[int] = None,
+    paper_id: Optional[str] = None,
+    prune_unfeatured: bool = False,
+    confirm: bool = False,
 ) -> int:
     """Fetch configured paper sources and persist results.
 
@@ -75,9 +113,11 @@ async def run(
     Chinese translation.
 
     When *enrich_existing* is True, skips the fetch phase entirely and
-    re-runs detail enrichment (ai_summary) for previously-
-    stored featured arXiv papers that lack an ai_summary; *enrich_limit*
-    caps the number processed per run (for staged backfills).
+    re-runs detail enrichment (ai_summary) for previously-stored featured
+    arXiv papers whose ai_summary is missing or predates the current
+    interpretation version (see _ai_summary_stale); *enrich_limit* caps the
+    number processed per run (for staged backfills). With *paper_id*, only
+    that single paper is re-generated (regardless of its current version).
 
     When *extract_keywords* is True, skips the fetch phase entirely and
     AI-extracts keywords for all previously-stored papers that lack them.
@@ -140,10 +180,10 @@ async def run(
         return saved
 
     # ------------------------------------------------------------------
-    # Backfill mode: re-enrich featured arXiv papers lacking a *current*
-    # (11-layer monolingual) ai_summary. Papers whose stored summary predates
-    # the new format (background/problem/contribution/...) are re-generated
-    # too, so --enrich-existing doubles as a one-shot format upgrade.
+    # Backfill mode: re-enrich featured arXiv papers whose ai_summary is
+    # missing or predates the current interpretation version (see
+    # _ai_summary_stale). --enrich-existing doubles as a one-shot upgrade
+    # path whenever the AI 解读 prompt semantics change.
     # ------------------------------------------------------------------
     if enrich_existing:
         if db is None:
@@ -151,14 +191,22 @@ async def run(
             return 0
         result = db.get_papers(per_page=10000)
         all_papers = result["items"]
-        missing = [
-            p for p in all_papers
-            if p.get("source") in ("arxiv", "arxiv_fin")
-            and p.get("is_featured")
-            and _ai_summary_stale(p.get("ai_summary"))
-        ]
-        if enrich_limit is not None:
-            missing = missing[:enrich_limit]
+        if paper_id:
+            # 单篇重解读：指定 id 时强制重生成该篇，忽略 stale 判定。
+            target = [p for p in all_papers if p.get("id") == paper_id]
+            if not target:
+                console.print(f"[yellow]No paper with id {paper_id!r} found in the database.[/yellow]")
+                return 0
+            missing = target
+        else:
+            missing = [
+                p for p in all_papers
+                if p.get("source") in ("arxiv", "arxiv_fin")
+                and p.get("is_featured")
+                and _ai_summary_stale(p.get("ai_summary"))
+            ]
+            if enrich_limit is not None:
+                missing = missing[:enrich_limit]
         if not missing:
             console.print("[dim]All featured arXiv papers already have current AI summaries.[/dim]")
             return 0
@@ -195,6 +243,92 @@ async def run(
         return saved
 
     # ------------------------------------------------------------------
+    # Backfill mode: strip LaTeX math from stored text fields, then exit.
+    # Historically arXiv abstracts (and their AI translations) were stored
+    # with raw $...$ math; this rewrites them to readable Unicode.
+    # ------------------------------------------------------------------
+    if clean_latex:
+        if db is None:
+            console.print("[yellow]--clean-latex requires a writable DB (--dry-run not supported).[/yellow]")
+            return 0
+        result = db.get_papers(per_page=10000)
+        all_papers = result["items"]
+        papers_changed = 0
+        fields_changed = 0
+        for p in all_papers:
+            new_title = latex_to_unicode(p.get("title") or "")
+            new_abstract = latex_to_unicode(p.get("abstract") or "")
+            new_title_zh = latex_to_unicode(p.get("title_zh") or "")
+            new_abstract_zh = latex_to_unicode(p.get("abstract_zh") or "")
+            changed = {
+                field: value
+                for field, value in (
+                    ("title", new_title),
+                    ("abstract", new_abstract),
+                    ("title_zh", new_title_zh),
+                    ("abstract_zh", new_abstract_zh),
+                )
+                if value != (p.get(field) or "")
+            }
+            if not changed:
+                continue
+            with db.conn:
+                db.conn.execute(
+                    "UPDATE papers SET title=?, abstract=?, title_zh=?, "
+                    "abstract_zh=?, updated_row_at=datetime('now') WHERE id=?",
+                    (new_title, new_abstract, new_title_zh, new_abstract_zh, p["id"]),
+                )
+            papers_changed += 1
+            fields_changed += len(changed)
+        console.print(
+            f"[green]Cleaned LaTeX in {papers_changed} papers "
+            f"({fields_changed} fields).[/green]"
+        )
+        return papers_changed
+
+    # ------------------------------------------------------------------
+    # Backfill mode: prune un-featured arXiv papers (打分失败/未入选候选)。
+    # 默认只列出待删名单;加 --confirm 才执行删除(先备份,再事务删除)。
+    # ------------------------------------------------------------------
+    if prune_unfeatured:
+        if db is None:
+            console.print("[yellow]--prune-unfeatured requires a writable DB (--dry-run not supported).[/yellow]")
+            return 0
+        result = db.get_papers(per_page=10000)
+        all_papers = result["items"]
+        doomed = [
+            p for p in all_papers
+            if not p.get("is_featured") and str(p.get("source", "")).startswith("arxiv")
+        ]
+        if not doomed:
+            console.print("[dim]没有需要清理的非精选 arXiv 论文.[/dim]")
+            return 0
+        console.print(f"[bold]待清理 {len(doomed)} 篇非精选 arXiv 论文(失败/未入选候选):[/bold]")
+        for p in sorted(doomed, key=lambda x: x["id"]):
+            reason = p.get("ai_reason") or "(无 reason)"
+            console.print(f"  {p['id']} | {p.get('source')} | {reason} | {p['title'][:60]}")
+        if not confirm:
+            console.print(
+                "[yellow]未加 --confirm,仅列出名单,未删除任何数据。"
+                "核对无误后加 --confirm 执行删除。[/yellow]"
+            )
+            return 0
+        backup = Path(str(db.db_path) + f".bak_before_prune_{datetime.now():%Y%m%d_%H%M%S}")
+        shutil.copy2(db.db_path, backup)
+        console.print(f"[dim]已备份数据库到 {backup}[/dim]")
+        ids = [p["id"] for p in doomed]
+        placeholders = ", ".join("?" for _ in ids)
+        with db.conn:
+            db.conn.execute(
+                f"DELETE FROM paper_topics WHERE paper_id IN ({placeholders})", ids
+            )
+            db.conn.execute(f"DELETE FROM papers WHERE id IN ({placeholders})", ids)
+        console.print(
+            f"[green]已删除 {len(doomed)} 篇非精选 arXiv 论文及其主题关联.[/green]"
+        )
+        return len(doomed)
+
+    # ------------------------------------------------------------------
     # Normal fetch → (translate) → save flow.
     # ------------------------------------------------------------------
     async with httpx.AsyncClient(timeout=30.0) as client:
@@ -217,6 +351,9 @@ async def run(
                             await extract_paper_keywords(
                                 ai_client, matched_papers, _get_concurrency(ai_client),
                             )
+                        # 失败不入库:翻译已尝试但未产出中文标题的论文不写入
+                        # (中文论文 title_zh=原文,恒非空,不会被误删)。
+                        matched_papers = [p for p in matched_papers if p.title_zh is not None]
                     n = db.save_papers(matched_papers)
                     total_saved += n
                     # Topic classification (rule-based, zero AI cost)
@@ -230,7 +367,7 @@ async def run(
                     console.print(
                         f"[green]Saved {n} matched papers to database "
                         f"({len(result.papers) - len(matched_papers)} not written: "
-                        f"manual_review/unmatched). {tc} classified.[/green]"
+                        f"manual_review/unmatched/translate_failed). {tc} classified.[/green]"
                     )
 
         if papers_cfg.arxiv.enabled and only_source in (None, "arxiv"):
@@ -469,8 +606,8 @@ def main() -> None:
         "--enrich-existing",
         action="store_true",
         help="Re-run detail enrichment (ai_summary) for "
-        "previously-stored featured arXiv papers that lack a current "
-        "ai_summary (missing or old pre-monolingual format), then exit "
+        "previously-stored featured arXiv papers whose ai_summary is "
+        "missing or predates the current interpretation version, then exit "
         "(no fetch).",
     )
     parser.add_argument(
@@ -481,10 +618,36 @@ def main() -> None:
         "(for staged backfills).",
     )
     parser.add_argument(
+        "--paper-id",
+        type=str,
+        default=None,
+        help="With --enrich-existing: re-generate the interpretation for a "
+        "single paper id (e.g. arxiv:2508.12345), regardless of current "
+        "version. Ignored without --enrich-existing.",
+    )
+    parser.add_argument(
         "--extract-keywords",
         action="store_true",
         help="Backfill AI-extracted keywords for existing papers that lack "
         "them, then exit (no fetch).",
+    )
+    parser.add_argument(
+        "--clean-latex",
+        action="store_true",
+        help="Backfill: strip LaTeX math from stored title/abstract/"
+        "title_zh/abstract_zh into readable Unicode, then exit (no fetch).",
+    )
+    parser.add_argument(
+        "--prune-unfeatured",
+        action="store_true",
+        help="List (and with --confirm, delete) un-featured arXiv papers "
+        "from the database, then exit (no fetch).",
+    )
+    parser.add_argument(
+        "--confirm",
+        action="store_true",
+        help="With --prune-unfeatured: actually delete (backup + delete) "
+        "the listed papers. Without it, --prune-unfeatured only lists.",
     )
     args = parser.parse_args()
 
@@ -505,9 +668,13 @@ def main() -> None:
                      classify_topics=args.classify_topics,
                      translate_existing=args.translate_existing,
                      extract_keywords=args.extract_keywords,
+                     clean_latex=args.clean_latex,
                      featured_count=args.featured_count,
                      enrich_existing=args.enrich_existing,
-                     enrich_limit=args.enrich_limit))
+                     enrich_limit=args.enrich_limit,
+                     paper_id=args.paper_id,
+                     prune_unfeatured=args.prune_unfeatured,
+                     confirm=args.confirm))
 
 
 if __name__ == "__main__":

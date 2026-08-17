@@ -355,17 +355,20 @@ export interface PaperTopic {
 
 export interface PaperLayeredSummary {
   one_sentence_summary?: string
-  why_it_matters?: string
+  /** 合并后的「背景与问题」（v3 起）。旧行可能只有 background/previous_problem。 */
+  background_problem?: string
+  /** 旧字段，v3 之前存在；新行不再输出。 */
   background?: string
   previous_problem?: string
   core_idea?: string
-  how_it_works?: string
   technical_details?: string
   experimental_evidence?: string
   real_world_impact?: string
   limitations?: string
   /** Editorial innovation grading: level ∈ {breakthrough, significant_improvement, incremental, engineering}. */
   innovation_level?: { level: string; reason?: string }
+  /** Interpretation-format version; bumped when AI prompt semantics change. */
+  interpretation_version?: number
   /** Legacy field present on pre-monolingual (bilingual) data only. */
   key_details?: string
 }

@@ -12,6 +12,7 @@ from typing import List
 
 from ..ai.client import AIClient
 from ..ai.utils import complete_with_retry, parse_json_response
+from .latex import latex_to_unicode
 from .models import Paper
 from .progress import run_progress
 
@@ -53,8 +54,9 @@ async def translate_paper(client: AIClient, paper: Paper) -> Paper:
     if original_lang == "zh":
         # Already Chinese — no translation needed; copy as-is so the
         # frontend sees both language variants populated identically.
-        paper.title_zh = paper.title
-        paper.abstract_zh = paper.abstract
+        # Strip any embedded LaTeX so the Chinese text stays readable.
+        paper.title_zh = latex_to_unicode(paper.title)
+        paper.abstract_zh = latex_to_unicode(paper.abstract)
         return paper
 
     if original_lang == "unknown":
@@ -85,10 +87,13 @@ async def translate_paper(client: AIClient, paper: Paper) -> Paper:
         )
         result = parse_json_response(response)
         if result:
+            # Translations often echo the source LaTeX (abstract_zh keeps the
+            # original $...$ math). Rewrite it to readable Unicode here so
+            # every paper stored afterwards is clean, regardless of source.
             if result.get("title_zh"):
-                paper.title_zh = result["title_zh"]
+                paper.title_zh = latex_to_unicode(result["title_zh"])
             if result.get("abstract_zh"):
-                paper.abstract_zh = result["abstract_zh"]
+                paper.abstract_zh = latex_to_unicode(result["abstract_zh"])
     except Exception:
         logger.warning(
             "Translation failed for paper %s", paper.id, exc_info=True

@@ -1214,6 +1214,8 @@ class HorizonDB:
         order: str = "desc",
         page: int = 1,
         per_page: int = 20,
+        exclude_failed: bool = False,
+        user_id: Optional[str] = None,
     ) -> dict[str, Any]:
         """Paginated papers query with optional filters.
 
@@ -1224,6 +1226,13 @@ class HorizonDB:
         *featured_date* restricts to papers featured on a given day (YYYY-MM-DD,
         matched via ``strftime`` so timezone suffixes in the stored value don't
         break equality).
+
+        *exclude_failed* hides papers that failed AI processing (scoring
+        failed, or a featured paper with an empty ai_summary). Default False so
+        CLI backfills (--translate-existing / --enrich-existing) keep reading
+        everything; the API passes True. Note the predicate deliberately does
+        NOT use ``title_zh IS NULL`` — a --no-translate run stores healthy
+        featured papers untranslated and must stay visible.
         """
         where = []
         params: list[Any] = []
@@ -1267,19 +1276,43 @@ class HorizonDB:
             where.append("strftime('%Y-%m', p.published_at) = ?")
             params.append(publication_month)
 
+        search_pred: Optional[str] = None
+        search_params: list[Any] = []
+        like_pattern = ""
         if search:
             escaped = _escape_like(search)
             # Match both the original-language fields and the Chinese
             # translations (title_zh / abstract_zh) so searches work in EN and ZH.
-            where.append(
+            search_pred = (
                 "(p.title LIKE ? ESCAPE '\\' OR p.abstract LIKE ? ESCAPE '\\' "
                 "OR p.title_zh LIKE ? ESCAPE '\\' OR p.abstract_zh LIKE ? ESCAPE '\\')"
             )
             like_pattern = f"%{escaped}%"
-            params.extend([like_pattern] * 4)
+            search_params = [like_pattern] * 4
+
+        if exclude_failed:
+            # 正向谓词,避免 NULL 陷阱:ai_reason 为 NULL 时
+            # "p.ai_reason = 'scoring failed'" 求值为 NULL(而非 False),
+            # 外层 NOT 会把整行当假而误删健康论文。
+            where.append(
+                "(p.ai_reason IS NULL OR p.ai_reason != 'scoring failed') "
+                "AND NOT (p.is_featured = 1 AND p.ai_summary_json IS NULL)"
+            )
 
         where_clause = " AND ".join(where) if where else "1=1"
-        base_from = f"FROM papers p WHERE {where_clause}"
+        if user_id and search_pred:
+            note_pred = (
+                "EXISTS (SELECT 1 FROM user_paper_favorites upf "
+                "WHERE upf.user_id = ? AND upf.paper_id = p.id AND upf.note LIKE ? ESCAPE '\\')"
+            )
+            base_from = f"FROM papers p WHERE ({where_clause}) AND ({search_pred} OR {note_pred})"
+            params += search_params + [user_id, like_pattern]
+        else:
+            if search_pred:
+                where.append(search_pred)
+                params += search_params
+            where_clause = " AND ".join(where) if where else "1=1"
+            base_from = f"FROM papers p WHERE {where_clause}"
 
         count_row = self.conn.execute(
             f"SELECT COUNT(*) as cnt {base_from}", params
@@ -1298,6 +1331,9 @@ class HorizonDB:
         ).fetchall()
 
         papers = [_row_to_paper(r) for r in rows]
+
+        if user_id and search_pred:
+            self._mark_note_hits("user_paper_favorites", "paper_id", user_id, papers, like_pattern)
 
         # Batch-attach topic associations
         paper_ids = [p["id"] for p in papers]
@@ -1321,9 +1357,18 @@ class HorizonDB:
         return [{"ym": r["ym"], "cnt": r["cnt"]} for r in rows]
 
     def get_paper(self, paper_id: str) -> Optional[dict[str, Any]]:
-        """Get a single paper by its source-namespaced id, with topics attached."""
+        """Get a single paper by its source-namespaced id, with topics attached.
+
+        Returns None for papers that failed AI processing (scoring failed, or a
+        featured paper with an empty ai_summary) so they 404 at the API layer —
+        matches the ``exclude_failed`` predicate in ``get_papers``.
+        """
         row = self.conn.execute("SELECT * FROM papers WHERE id = ?", (paper_id,)).fetchone()
         if row is None:
+            return None
+        if row["ai_reason"] == "scoring failed" or (
+            row["is_featured"] == 1 and row["ai_summary_json"] is None
+        ):
             return None
         paper = _row_to_paper(row)
         paper["topics"] = self.get_paper_topics(paper_id)

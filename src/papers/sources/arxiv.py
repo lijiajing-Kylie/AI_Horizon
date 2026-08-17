@@ -12,6 +12,7 @@ from xml.etree import ElementTree
 
 import httpx
 
+from ..latex import latex_to_unicode
 from ..models import Paper
 
 logger = logging.getLogger(__name__)
@@ -337,7 +338,7 @@ async def _fetch_category(
 def _entry_to_paper(normalized: Dict[str, Any]) -> Optional[Paper]:
     """Convert a ``_normalize`` output dict into a ``Paper`` (source="arxiv")."""
     arxiv_id = normalized.get("arxiv_id")
-    title = (normalized.get("title") or "").strip()
+    title = latex_to_unicode((normalized.get("title") or "").strip())
     if not arxiv_id or not title:
         return None
 
@@ -350,7 +351,7 @@ def _entry_to_paper(normalized: Dict[str, Any]) -> Optional[Paper]:
         native_id=arxiv_id,
         title=title,
         authors=normalized.get("authors") or [],
-        abstract=(normalized.get("abstract") or "").strip(),
+        abstract=latex_to_unicode((normalized.get("abstract") or "").strip()),
         url=f"https://arxiv.org/abs/{arxiv_id}",
         pdf_url=normalized.get("pdf_url") or f"https://arxiv.org/pdf/{arxiv_id}",
         published_at=published_dt,

@@ -69,9 +69,7 @@ export default function PaperDetailPage() {
     summary &&
     [
       'one_sentence_summary',
-      'why_it_matters',
       'core_idea',
-      'how_it_works',
       'experimental_evidence',
       'limitations',
     ].some(k => typeof summaryRecord?.[k] === 'string')
@@ -191,11 +189,6 @@ export default function PaperDetailPage() {
 
       </header>
 
-      <section className="glass rounded-[22px] p-6 mb-6">
-        <CardHeading>摘要</CardHeading>
-        <p className="text-[17px] leading-[1.85] text-[var(--ink)] whitespace-pre-line">{displayAbstract}</p>
-      </section>
-
       {hasAI && summary && (
         <section className="glass rounded-[22px] p-6 mb-6">
           <CardHeading>AI 解读</CardHeading>
@@ -218,6 +211,11 @@ export default function PaperDetailPage() {
           )}
         </section>
       )}
+
+      <section className="glass rounded-[22px] p-6 mb-6">
+        <CardHeading>论文摘要</CardHeading>
+        <p className="text-[17px] leading-[1.85] text-[var(--ink)] whitespace-pre-line">{displayAbstract}</p>
+      </section>
 
       {paper.topics && paper.topics.length > 0 && (
         <section className="glass rounded-[22px] p-6">

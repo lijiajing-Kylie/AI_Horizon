@@ -39,6 +39,7 @@ from .filters import (
     apply_venue_signals,
     exclude_withdrawn,
     extract_github_url,
+    is_paper_failed,
     reject_short_abstracts,
     truncate,
 )
@@ -50,8 +51,11 @@ from .prompts import (
     ARXIV_CONCEPT_SYSTEM,
     ARXIV_CONCEPT_USER,
     ARXIV_DETAIL_SYSTEM_SEG1,
+    ARXIV_DETAIL_SYSTEM_SEG1_FIN,
     ARXIV_DETAIL_SYSTEM_SEG2,
+    ARXIV_DETAIL_SYSTEM_SEG2_FIN,
     ARXIV_DETAIL_SYSTEM_SEG3,
+    ARXIV_DETAIL_SYSTEM_SEG3_FIN,
     ARXIV_DETAIL_USER_SEG1,
     ARXIV_DETAIL_USER_SEG2,
     ARXIV_DETAIL_USER_SEG3,
@@ -193,7 +197,9 @@ async def _score_paper(ai_client: AIClient, paper: Paper) -> None:
                 abstract=(paper.abstract or "")[:2000],
             ),
             temperature=0.2,
-            max_tokens=200,
+            # deepseek-v4-flash 等推理模型的 max_tokens 含推理 token(reasoning)，
+            # 200 太小会把打分 JSON 截断导致批量 scoring failed；1000 有足够余量。
+            max_tokens=1000,
         )
         result = parse_json_response(response)
         overall = _clamp_score(result.get("overall_score") if result else None)
@@ -253,10 +259,25 @@ async def enrich_featured(
     await run_progress("富化精选论文", [_enrich_one(p) for p in papers])
 
 
-# 详情解读分 3 段生成，每段 2-4 个字段，单段输出 ~2-3k tokens。分段把单次
-# 输出压到 DeepSeek 8192 上限以内，长论文不再被截断成不完整 JSON；某段失败
-# 只丢该段字段，其余保留。
-_DETAIL_SEGMENT_MAX_TOKENS = 4096
+# 详情解读分 3 段生成，每段 2-3 个字段，单段输出 ~2-3k tokens；某段失败只丢
+# 该段字段，其余保留。
+#
+# max_tokens 必须给足：deepseek-v4-flash 等推理模型会把输出预算花在"思考"
+# token 上，4096 时 seg2/seg3 实测输出为 0 字符（预算被 reasoning 吃光，段被
+# 判定为 parse failed 整段丢弃）。配到 8192（与 data/config.py 的
+# ai.max_tokens 一致）后正常产出，但仍会间歇性返回空串，见下。
+_DETAIL_SEGMENT_MAX_TOKENS = 8192
+
+# 段生成的空输出重试：推理模型偶尔把整段输出预算花在"思考"上，返回空串
+# （complete_with_retry 只在异常时重试，不处理空输出）。每个段最多尝试
+# _SEGMENT_MAX_ATTEMPTS 次，空响应/解析无字段就重试，间隔指数退避。
+_SEGMENT_MAX_ATTEMPTS = 4
+_SEGMENT_RETRY_BACKOFF = 1.5
+
+# 解读格式版本号。每次 AI 解读 prompt/字段语义有破坏性改动时 +1。
+# 写入 ai_summary["interpretation_version"]，供 cli._ai_summary_stale 判断
+# 哪些旧解读需要 --enrich-existing 重新生成。
+AI_SUMMARY_VERSION = 4
 
 
 class _DetailSegment(NamedTuple):
@@ -269,17 +290,38 @@ class _DetailSegment(NamedTuple):
 _DETAIL_SEGMENTS = (
     _DetailSegment(
         "overview", ARXIV_DETAIL_SYSTEM_SEG1, ARXIV_DETAIL_USER_SEG1,
-        ("one_sentence_summary", "why_it_matters", "background", "previous_problem"),
+        ("one_sentence_summary", "background_problem"),
     ),
     _DetailSegment(
         "method", ARXIV_DETAIL_SYSTEM_SEG2, ARXIV_DETAIL_USER_SEG2,
-        ("core_idea", "how_it_works", "technical_details"),
+        ("core_idea", "technical_details"),
     ),
     _DetailSegment(
         "evaluation", ARXIV_DETAIL_SYSTEM_SEG3, ARXIV_DETAIL_USER_SEG3,
         ("experimental_evidence", "real_world_impact", "limitations"),
     ),
 )
+
+# AI+金融交叉论文用「金融视角」system prompt（base 里追加 _ARXIV_DETAIL_FINANCE_BLOCK）。
+_DETAIL_SEGMENTS_FIN = (
+    _DetailSegment(
+        "overview", ARXIV_DETAIL_SYSTEM_SEG1_FIN, ARXIV_DETAIL_USER_SEG1,
+        ("one_sentence_summary", "background_problem"),
+    ),
+    _DetailSegment(
+        "method", ARXIV_DETAIL_SYSTEM_SEG2_FIN, ARXIV_DETAIL_USER_SEG2,
+        ("core_idea", "technical_details"),
+    ),
+    _DetailSegment(
+        "evaluation", ARXIV_DETAIL_SYSTEM_SEG3_FIN, ARXIV_DETAIL_USER_SEG3,
+        ("experimental_evidence", "real_world_impact", "limitations"),
+    ),
+)
+
+
+def _is_finance_paper(paper: Paper) -> bool:
+    """AI+金融交叉论文：金融子板块（source=arxiv_fin）或 q-fin.* 分类。"""
+    return paper.source == "arxiv_fin" or any(c.startswith("q-fin") for c in paper.categories)
 
 
 def _build_segment_user(
@@ -313,6 +355,51 @@ def _build_segment_user(
     # str.format ignores extra kwargs, so templates without {prior_summary}
     # still work with the full kwargs set.
     return seg.user_template.format(**kwargs)
+
+
+async def _complete_segment(
+    ai_client: AIClient,
+    seg: _DetailSegment,
+    paper: Paper,
+    full_text: str,
+    related_context: str,
+    summary: Dict[str, Any],
+) -> Optional[dict]:
+    """Run one detail segment, retrying on empty/unparseable output.
+
+    Reasoning models (e.g. deepseek-v4-flash) intermittently spend their whole
+    output budget "thinking" and return an empty string; ``complete_with_retry``
+    only retries exceptions, not empty responses. Retry a few times so a
+    transient empty output doesn't silently drop the segment's fields.
+
+    Returns a parsed dict that has at least one non-empty segment field, or
+    None when the segment still failed after ``_SEGMENT_MAX_ATTEMPTS``.
+    """
+    for attempt in range(_SEGMENT_MAX_ATTEMPTS):
+        try:
+            response = await complete_with_retry(
+                ai_client,
+                system=seg.system,
+                user=_build_segment_user(seg, paper, full_text, related_context, summary),
+                max_tokens=_DETAIL_SEGMENT_MAX_TOKENS,
+            )
+        except Exception:
+            # complete_with_retry already retried the exception; give up on the
+            # segment rather than burning more attempts on a non-transient error.
+            logger.warning("Detail segment %s failed for %s", seg.name, paper.id, exc_info=True)
+            return None
+        result = parse_json_response(response)
+        if result is not None and any(str(result.get(f) or "").strip() for f in seg.fields):
+            return result
+        # Empty string or a JSON without any usable field → retry with backoff.
+        if attempt < _SEGMENT_MAX_ATTEMPTS - 1:
+            logger.info(
+                "Detail segment %s returned empty/unusable output for %s "
+                "(attempt %d/%d), retrying",
+                seg.name, paper.id, attempt + 1, _SEGMENT_MAX_ATTEMPTS,
+            )
+            await asyncio.sleep(_SEGMENT_RETRY_BACKOFF * (attempt + 1))
+    return None
 
 
 async def _enrich_paper(
@@ -358,23 +445,15 @@ async def _enrich_paper(
     # fields, the rest are preserved in ``ai_summary``.
     summary: Dict[str, Any] = {}
     failed_segments: List[str] = []
-    for seg in _DETAIL_SEGMENTS:
-        try:
-            response = await complete_with_retry(
-                ai_client,
-                system=seg.system,
-                user=_build_segment_user(seg, paper, full_text, related_context, summary),
-                max_tokens=_DETAIL_SEGMENT_MAX_TOKENS,
-            )
-        except Exception:
-            failed_segments.append(seg.name)
-            logger.warning("Detail segment %s failed for %s", seg.name, paper.id, exc_info=True)
-            continue
-
-        result = parse_json_response(response)
+    segments = _DETAIL_SEGMENTS_FIN if _is_finance_paper(paper) else _DETAIL_SEGMENTS
+    for seg in segments:
+        result = await _complete_segment(ai_client, seg, paper, full_text, related_context, summary)
         if result is None:
             failed_segments.append(seg.name)
-            logger.warning("Could not parse detail segment %s for %s", seg.name, paper.id)
+            logger.warning(
+                "Detail segment %s failed for %s (empty/unusable after %d attempts)",
+                seg.name, paper.id, _SEGMENT_MAX_ATTEMPTS,
+            )
             continue
 
         for field in seg.fields:
@@ -389,6 +468,7 @@ async def _enrich_paper(
             summary["innovation_level"] = innovation
 
     if summary:
+        summary["interpretation_version"] = AI_SUMMARY_VERSION
         paper.ai_summary = summary
         # Enrichment partially/totally succeeded — drop any previously-recorded
         # failure marker (appended after the scoring reason).
@@ -437,10 +517,10 @@ async def _fetch_paper_full_text(http_client: Any, paper: Paper) -> str:
             if exc.response.status_code == 404:
                 logger.debug("No HTML rendering for %s at %s", arxiv_id, url)
                 continue
-            logger.warning("Full-text fetch failed for %s", url, exc_info=True)
+            logger.warning("Full-text fetch failed for %s", url)
             continue
         except Exception:
-            logger.warning("Full-text fetch failed for %s", url, exc_info=True)
+            logger.warning("Full-text fetch failed for %s", url)
             continue
         if text and len(text.strip()) >= _FULLTEXT_MIN_CHARS:
             return text.strip()[:_FULLTEXT_MAX_CHARS]
@@ -604,12 +684,16 @@ async def _run_group(
 
     saved_total = 0
     if db is not None:
-        saved_total = db.save_papers(filtered)
+        # 失败/未入选不入库:只持久化通过 is_paper_failed 的健康 featured
+        # (featured 是 filtered 的子集;打分失败、未入选、解读失败、翻译失败
+        # 的论文一律不写库,避免首页/搜索展示无中文或失败的候选)。
+        to_save = [p for p in featured if not is_paper_failed(p, no_translate=no_translate)]
+        saved_total = db.save_papers(to_save)
         # Topic classification (rule-based, zero AI cost) — same pattern as the
         # classic/HF sources in cli.py, so arxiv / arxiv_fin papers can be
         # filtered by topic on the frontend.
         db.seed_paper_topics(build_paper_topics())
-        for p in filtered:
+        for p in to_save:
             td = classify_paper_topics(p)
             if td:
                 db.save_paper_topics(p.id, td)

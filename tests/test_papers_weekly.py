@@ -16,8 +16,11 @@ from src.papers.models import Paper
 from src.papers.prompts import (
     ARXIV_CONCEPT_SYSTEM,
     ARXIV_DETAIL_SYSTEM_SEG1,
+    ARXIV_DETAIL_SYSTEM_SEG1_FIN,
     ARXIV_DETAIL_SYSTEM_SEG2,
+    ARXIV_DETAIL_SYSTEM_SEG2_FIN,
     ARXIV_DETAIL_SYSTEM_SEG3,
+    ARXIV_DETAIL_SYSTEM_SEG3_FIN,
     ARXIV_SCORE_SYSTEM,
 )
 from src.storage.db import HorizonDB
@@ -58,11 +61,8 @@ def _config(**overrides) -> ArxivSourceConfig:
 _DETAIL_JSON = {
     "keywords": ["transformer", "attention"],
     "one_sentence_summary": "一句话总结",
-    "why_it_matters": "为什么值得关注",
-    "background": "背景",
-    "previous_problem": "过去方法的不足",
+    "background_problem": "背景与问题",
     "core_idea": "核心创新",
-    "how_it_works": "如何实现",
     "technical_details": "技术细节",
     "experimental_evidence": "实验证据",
     "real_world_impact": "实际影响",
@@ -72,9 +72,9 @@ _DETAIL_JSON = {
 
 # 分段生成后，每段请求只返回本段字段的 JSON 子集。
 _DETAIL_SEG1_JSON = {k: _DETAIL_JSON[k] for k in
-    ("one_sentence_summary", "why_it_matters", "background", "previous_problem")}
+    ("one_sentence_summary", "background_problem")}
 _DETAIL_SEG2_JSON = {k: _DETAIL_JSON[k] for k in
-    ("core_idea", "how_it_works", "technical_details")}
+    ("core_idea", "technical_details")}
 _DETAIL_SEG3_JSON = {k: _DETAIL_JSON[k] for k in
     ("experimental_evidence", "real_world_impact", "limitations", "innovation_level", "keywords")}
 
@@ -82,6 +82,10 @@ _DETAIL_SYSTEM_TO_SEG = {
     ARXIV_DETAIL_SYSTEM_SEG1: ("overview", _DETAIL_SEG1_JSON),
     ARXIV_DETAIL_SYSTEM_SEG2: ("method", _DETAIL_SEG2_JSON),
     ARXIV_DETAIL_SYSTEM_SEG3: ("evaluation", _DETAIL_SEG3_JSON),
+    # 金融交叉论文变体：与普通段共用同样的字段载荷。
+    ARXIV_DETAIL_SYSTEM_SEG1_FIN: ("overview", _DETAIL_SEG1_JSON),
+    ARXIV_DETAIL_SYSTEM_SEG2_FIN: ("method", _DETAIL_SEG2_JSON),
+    ARXIV_DETAIL_SYSTEM_SEG3_FIN: ("evaluation", _DETAIL_SEG3_JSON),
 }
 
 
@@ -122,6 +126,7 @@ class _FakeAI:
         self.detail_calls = 0
         self.translation_calls = 0
         self.detail_users: list[str] = []
+        self.detail_systems: list[str] = []
         self.last_detail_user = ""
 
     async def complete(self, system: str, user: str, **kwargs):
@@ -140,6 +145,7 @@ class _FakeAI:
         if system in _DETAIL_SYSTEM_TO_SEG:
             seg_name, payload = _DETAIL_SYSTEM_TO_SEG[system]
             self.detail_calls += 1
+            self.detail_systems.append(system)
             self.detail_users.append(user)
             self.last_detail_user = user
             if self.fail_detail or seg_name in self.fail_segments:
@@ -184,15 +190,38 @@ async def test_run_weekly_arxiv_full_flow() -> None:
         "impact_potential": 7.0, "relevance": 8.0,
     }
     assert top.keywords == ["transformer", "attention"]
-    assert top.ai_summary["background"] == "背景"
+    assert top.ai_summary["background_problem"] == "背景与问题"
     assert top.ai_summary["core_idea"] == "核心创新"
     assert top.ai_summary["innovation_level"] == {
         "level": "significant_improvement", "reason": "相比已有方法明显提升",
     }
+    assert top.ai_summary["interpretation_version"] == weekly.AI_SUMMARY_VERSION
 
     # Non-selected candidates keep is_featured=False.
     non_selected = [p for p in papers if p.id in ("arxiv:f", "arxiv:g")]
     assert all(p.is_featured is False for p in non_selected)
+
+
+@pytest.mark.anyio
+async def test_finance_paper_uses_finance_prompts() -> None:
+    """AI+金融交叉论文（source=arxiv_fin / q-fin.*）走「金融视角」system prompt。"""
+    papers = [
+        _paper(id="arxiv:fin1", title="Fin Paper", source="arxiv_fin",
+               categories=["q-fin.ST", "cs.LG"]),
+    ]
+    ai = _FakeAI(score_map={"Fin Paper": 9})
+    with patch("src.papers.weekly._arxiv_fetch_recent", AsyncMock(return_value=papers)):
+        result = await weekly.run_weekly_arxiv(ai, http_client=None, cfg=_config(), db=None)
+
+    assert result.enriched_new == 1
+    # 三段都用金融变体 system prompt；普通变体不被使用。
+    assert ARXIV_DETAIL_SYSTEM_SEG1_FIN in ai.detail_systems
+    assert ARXIV_DETAIL_SYSTEM_SEG2_FIN in ai.detail_systems
+    assert ARXIV_DETAIL_SYSTEM_SEG3_FIN in ai.detail_systems
+    assert ARXIV_DETAIL_SYSTEM_SEG1 not in ai.detail_systems
+    p = result.featured[0]
+    assert p.ai_summary["one_sentence_summary"] == "一句话总结"
+    assert p.ai_summary["interpretation_version"] == weekly.AI_SUMMARY_VERSION
 
 
 @pytest.mark.anyio
@@ -538,15 +567,16 @@ async def test_run_weekly_arxiv_all_persists_finance_under_arxiv_fin(tmp_path) -
         results = await weekly.run_weekly_arxiv_all(ai, http_client=None, cfg=cfg, db=db)
 
     assert results["arxiv"].saved_total == 1
-    assert results["arxiv_fin"].saved_total == 2
+    # 失败/未入选不入库:arxiv_fin 只保存精选的 arxiv_fin:a,未入选的 arxiv_fin:c 不写库
+    assert results["arxiv_fin"].saved_total == 1
 
     general = db.get_papers(source="arxiv")
     assert general["total"] == 1
     assert general["items"][0]["id"] == "arxiv:b"
 
     fin_all = db.get_papers(source="arxiv_fin")
-    assert fin_all["total"] == 2
-    assert {p["id"] for p in fin_all["items"]} == {"arxiv_fin:a", "arxiv_fin:c"}
+    assert fin_all["total"] == 1
+    assert {p["id"] for p in fin_all["items"]} == {"arxiv_fin:a"}
 
     fin_featured = db.get_papers(source="arxiv_fin", featured=True)
     assert fin_featured["total"] == 1
@@ -739,7 +769,7 @@ async def test_enrich_injects_full_text_into_user_prompt() -> None:
     assert "一句话总结" in ai.detail_users[1]
     assert "核心创新" in ai.detail_users[2]
     top = result.featured[0]
-    assert top.ai_summary["how_it_works"] == "如何实现"
+    assert top.ai_summary["core_idea"] == "核心创新"
 
 
 @pytest.mark.anyio
@@ -756,7 +786,7 @@ async def test_run_weekly_arxiv_reports_enrich_and_translate_counts() -> None:
     assert result.translated_new == 1
     assert result.translate_failed == 0
     assert result.featured[0].title_zh == "中文-Paper A"
-    assert result.featured[0].ai_summary["background"] == "背景"
+    assert result.featured[0].ai_summary["background_problem"] == "背景与问题"
 
 
 @pytest.mark.anyio
@@ -813,16 +843,17 @@ async def test_detail_partial_failure_keeps_successful_segments() -> None:
     p = result.featured[0]
     # 段 1 + 段 3 字段保留。
     assert p.ai_summary["one_sentence_summary"] == "一句话总结"
-    assert p.ai_summary["background"] == "背景"
+    assert p.ai_summary["background_problem"] == "背景与问题"
     assert p.ai_summary["experimental_evidence"] == "实验证据"
     assert p.ai_summary["limitations"] == "局限"
     assert p.ai_summary["innovation_level"] == {
         "level": "significant_improvement", "reason": "相比已有方法明显提升",
     }
+    assert p.ai_summary["interpretation_version"] == weekly.AI_SUMMARY_VERSION
     assert p.keywords == ["transformer", "attention"]
     # 段 2 字段缺失。
     assert "core_idea" not in p.ai_summary
-    assert "how_it_works" not in p.ai_summary
+    assert "technical_details" not in p.ai_summary
     # 一次性、可读的部分失败标记。
     assert "[enrich detail failed: partial: method]" in p.ai_reason
 
@@ -866,3 +897,68 @@ async def test_detail_all_segments_fail_leaves_summary_empty() -> None:
     p = result.featured[0]
     assert p.ai_summary is None
     assert "[enrich detail failed: segments failed: overview,method,evaluation]" in p.ai_reason
+
+
+# ── 失败/未入选不入库 ────────────────────────────────────────────────────────
+
+
+@pytest.mark.anyio
+async def test_scoring_failed_paper_not_saved(tmp_path) -> None:
+    """打分失败的论文不写入数据库,只有健康 featured 入库。"""
+    db = HorizonDB(db_path=str(tmp_path / "test.db"))
+    papers = [
+        _paper(id="arxiv:good", title="Good Paper"),
+        _paper(id="arxiv:bad", title="Bad Paper"),
+    ]
+    ai = _FakeAI()
+
+    async def _mixed_score(ai_client, paper):  # noqa: ARG001
+        if paper.title == "Good Paper":
+            paper.ai_relevance_score = 8.0
+            paper.ai_reason = "good"
+        else:
+            paper.ai_relevance_score = None
+            paper.ai_reason = "scoring failed"
+
+    with patch("src.papers.weekly._arxiv_fetch_recent", AsyncMock(return_value=papers)), patch(
+        "src.papers.weekly._score_paper", _mixed_score
+    ):
+        result = await weekly.run_weekly_arxiv(ai, http_client=None, cfg=_config(), db=db)
+
+    assert result.saved_total == 1
+    stored = db.get_papers(source="arxiv")
+    assert stored["total"] == 1
+    assert stored["items"][0]["id"] == "arxiv:good"
+
+
+@pytest.mark.anyio
+async def test_featured_enrichment_failure_not_saved(tmp_path) -> None:
+    """featured 解读完全失败(ai_summary 为空)的论文不写入数据库。"""
+    db = HorizonDB(db_path=str(tmp_path / "test.db"))
+    papers = [_paper(id="arxiv:a", title="Paper A")]
+    ai = _FakeAI(score_map={"Paper A": 9}, fail_detail=True)
+
+    with patch("src.papers.weekly._arxiv_fetch_recent", AsyncMock(return_value=papers)):
+        result = await weekly.run_weekly_arxiv(ai, http_client=None, cfg=_config(), db=db)
+
+    assert result.enrich_failed == 1
+    assert result.saved_total == 0
+    assert db.get_papers(source="arxiv")["total"] == 0
+
+
+@pytest.mark.anyio
+async def test_no_translate_still_saves_featured(tmp_path) -> None:
+    """no_translate 模式下 featured 论文即使无 title_zh 也正常保存(防误伤)。"""
+    db = HorizonDB(db_path=str(tmp_path / "test.db"))
+    papers = [_paper(id="arxiv:a", title="Paper A")]
+    ai = _FakeAI(score_map={"Paper A": 9})
+
+    with patch("src.papers.weekly._arxiv_fetch_recent", AsyncMock(return_value=papers)):
+        result = await weekly.run_weekly_arxiv(
+            ai, http_client=None, cfg=_config(), db=db, no_translate=True,
+        )
+
+    assert result.saved_total == 1
+    stored = db.get_papers(source="arxiv")["items"]
+    assert [p["id"] for p in stored] == ["arxiv:a"]
+    assert stored[0]["title_zh"] is None

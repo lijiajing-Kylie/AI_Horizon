@@ -227,6 +227,42 @@ def test_get_papers_featured_filter(tmp_path):
     assert all_arxiv["total"] == 2
 
 
+def test_get_papers_exclude_failed(tmp_path):
+    """exclude_failed 剔除打分失败 + featured 无 ai_summary;默认 False 保留全部。"""
+    db = HorizonDB(db_path=str(tmp_path / "test.db"))
+    db.save_papers([
+        _paper(
+            id="arxiv:healthy", source="arxiv", native_id="healthy",
+            is_featured=True,
+            featured_date=datetime(2026, 8, 2, tzinfo=timezone.utc),
+            ai_relevance_score=9.0, ai_reason="good",
+            title_zh="健康", ai_summary={"one_sentence_summary": "一句话"},
+        ),
+        _paper(
+            id="arxiv:scoring", source="arxiv", native_id="scoring",
+            is_featured=False, ai_reason="scoring failed",
+        ),
+        _paper(
+            id="arxiv:feat_nos", source="arxiv", native_id="feat_nos",
+            is_featured=True,
+            featured_date=datetime(2026, 8, 3, tzinfo=timezone.utc),
+            ai_relevance_score=8.0, ai_reason="good",
+        ),
+    ])
+
+    all_filtered = db.get_papers(source="arxiv", exclude_failed=True)
+    assert all_filtered["total"] == 1
+    assert all_filtered["items"][0]["id"] == "arxiv:healthy"
+
+    # 默认 False 不受影响(CLI backfill 用)
+    assert db.get_papers(source="arxiv")["total"] == 3
+
+    # 与 featured=True 组合:featured 中只保留健康者(feat_nos 无 summary 被剔除)
+    feat = db.get_papers(source="arxiv", featured=True, exclude_failed=True)
+    assert feat["total"] == 1
+    assert feat["items"][0]["id"] == "arxiv:healthy"
+
+
 def test_get_papers_featured_date_filter_and_sort(tmp_path):
     db = HorizonDB(db_path=str(tmp_path / "test.db"))
     db.save_papers([
