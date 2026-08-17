@@ -3,7 +3,8 @@
 Horizon prints pipeline status through rich ``Console`` and live-refresh
 progress bars, while third-party HTTP libraries log every request through the
 stdlib ``logging`` module.  Some of those libraries run
-``logging.basicConfig(level=logging.INFO)`` at import time (e.g. ``we_mp_rss``),
+``logging.basicConfig(level=logging.INFO)`` at import time (e.g. some HTTP
+libraries),
 which raises the root level to INFO and makes ``httpx`` emit one
 ``INFO:httpx:HTTP Request: ...`` line per API call — interleaving with rich's
 progress bar and turning a single live-updating line into dozens.

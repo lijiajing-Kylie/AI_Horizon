@@ -55,6 +55,11 @@ data/auth/
 # 数据库清理/迁移前的临时备份（已完成使命，不入库）
 data/horizon.db.bak*
 data/recovery/
+# 运行时产物 / 手工备份 / 调试预览目录（不入库）
+data/config.py.bak
+data/papers_failed_list.md
+data/papers_removed_list.md
+wxmp_html_preview/
 
 docs/_posts/*.md
 docs/app/

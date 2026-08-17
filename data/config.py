@@ -50,6 +50,7 @@ sources = {
         {"name": "GitHub Changelog",        "url": "https://github.blog/changelog/feed/",                       "category": "foreign-official"},
         {"name": "Google AI Blog",          "url": "https://blog.google/innovation-and-ai/technology/ai/rss/",  "category": "foreign-official"},
         {"name": "Google DeepMind",         "url": "https://deepmind.google/blog/rss.xml",                       "category": "foreign-official"},
+        {"name": "Google Research Blog",    "url": "https://research.google/blog/rss/",                         "category": "foreign-official"},
         {"name": "Hugging Face Blog",       "url": "https://huggingface.co/blog/feed.xml",                      "category": "foreign-official"},
         {"name": "OpenAI Blog",             "url": "https://openai.com/blog/rss.xml",                           "category": "foreign-official"},
         {"name": "OpenAI News",             "url": "https://openai.com/news/rss.xml",                           "category": "foreign-official"},
@@ -317,3 +318,4 @@ webhook = {
     "languages": ["zh"],
     "enabled": False,
 }
+

@@ -140,8 +140,8 @@
 ### 论文库(`src/papers/`)
 
 - **经典 openalex 源**:按人工种子列表(`src/papers/seed_data.py`,DOI/arXiv-id/标题年份作者匹配)→ 匹配报告(`matched`/`manual_review`/`unmatched` × `complete`/`partial`/`rate_limited`/`failed`)→ 增强(多源元数据合并,`canonical_*` 永远覆盖 API 值)→ `save_papers`(按 id upsert)。**不打分**。
-- **arXiv 每周精选**(`src/papers/weekly.py`):按分类抓最新(`fetch_recent`,按 `window_days` 回看)→ 规则过滤(`exclude_withdrawn → reject_short_abstracts → keyword 白/黑名单 → github 提取 → venue 信号排序 → truncate` 到 `target_candidates`)→ AI 粗筛四维打分 → 取 `featured_count` top N(`is_featured` + `featured_date`)→ 三段式解读(overview/method/evaluation,单段 ≤4096 token,失败只丢该段)→ 翻译(title/abstract → 中文)→ `save_papers`。失败记录写 `data/papers_failed_list.md`。
-- AI+金融子板块:同一次 `fetch_recent` 按 `finance_categories`(q-fin.*)拆分,各自独立精选(`source=arxiv_fin`)。
+- **arXiv 每周精选**(`src/papers/weekly.py`):按分类抓最新(`fetch_recent`,按 `window_days` 回看)→ 规则过滤(`exclude_withdrawn → reject_short_abstracts → keyword 白/黑名单 → github 提取 → venue 信号排序 → truncate` 到 `target_candidates`)→ AI 粗筛四维打分 → 取 `featured_count` top N(`is_featured` + `featured_date`)→ 三段式解读(overview/method/evaluation,单段 ≤4096 token,失败只丢该段;产出写 `ai_summary["interpretation_version"]`,版本号见 `weekly.AI_SUMMARY_VERSION`)→ 翻译(title/abstract → 中文)→ `save_papers`。失败记录写 `data/papers_failed_list.md`。**AI 解读 prompt 语义有破坏性改动时 `AI_SUMMARY_VERSION` +1**,`horizon-papers --enrich-existing` 会重生成旧版本解读(`cli._ai_summary_stale` 判旧,可用 `--enrich-limit` 分批)。
+- AI+金融子板块:同一次 `fetch_recent` 按 `finance_categories`(q-fin.*)拆分,各自独立精选(`source=arxiv_fin`)。金融交叉论文解读走「金融视角」prompt(`_ARXIV_DETAIL_FINANCE_BLOCK`,通过 `_finance_detail_system` 拼进 base,`weekly._DETAIL_SEGMENTS_FIN` 选择),目标读者是懂金融不懂 AI 的人。
 
 ### 研究报告库(`src/reports/`)
 

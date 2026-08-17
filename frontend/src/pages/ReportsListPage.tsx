@@ -37,8 +37,8 @@ export default function ReportsListPage() {
   const favoritesOnly = searchParams.has('fav')
   // 与 SearchPage「查看全部」共用 search 参数。
   const searchQ = searchParams.get('search') ?? ''
-  // 排序方式：time（发布时间）| composite（综合分，默认）。前端不显示综合分数值。
-  const sort = searchParams.get('sort') ?? 'composite'
+  // 排序方式：time（发布时间，默认）| composite（综合分）。前端不显示综合分数值。
+  const sort = searchParams.get('sort') ?? 'time'
 
   // ── UI-only state ──────────────────────────────────────────────────────
   const [sortMenuOpen, setSortMenuOpen] = useState(false)
@@ -188,16 +188,6 @@ export default function ReportsListPage() {
                 <>
                   <div className="px-3 pt-1.5 pb-0.5 text-[10px] font-bold tracking-[.12em] text-[#8ea0b6]">排序</div>
                   <button
-                    onClick={() => selectSort('composite')}
-                    className={`w-full text-left px-3 py-1.5 text-sm transition-colors cursor-pointer ${
-                      sort === 'composite'
-                        ? 'text-[var(--accent)] font-medium bg-[var(--accent)]/8'
-                        : 'text-[var(--muted)] hover:text-[var(--ink)] hover:bg-black/[.03]'
-                    }`}
-                  >
-                    综合
-                  </button>
-                  <button
                     onClick={() => selectSort('time')}
                     className={`w-full text-left px-3 py-1.5 text-sm transition-colors cursor-pointer ${
                       sort === 'time'
@@ -206,6 +196,16 @@ export default function ReportsListPage() {
                     }`}
                   >
                     时间
+                  </button>
+                  <button
+                    onClick={() => selectSort('composite')}
+                    className={`w-full text-left px-3 py-1.5 text-sm transition-colors cursor-pointer ${
+                      sort === 'composite'
+                        ? 'text-[var(--accent)] font-medium bg-[var(--accent)]/8'
+                        : 'text-[var(--muted)] hover:text-[var(--ink)] hover:bg-black/[.03]'
+                    }`}
+                  >
+                    综合
                   </button>
                 </>
               )}
