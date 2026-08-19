@@ -6,6 +6,7 @@ Horizon 配置文件 — 所有可调参数都在这里。
 """
 
 import os
+from datetime import datetime
 
 # ── CI 环境检测（GitHub Actions 自动设 CI=true）────────────────────────────
 # 在 CI 中禁用依赖本地服务的源（we-mp-rss、Twitter cookie 等），
@@ -303,7 +304,7 @@ reports = {
         {"name": "wxmp", "ai_filter": True,             # 微信公众号报告
          "account_names": ["腾讯研究院", "阿里研究院"]},
     ],
-    "aliyunreports_year": "2025年",  # 阿里云报告筛选年份
+    "aliyunreports_year": f"{datetime.now().year}年",  # 阿里云报告筛选年份（动态取当前年）
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
