@@ -69,12 +69,35 @@ async def translate_paper(client: AIClient, paper: Paper) -> Paper:
         response = await complete_with_retry(
             client,
             system=(
-                "You are a translator specializing in academic papers. "
-                "Translate the following paper title and abstract to Simplified Chinese. "
-                "Preserve all technical terms, proper names (model names, institutions, "
-                "person names), and acronyms in their original form. "
-                "Output natural, fluent Chinese academic writing — not literal "
-                "word-for-word translation. "
+                "You are a professional academic translator. "
+                "Translate the following paper title and abstract into natural, fluent Simplified Chinese. "
+
+                "IMPORTANT LANGUAGE RULES: "
+                "Translate normal academic, technical, financial, statistical, and AI terminology into Chinese whenever a natural Chinese translation exists. "
+                "Do NOT keep ordinary technical terms in English merely because they are domain-specific. "
+
+                "Keep the original English ONLY for: "
+                "1. model or product names such as GPT-4o, BERT, Llama; "
+                "2. dataset, benchmark, index, company, institution, and person names such as Russell 2000; "
+                "3. acronyms that are conventionally written in English and have no clearer Chinese replacement. "
+
+                "For example: "
+                "'financial news' → '金融新闻', "
+                "'signals' → '信号', "
+                "'portfolio construction' → '投资组合构建', "
+                "'covariance matrix' → '协方差矩阵', "
+                "'expected returns' → '预期收益', "
+                "'transaction costs' → '交易成本', "
+                "'holding period' → '持有期', "
+                "'risk parity' → '风险平价', "
+                "'stock selection' → '选股', "
+                "'macro indicators' → '宏观指标'. "
+
+                "Prefer established Chinese terminology. "
+                "The final translation should read like a professionally translated Chinese academic abstract, "
+                "not Chinese sentences mixed with unnecessary English words. "
+                "Do not add explanations or bilingual parentheses unless necessary for understanding. "
+
                 "Return only valid JSON, no other text."
             ),
             user=(

@@ -122,7 +122,12 @@ async def run(
     When *extract_keywords* is True, skips the fetch phase entirely and
     AI-extracts keywords for all previously-stored papers that lack them.
     Otherwise, by default, translates newly-fetched papers before saving
-    (use *no_translate* to skip that step). Returns count saved (0 in dry-run)."""
+    (use *no_translate* to skip that step). Returns count saved (0 in dry-run).
+
+    When *only_source* is None it runs every enabled source (backwards
+    compatible with direct callers); the CLI default is ``"arxiv"`` — classic
+    OpenAlex papers are one-time imports, refresh them explicitly with
+    ``--source openalex`` (or ``--source all`` for both)."""
     if not config.papers or not config.papers.enabled:
         console.print("[yellow]Papers library not enabled in config; nothing to do.[/yellow]")
         return 0
@@ -332,7 +337,7 @@ async def run(
     # Normal fetch → (translate) → save flow.
     # ------------------------------------------------------------------
     async with httpx.AsyncClient(timeout=30.0) as client:
-        if papers_cfg.openalex.enabled and only_source in (None, "openalex"):
+        if papers_cfg.openalex.enabled and only_source in (None, "all", "openalex"):
             result = await OpenAlexFetcher(papers_cfg.openalex).fetch_classic(client)
             _print_openalex_report(result)
             if db is not None:
@@ -370,7 +375,7 @@ async def run(
                         f"manual_review/unmatched/translate_failed). {tc} classified.[/green]"
                     )
 
-        if papers_cfg.arxiv.enabled and only_source in (None, "arxiv"):
+        if papers_cfg.arxiv.enabled and only_source in (None, "all", "arxiv"):
             arxiv_cfg = papers_cfg.arxiv
             if featured_count is not None:
                 arxiv_cfg = arxiv_cfg.model_copy(update={"featured_count": featured_count})
@@ -565,9 +570,11 @@ def main() -> None:
     )
     parser.add_argument(
         "--source",
-        choices=["openalex", "arxiv"],
-        default=None,
-        help="Only fetch this source (default: all enabled sources)",
+        choices=["openalex", "arxiv", "all"],
+        default="arxiv",
+        help="Only fetch this source. Default: arxiv (weekly featured — classic "
+        "papers are one-time imports; use --source openalex to refresh them, "
+        "--source all for everything)",
     )
     parser.add_argument(
         "--featured-count",

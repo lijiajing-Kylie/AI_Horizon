@@ -130,7 +130,7 @@ class _FakeAI:
         self.last_detail_user = ""
 
     async def complete(self, system: str, user: str, **kwargs):
-        if system.startswith("You are a translator"):
+        if "translator" in system:
             self.translation_calls += 1
             title = user.split("Title: ", 1)[1].splitlines()[0].strip()
             return json.dumps({"title_zh": f"中文-{title}", "abstract_zh": "中文摘要"})
