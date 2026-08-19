@@ -6,6 +6,12 @@
       "sourceType": "well-known",
       "computedHash": "02d9b464027ae9e54cfe8dbccc8433dd56aa111a1325bcac4b591f366a34cc21"
     },
+    "qianwenai-deploy": {
+      "source": "QianWen-AI/qianwenai-deploy",
+      "sourceType": "github",
+      "skillPath": "skill/SKILL.md",
+      "computedHash": "df053c5123e1eb2d1693a28b936794c44cdf5ad940543e980459b3e4e3e59943"
+    },
     "ui-ux-pro-max": {
       "source": "nextlevelbuilder/ui-ux-pro-max-skill",
       "sourceType": "github",
