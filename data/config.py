@@ -9,7 +9,7 @@ import os
 from datetime import datetime
 
 # ── CI 环境检测（GitHub Actions 自动设 CI=true）────────────────────────────
-# 在 CI 中禁用依赖本地服务的源（we-mp-rss、Twitter cookie 等），
+# 在 CI 中禁用依赖本地服务的源（微信登录态、Twitter cookie 等），
 # 避免无谓的连接失败和超时。
 _IN_CI = os.getenv("CI") == "true"
 

@@ -189,7 +189,7 @@ ALIYUNREPORTS_DEFAULTS: dict = {
 
 # ── 微信报告源 — 默认值 ──────────────────────────────────────────────────────
 # 用于 src/reports/sources/wxmp.py
-# 从内置 we-mp-rss 核心获取微信公众号文章作为报告
+# 从 we_read 通道（或 collector 中间表 wxmp_articles）获取微信公众号文章作为报告
 WXMP_REPORT_DEFAULTS: dict = {
     "max_age_days": 7,      # 最多获取多少天内的文章
     "fetch_limit": 100,     # 每次最多获取多少篇

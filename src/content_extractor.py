@@ -653,7 +653,7 @@ async def extract_full_content(
 
     # When the RSS feed already provided high-quality content, try to
     # extract clean text + structured HTML from the existing content
-    # (which may be full article HTML, e.g. from we-mp-rss). Only skip
+    # (which may be full article HTML, e.g. from a WeChat fetch). Only skip
     # URL fetching when the inline content isn't article-like HTML — in
     # that case the existing content is already clean text (standard RSS
     # feeds) and needs no further processing.

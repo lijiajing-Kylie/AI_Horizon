@@ -218,3 +218,29 @@ Flow:
 **Authentication**: Set `APIFY_TOKEN` in your `.env`. Get a token at [console.apify.com](https://console.apify.com/account/integrations).
 
 **Extracted data**: tweet text, URL, author, publish time, likes, retweets, replies, views, and (optionally) reply-thread text appended under `--- Top Comments ---`.
+
+## WeChat MP
+
+**File**: `src/scrapers/wxmp.py`
+
+WeChat MP articles are fetched through the **`src/we_read`** pure-HTTP channel — a forwarding service at `weread.111965.xyz` that returns article lists/HTML for a given account. No Playwright and no external we-mp-rss service is needed.
+
+**Login**: scan the QR code once with `horizon-wxmp login`; the session token is stored in `data/auth/weread.json`. If the login expires, the source is skipped with a hint to re-login (check with `horizon-wxmp status`).
+
+**Config** (`sources.wxmp`):
+
+```json
+{
+  "enabled": true,
+  "use_collector": true,
+  "feeds": [
+    { "name": "机器之心", "weread_mp_id": "MP_WXS_3073282833" }
+  ]
+}
+```
+
+- `feeds` — subscribed accounts; each needs `weread_mp_id` (resolved from a share link via `horizon-wxmp subscribe`)
+- `use_collector` — default `true`: the scraper reads from the collector intermediate table `wxmp_articles` (populated by the resident `horizon-wxmp-collector` daemon), falling back to live-fetching when the table is empty. Set to `false` to always live-fetch.
+- `gather_content` — fetch full article body when available
+
+**Extracted data**: title, URL, cover image, publish time, raw/display HTML body, and content text (in collector mode these come from the `wxmp_articles` intermediate table).

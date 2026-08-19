@@ -78,7 +78,7 @@ def _row_to_art_dict(row: dict) -> dict:
 
 
 class WxMpReportConfig:
-    """微信报告源配置：从内置 we-mp-rss 核心获取公众号文章作为报告。
+    """微信报告源配置：从 we_read 通道（或 collector 中间表 wxmp_articles）获取公众号文章作为报告。
 
     默认值定义在 src/config/constants.py 的 WXMP_REPORT_DEFAULTS 中。
     """

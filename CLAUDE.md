@@ -383,7 +383,7 @@ npm run lint       # oxlint
 
 ## 9. Current Status — 当前进度
 
-**微信抓取通道迁移已完成:we-mp-rss(rachelos/Playwright)→ `src/we_read`(纯 HTTP),已合入 `main`。** 以下为迁移记录。
+**微信抓取通道迁移已完成:we-mp-rss(rachelos/Playwright)→ `src/we_read`(纯 HTTP);微信独立采集 daemon(`horizon-wxmp-collector` + 中间表 `wxmp_articles`,新闻/报告双管道消费)也已合入 `main`。** 以下为迁移记录。
 
 ### 微信抓取通道迁移(已合入 main)
 
@@ -401,7 +401,7 @@ npm run lint       # oxlint
 - **报告库**:综合分(`composite_score`,仅排序)、AI 关键词(5-8 个,中文为主)、wxmp 正文清洗(块级提取 + footer 截断)、AI 过滤 exemplar 评估、PDF 下载与浏览器解析。
 - **论文库**:移除 HuggingFace 源;arXiv 每周精选管线(规则过滤 → AI 粗筛四维打分 → top N → 三段式解读);解读分三段生成 + 中英搜索 + 经典论文 backfill;arXiv 分类扩 cs.CV/cs.MA/cs.RO。
 - **话题**:`topics` 表加 `scope` 隔离新闻/论文两套 taxonomy,主题页回到三大块。
-- **微信**:固定 UA 防风控 + 独立微信调试 collector(早期;现已进一步换 we_read 通道)。
+- **微信**:固定 UA 防风控 + 独立微信调试 collector(早期;现已进一步换 we_read 通道)。采集演进到**独立采集 daemon**:`horizon-wxmp-collector` 每号随机 4-8h 抓取 → 中间表 `wxmp_articles`,新闻/报告双管道只读消费并打消费标记,空表自动降级实时抓取(`--live-wxmp` 强制实时诊断);微信图片走 weserv 公共代理。
 - **前端**:论文页搜索替代时间筛选、首页元信息、搜索键盘导航、报告列表页时间/综合排序切换。
 - **部署**:阿里云部署方案(`docs/product/horizon-aliyun-deployment-plan.md`,**待实施的自包含执行手册**:qianwenai-deploy skill + ROS 单机 ECS(cn-guangzhou)+ mihomo 代理 sidecar + 数据迁移 + 热更新;新窗口照文档直接实施);旧手工方案 v2(`docs/product/horizon-vps-deployment-plan-v2.md`,collector 常驻 + 双服务 Compose + SQLite 加固/备份)。
 
@@ -411,7 +411,6 @@ npm run lint       # oxlint
 
 ### 迁移遗留(当前分支,需在本分支处理)
 
-- **代码注释仍写"内置 we-mp-rss"**(文档已清理):`src/models.py:560`(wxmp description)、`src/config/constants.py:192`、`src/orchestrator.py:431`、`src/reports/fetcher.py:46/55`、`data/config.py` wxmp 注释——README 与 VPS/总览文档已在 2026-08-17 清理中修正,仅剩代码注释待改。
 - **`data/config.py` 仍在手工迁移**:31+ 条 feed 的 `weread_mp_id` 靠人肉补;`horizon-wxmp subscribe/migrate` 可辅助(VPS 部署文档已按 we_read 通道更新)。
 - **微信报告 PDF 解析依赖浏览器**:`wxmp_browser_resolver` 需要 Playwright + 可用的微信文章访问(登录态/风控),"阅读原文"/二维码两条策略都失败时报告只有原始文章链接、无 PDF。
 

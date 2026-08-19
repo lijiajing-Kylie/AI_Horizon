@@ -443,7 +443,7 @@ async def backfill_wxmp_text(
         if raw:
             # 有原始 HTML：用当前提取逻辑完整重洗。
             new_text = WxMpReportFetcher._extract_text(raw)
-            # raw_html 太短说明 we-mp-rss 当时没抓到完整正文（content_text 来自
+            # raw_html 太短说明抓取时没拿到完整正文（content_text 来自
             # URL 回退、更长），用短文本覆盖只会更差，跳过。阈值与 fetch_detail
             # 的回退触发阈值一致。
             if len(new_text) < 100:

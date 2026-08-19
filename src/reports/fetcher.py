@@ -43,7 +43,7 @@ async def fetch_all_reports(
     config: ReportsConfig,
     client: httpx.AsyncClient,
     ai_client=None,  # Optional[AIClient] — created by the CLI when ai_filter_enabled
-    wxmp_config=None,  # Optional[WxMpConfig] — feeds/params for bundled we-mp-rss
+    wxmp_config=None,  # Optional[WxMpConfig] — feeds/params for the we_read wxmp source
     wxmp_max_age: int | None = None,  # Override max_age_days for wxmp source
     db=None,  # Optional[HorizonDB] — collector 中间表读分支 + 消费标记
 ) -> List[Report]:
@@ -53,7 +53,7 @@ async def fetch_all_reports(
     each report is judged for tech/AI relevance before inclusion.
 
     *wxmp_config* (a ``WxMpConfig`` from ``config.sources.wxmp``) is forwarded
-    to the bundled we-mp-rss report fetcher for feeds and gather settings.
+    to the we_read-based wxmp report fetcher for feeds and gather settings.
 
     *db* 非 None 时,微信报告源优先从 collector 中间表读(use_store=True),
     窗口为空自动降级实时抓取;detail 全部完成后统一打消费标记。

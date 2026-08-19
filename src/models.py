@@ -587,7 +587,7 @@ class SourcesConfig(BaseModel):
     google_news: Optional[GoogleNewsConfig] = Field(default=None, description="Google News 搜索源")
     huawei_news: Optional[HuaweiNewsConfig] = Field(default=None, description="华为新闻中心源")
     bytedance_news: Optional[ByteDanceNewsConfig] = Field(default=None, description="字节跳动 Seed 技术博客源")
-    wxmp: Optional[WxMpConfig] = Field(default=None, description="微信公众号源（内置 we-mp-rss 核心抓取）")
+    wxmp: Optional[WxMpConfig] = Field(default=None, description="微信公众号源（we_read 纯 HTTP 通道 + collector 中间表）")
 
 
 class WebhookConfig(BaseModel):

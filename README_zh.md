@@ -219,8 +219,7 @@ cd horizon
 
 # 配置环境
 cp .env.example .env
-cp data/config.example.json data/config.json
-# 编辑 .env 和 data/config.json，填入你的 API 密钥和偏好设置
+# 编辑 .env 填入 API 密钥；主配置是 data/config.py（仓库自带），直接编辑偏好设置
 
 # 使用 Docker Compose 运行
 docker compose run --rm horizon
@@ -237,32 +236,32 @@ docker compose run --rm horizon --hours 48
 uv run horizon-wizard
 ```
 
-向导会询问你的兴趣（如"LLM 推理"、"嵌入式"、"web 安全"），自动推荐并生成 `data/config.json`，还可选让 AI 补充推荐小众源。若你想分享信息源，请前往 [horizon1123.top](https://horizon1123.top/)。
+向导会询问你的兴趣（如"LLM 推理"、"嵌入式"、"web 安全"），自动推荐并生成 `data/config.py`，还可选让 AI 补充推荐小众源。若你想分享信息源，请前往 [horizon1123.top](https://horizon1123.top/)。
 
 **方式 B：手动配置**
 
 ```bash
-cp .env.example .env          # 添加 API 密钥
-cp data/config.example.json data/config.json  # 自定义信息源
+cp .env.example .env   # 添加 API 密钥
+# 主配置是 data/config.py（仓库自带）：编辑它即可自定义信息源与偏好
 ```
 
-最小手动配置示例：
+最小手动配置示例（`data/config.py`，Python 文件，支持 `#` 注释）：
 
-```jsonc
-{
-  "ai": {
+```python
+ai = {
     "provider": "openai",
     "model": "gpt-4",
-    "api_key_env": "OPENAI_API_KEY"
-  },
-  "sources": {
+    "api_key_env": "OPENAI_API_KEY",
+}
+
+sources = {
     "rss": [
-      { "name": "Simon Willison", "url": "https://simonwillison.net/atom/everything/" }
-    ]
-  },
-  "filtering": {
-    "ai_score_threshold": 6.0
-  }
+        {"name": "Simon Willison", "url": "https://simonwillison.net/atom/everything/"},
+    ],
+}
+
+filtering = {
+    "ai_score_threshold": 6.0,
 }
 ```
 
@@ -271,31 +270,29 @@ cp data/config.example.json data/config.json  # 自定义信息源
 可以限制日报总条数，并避免单一类别占据过多内容。类别来自
 `sources.rss[].category` 等信息源配置。
 
-```jsonc
-{
-  "filtering": {
+```python
+filtering = {
     "ai_score_threshold": 6.0,
     "max_items": 20,
     "category_groups": {
-      "ai": {
-        "limit": 5,
-        "categories": ["ai-news", "ai-tools", "machine-learning"]
-      },
-      "finance": {
-        "limit": 5,
-        "categories": ["finance", "business", "equities"]
-      }
+        "ai": {
+            "limit": 5,
+            "categories": ["ai-news", "ai-tools", "machine-learning"],
+        },
+        "finance": {
+            "limit": 5,
+            "categories": ["finance", "business", "equities"],
+        },
     },
     "default_group": "other",
-    "default_group_limit": 3
-  }
+    "default_group_limit": 3,
 }
 ```
 
 分组限额在 AI 分数过滤之后、内容补充之前执行。未配置
 `category_groups` 和 `max_items` 时，筛选行为保持不变。
 
-`data/config.json` 里的任意字符串值都可以通过 `${VAR_NAME}` 引用环境变量。这适合用于 `ai.base_url`、私有 RSS 链接、Webhook 地址或自定义请求头模板等字段。
+`data/config.py` 里的任意字符串值都可以通过 `${VAR_NAME}` 引用环境变量。这适合用于 `ai.base_url`、私有 RSS 链接、Webhook 地址或自定义请求头模板等字段。
 
 完整配置参考请查看[配置指南](docs/configuration.md)。
 
@@ -331,6 +328,7 @@ Horizon 非常适合作为 **GitHub Actions** 定时任务运行。查看 [`.git
 | **Telegram** | 公开频道消息 | — |
 | **Twitter / X** | 特定用户的推文 | 支持（前 N 条回复） |
 | **GitHub** | 用户动态 & 仓库 Release | — |
+| **微信公众号** | 公众号文章（we_read 纯 HTTP 通道，无需 Playwright） | 需 `horizon-wxmp login` 扫码登录 |
 | **OpenBB** | 按观察列表 / provider 抓取金融公司新闻 | — |
 
 ## 日报可以去哪里
