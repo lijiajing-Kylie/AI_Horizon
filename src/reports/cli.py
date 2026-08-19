@@ -69,12 +69,15 @@ async def run(config: Config, wxmp_max_age: int | None = None) -> int:
         console.print(f"[dim]wxmp max_age_days overridden to {wxmp_max_age}[/dim]")
     console.print(f"[dim]Fetching {len(config.reports.sources)} source(s): {', '.join(source_names)}[/dim]")
 
+    # 提前建 db:传给 fetch_all_reports 供微信 collector 中间表读 + 消费标记。
+    db = HorizonDB()
     async with httpx.AsyncClient() as client:
         reports = await fetch_all_reports(
             config.reports, client,
             ai_client=ai_client,
             wxmp_config=config.sources.wxmp,
             wxmp_max_age=wxmp_max_age,
+            db=db,
         )
 
     console.print(f"[dim]Fetched {len(reports)} reports total.[/dim]")
@@ -92,7 +95,6 @@ async def run(config: Config, wxmp_max_age: int | None = None) -> int:
             title = r.title or "(无标题)"
             console.print(f"  {i}. [{inst}] {title}")
 
-    db = HorizonDB()
     count = db.save_reports(reports)
 
     # ── PDF download summary ──

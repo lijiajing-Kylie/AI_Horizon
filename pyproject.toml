@@ -61,6 +61,8 @@ horizon-webhook = "src.services.webhook_cli:main"
 horizon-papers = "src.papers.cli:main"
 horizon-reports = "src.reports.cli:main"
 horizon-wxmp = "src.wxmp_cli:main"
+horizon-wxmp-collector = "src.wxmp_collector.cli:main"
+horizon-auth-check = "src.services.auth_alert:main"
 
 [build-system]
 requires = ["hatchling"]

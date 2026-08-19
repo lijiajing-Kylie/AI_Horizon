@@ -1277,12 +1277,15 @@ def debug_dashboard() -> FileResponse:
     return FileResponse(str(_DEBUG_FRONTEND / "index.html"))
 
 
-# ── WeChat image proxy ────────────────────────────────────────────────────
-# mmbiz.qpic.cn 有 Referer 防盗链：前端带非微信域名 Referer 加载一律 403，
-# referrerpolicy="no-referrer" 对部分请求也不放行。后端带微信域名 Referer
-# 抓图转发是最可靠方案（实时转发、不落盘，非图片本地化）。display_html 里
-# 微信图片的 src 在清洗时被替换为 /api/img-proxy?url=<encoded>（见
-# src/scrapers/wxmp.py 的 _proxy_wechat_img_src）。
+# ── WeChat image proxy(LEGACY fallback)─────────────────────────────────────
+# mmbiz.qpic.cn 有 Referer 防盗链:前端带非微信域名 Referer 加载一律 403。
+# 本端点(后端带微信域名 Referer 抓图转发,实时转发、不落盘)是旧方案——
+# 它依赖部署机能直连微信 CDN,而代理工具(Clash fake-ip)/境外出口都会被
+# 微信 CDN 重置,实测不可靠。现役方案是 weserv 公共代理:display_html 清洗时
+# 微信图片 src 直接改写为 images.weserv.nl(见 src/scrapers/wxmp.py 的
+# _proxy_wechat_img_src)。本端点保留作 fallback(VPS 直连环境下仍可用,
+# 也是图片本地化落地前的过渡),存量旧地址可用
+# `horizon-wxmp-collector backfill-img-proxy` 改写为 weserv。
 
 _WEIXIN_IMG_DOMAINS = ("mmbiz.qpic.cn", "qpic.cn", "wx.qlogo.cn")
 

@@ -149,9 +149,9 @@ def test_full_html_content_derives_raw_and_display(monkeypatch, tmp_path) -> Non
     # AI 读到的是无标签的纯文本
     assert item.raw_content and "第一段正文" in item.raw_content
     assert "<p>" not in item.raw_content
-    # 详情页渲染的 display_html 保留正文结构与微信图片（图片走 /api/img-proxy 代理）
+    # 详情页渲染的 display_html 保留正文结构与微信图片（图片走 weserv 代理）
     assert item.display_html
-    assert "/api/img-proxy?url=" in item.display_html
+    assert "https://images.weserv.nl/?url=" in item.display_html
     assert "mmbiz.qpic.cn" in item.display_html
     # 封面
     assert item.cover_image == "https://mmbiz.qpic.cn/cover_art_001"

@@ -60,6 +60,11 @@ data/config.py.bak
 data/papers_failed_list.md
 data/papers_removed_list.md
 wxmp_html_preview/
+# 巡检/告警日志与去重状态(运行时产物,不入库)
+data/logs/
+# SQLite WAL 运行时文件(collector/管道/API 多进程并发后产生,不入库)
+data/horizon.db-shm
+data/horizon.db-wal
 
 docs/_posts/*.md
 docs/app/

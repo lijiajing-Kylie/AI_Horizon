@@ -17,6 +17,7 @@ from bs4 import BeautifulSoup
 
 from ..content_extractor import sanitize_article_html
 from ..models import ContentItem, SourceType, WxMpConfig, WxMpSourceConfig
+from ..storage.db import HorizonDB
 from ..we_read import build_client_from_wxmp_config, ensure_login, with_empty_retry
 from ..we_read.errors import WeReadAuthError, WeReadError
 from .base import BaseScraper
@@ -149,18 +150,28 @@ def _leaf_footer_blocks(container) -> list:
     ]
 
 
-def _proxy_wechat_img_src(src: str) -> str:
-    """把 mmbiz.qpic.cn 图片 URL 替换为 Horizon 的 /api/img-proxy 代理地址。
+# 微信图片代理地址：新旧两代方案。weserv 公共图片代理是现役方案——微信 CDN
+# （mmbiz.qpic.cn）防盗链，且自建 /api/img-proxy 依赖部署机能直连微信 CDN
+# （本机 Clash fake-ip + 境外出口会被直接重置，实测不可用）；weserv 前端
+# 直链、不依赖后端存活（WeWe RSS 等微信 RSS 项目的通行做法）。LEGACY 前缀
+# 仅用于存量 display_html 回填识别（见 HorizonDB.rewrite_wechat_img_proxy）；
+# VPS 图片本地化落地后再替换为本地地址。
+WESERV_IMG_PROXY_BASE = "https://images.weserv.nl/?url="
+LEGACY_IMG_PROXY_PREFIX = "/api/img-proxy?url="
 
-    微信 CDN 防盗链导致前端直链加载失败；走后端代理（后端带微信域名
-    Referer 抓图转发）最可靠。非微信 CDN 图片不代理，保持原样。
+
+def _proxy_wechat_img_src(src: str) -> str:
+    """把 mmbiz.qpic.cn 图片 URL 替换为 weserv 公共图片代理地址。
+
+    微信 CDN 防盗链导致前端直链加载失败；自建后端代理又依赖部署机网络
+    （代理工具/境外出口都会被微信 CDN 重置）。非微信 CDN 图片不代理，保持原样。
     """
     if not src.startswith(("http://", "https://")):
         return src
     host = (urlparse(src).hostname or "").lower()
     if host != "mmbiz.qpic.cn":
         return src
-    return "/api/img-proxy?url=" + quote(src, safe="")
+    return WESERV_IMG_PROXY_BASE + quote(src, safe="")
 
 
 def _drop_leading_qr_image(blk) -> None:
@@ -241,9 +252,9 @@ def sanitize_wxmp_display_html(raw_html: Optional[str]) -> str:
     #（微信扫一扫/使用完整服务/赞/听过 等按钮文本），不进 display_html。
     body = soup.select_one("#js_content") or soup
     truncate_wxmp_footer(body)
-    # mmbiz.qpic.cn 防盗链：非微信域名 Referer 一律 403。图片走后端代理
-    # （/api/img-proxy，后端带微信域名 Referer 抓图转发）最可靠；referrerpolicy
-    # 同时保留作为非微信 CDN 图片的兜底。
+    # mmbiz.qpic.cn 防盗链：非微信域名 Referer 一律 403。图片走 weserv 公共
+    # 代理（自建 /api/img-proxy 依赖部署机直连微信 CDN，实测在代理工具/
+    # 境外出口下不可用）；referrerpolicy 同时保留作为非微信 CDN 图片的兜底。
     for img in body.find_all("img"):
         img["referrerpolicy"] = "no-referrer"
         src = img.get("src") or ""
@@ -424,3 +435,61 @@ class WxMpScraper(BaseScraper):
         except (ValueError, TypeError, OSError):
             logger.debug("Cannot parse publish_time: %r", raw)
             return None
+
+
+class WxmpStoredScraper(BaseScraper):
+    """从中间表 wxmp_articles 读微信文章的 scraper(collector 模式)。
+
+    与 WxMpScraper 并列:collector 把文章抓进中间表,日报运行时只读表、不重复
+    调 src/we_read。产出与 WxMpScraper._to_content_item 等价,下游提取/去重/
+    翻译恢复/AI 分析/过滤链全部零改动。
+
+    fail-open:窗口整体为空(新机器/CI/collector 未跑)时,自动降级为实时抓取
+    (WxMpScraper),日报不丢微信内容。
+    """
+
+    def __init__(
+        self,
+        config: WxMpConfig,
+        db: HorizonDB,
+        run_date: str,
+        http_client=None,
+    ):
+        super().__init__({"wxmp": config}, http_client)
+        self._cfg = config
+        self._db = db
+        self._run_date = run_date  # 当前日报 run_date,消费标记粒度
+
+    async def fetch(self, since: datetime) -> List[ContentItem]:
+        rows = self._db.get_wxmp_articles_window(
+            since_ts=since.timestamp(),
+            exclude_news_run_date=self._run_date,
+        )
+        if not rows:
+            # 窗口为空 → 实时兜底抓一次(不写中间表,collector 抓到后自然进表)。
+            return await WxMpScraper(self._cfg, self.client).fetch(since)
+        # 读取时不标记;标记由 orchestrator 在首次落库成功后统一做(崩溃重跑不丢)。
+        return [self._row_to_item(r) for r in rows]
+
+    def _row_to_item(self, row: dict) -> ContentItem:
+        raw = row["raw_html"] or ""
+        return ContentItem(
+            id=row["id"],
+            source_type=SourceType.WECHAT,
+            title=row["title"],
+            url=row["url"],
+            content=raw,
+            raw_content=row["content_text"] or _html_to_text(raw),
+            raw_html=raw or None,
+            display_html=row["display_html"] or sanitize_wxmp_display_html(raw) or None,
+            cover_image=row["cover_image"],
+            author=row["feed_name"],
+            published_at=datetime.fromisoformat(row["published_at"]),
+            metadata={
+                "feed_name": row["feed_name"],
+                "weread_mp_id": row["weread_mp_id"],
+                "category": "",  # 中间表未存 category,归类交给 classify_topics 兜底
+                "pic_url": row["cover_image"],
+                "extraction_mode": "skip",
+            },
+        )

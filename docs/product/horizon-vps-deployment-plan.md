@@ -1,5 +1,9 @@
 # Horizon VPS 完整自动化部署方案
 
+> **⚠️ 已过时，被 v2 取代**：微信抓取已拆成常驻 collector，v1 的「crontab 跑一次全管道」模型不再成立。
+> 请用 **`horizon-vps-deployment-plan-v2.md`**（collector 常驻 + 双服务 Compose + SQLite 加固 + 备份告警）。
+> 本文件仅保留作历史对照。
+
 > 状态：待评审
 > 目标：三个管道（新闻 + 报告 + 论文）全部定时、自动、稳定运行
 > 部署方式：VPS + Docker Compose + crontab
@@ -14,21 +18,21 @@
 GitHub Actions (定时 daily-summary.yml)
   └─ uv run horizon --hours 24
        ├─ RSS / HN / GitHub / Reddit / GDELT / ... ✅
-       ├─ wxmp 公众号              ✅ (内置 we-mp-rss 核心,需扫码登录)
+       ├─ wxmp 公众号              ✅ (we_read 纯 HTTP,需扫码登录)
        ├─ Twitter / Playwright     ❌ (无 Playwright)
        ├─ Reports 管道             ❌ (从未调度)
        └─ Papers 管道              ❌ (从未调度)
 ```
 
-GitHub Actions 跑的是新闻管道的子集。Twitter/Playwright 依赖本地浏览器；wxmp 已内置（`src/we_mp_rss/`，仅需一次微信扫码登录）；Reports 和 Papers 管道从未加入自动化调度。
+GitHub Actions 跑的是新闻管道的子集。Twitter/Playwright 依赖本地浏览器；wxmp 走 we_read 纯 HTTP 通道（转发服务 weread.111965.xyz），仅需一次微信扫码登录；Reports 和 Papers 管道从未加入自动化调度。
 
 ### 三个独立管道一览
 
 | 管道 | CLI | 外部服务依赖 | 浏览器依赖 |
 |------|-----|-------------|-----------|
-| **新闻** | `horizon` | RSS/HN/GitHub/Reddit + 内置微信核心 / Twitter / Apify | 可选的 Playwright |
-| **报告** | `horizon-reports` | 内置微信核心 + aliyun.com + aliresearch + fxbaogao | Playwright (必选) |
-| **论文** | `horizon-papers` | OpenAlex + HuggingFace + Semantic Scholar + arXiv + Crossref | 无 |
+| **新闻** | `horizon` | RSS/HN/GitHub/Reddit + we_read 微信核心 / Twitter / Apify | 可选的 Playwright |
+| **报告** | `horizon-reports` | we_read 微信核心 + aliyun.com + aliresearch + fxbaogao | Playwright (必选) |
+| **论文** | `horizon-papers` | 默认只跑 **arXiv 每周精选**;经典论文走 **OpenAlex**(一次性入库,按需 `--source openalex`);Semantic Scholar / Crossref 作 enrichment 兜底 | 无 |
 
 ---
 
@@ -42,12 +46,12 @@ GitHub Actions 跑的是新闻管道的子集。Twitter/Playwright 依赖本地�
 │                                                            │
 │  ┌──────────────────────────────────────────────┐          │
 │  │               horizon                         │          │
-│  │  (含 Playwright + 内置 we-mp-rss 微信核心)      │          │
+│  │  (含 Playwright + we_read 微信核心)            │          │
 │  │  新闻 + 报告 + 论文                             │          │
 │  └──────────────────┬───────────────────────────┘          │
 │                     │                                      │
 │                     ▼                                      │
-│              data/wxmp/   wx.lic / key.lic (微信登录态)     │
+│              data/auth/    weread.json (微信登录态)          │
 │              data/horizon.db / reports_pdfs/               │
 │              data/aliyun_profile/                          │
 │                                                            │
@@ -87,36 +91,36 @@ cd /opt/horizon
 
 ### 第 2 步：微信登录态
 
-微信公众号抓取使用 **内置的 we-mp-rss 核心**（`src/we_mp_rss/`），不再需要独立
-Docker 服务。登录态就是 `data/wxmp/` 下的两个文件：
+微信公众号抓取使用 **we_read 纯 HTTP 通道**（转发服务 weread.111965.xyz），
+无需浏览器 / 独立服务。登录态就是 `data/auth/weread.json`：
 
 ```
-data/wxmp/
-├── wx.lic       # 微信登录 token（YAML）
-└── key.lic      # cookie 加密存储（HMAC）
+data/auth/
+└── weread.json   # 微信登录 token（JSON）
 ```
 
 **初始化方式 A：本机扫码后迁移**
 
 ```bash
-# 本机先扫码登录（自动写入 data/wxmp/）
+# 本机先扫码登录（自动写入 data/auth/weread.json）
 uv run horizon-wxmp login
 uv run horizon-wxmp status   # 确认已登录
 
 # 把登录态随仓库/同步传到 VPS
-scp -r data/wxmp user@your-vps:/opt/horizon/data/
+scp -r data/auth user@your-vps:/opt/horizon/data/
 ```
 
 **初始化方式 B：在 VPS 上直接扫码**（需要把二维码图片拿到本机扫）
 
 ```bash
 docker compose run --rm horizon horizon-wxmp login
-# 二维码保存为容器内 /app/data/wxmp/wx_qrcode.png
+# 二维码保存为容器内 /app/data/auth/weread_qrcode.png
 # 通过 docker cp 取出后用微信扫一扫本地图片即可
 ```
 
-订阅公众号 = 在 `data/config.py` 的 `sources.wxmp.feeds` 增加一条 `MP_WXS_*`
-feed_id，无需在外部平台操作。
+订阅公众号 = 用 `uv run horizon-wxmp subscribe <分享链接>` 从分享链接自动解析公众号
+并写回 `data/config.py`（`sources.wxmp.feeds[].weread_mp_id`，也可用
+`horizon-wxmp migrate` 批量迁移），无需在外部平台操作。
 
 ### 第 3 步：Docker Compose 配置
 
@@ -130,7 +134,7 @@ services:
     container_name: horizon
     restart: unless-stopped
     volumes:
-      - ./data:/app/data              # 共享数据目录（含 data/wxmp 登录态）
+      - ./data:/app/data              # 共享数据目录（含 data/auth 登录态）
       - ./.env:/app/.env:ro           # API Key 等环境变量
       - ./docs:/app/docs              # GitHub Pages 输出目录
       - ./scripts:/app/scripts:ro     # 调度脚本
@@ -205,7 +209,9 @@ uv run horizon-reports && RESULTS+=("reports:OK") || RESULTS+=("reports:FAIL")
 
 # 3️⃣ 论文管道
 echo "--- [3/4] Papers Pipeline ---"
-uv run horizon-papers && RESULTS+=("papers:OK") || RESULTS+=("papers:FAIL")
+# 首次部署/补库跑全部(经典 OpenAlex 一次性入库 + arXiv 每周精选);
+# 日常 cron 默认 `horizon-papers` 只跑 arXiv 每周精选即可。
+uv run horizon-papers --source all && RESULTS+=("papers:OK") || RESULTS+=("papers:FAIL")
 
 # 4️⃣ 导出前端静态数据
 echo "--- [4/4] Export Static Data ---"
@@ -272,10 +278,9 @@ ssh-keyscan github.com >> ~/.ssh/known_hosts
 │   ├── pipeline.log              # 运行日志
 │   ├── reports_pdfs/             # 已下载的 PDF
 │   ├── aliyn_profile/            # 阿里云登录态（Playwright）
-│   ├── wxmp_browser_profile/     # 微信浏览器配置
-│   └── wxmp/                     # 微信登录态（内置核心）
-│       ├── wx.lic                # 微信登录 token（YAML）
-│       └── key.lic               # cookie 加密存储（HMAC）
+│   ├── wxmp_browser_profile/     # 微信浏览器配置（报告 PDF 解析）
+│   └── auth/                     # 微信登录态（we_read 纯 HTTP）
+│       └── weread.json           # 微信登录 token（JSON）
 ├── docs/                         # GitHub Pages（挂载 git）
 │   ├── _posts/                   # 每日摘要
 │   ├── data/                     # 前端静态数据
@@ -384,7 +389,7 @@ print(count)
 以下内容可以后续考虑，但不是 VPS 部署的阻塞项：
 
 - **horizon-api (FastAPI)** — VPS 上可部署 API 服务替代静态 JSON，让前端有搜索/过滤能力。需要 Node.js 构建前端 + 额外端口
-- **微信订阅自动发现** — 订阅公众号需在 `data/config.py` 的 `sources.wxmp.feeds` 手动维护 `MP_WXS_*` feed_id；暂不支持在 Horizon 内搜索公众号并自动添加
+- **微信订阅自动发现** — 订阅公众号用 `horizon-wxmp subscribe <分享链接>` 从分享链接解析并写回 `data/config.py`（配置字段 `weread_mp_id`）；暂不支持在 Horizon 内搜索公众号并自动添加
 - **监控面板** — 可用 Uptime Kuma / Grafana 监控管道健康度
 - **Sentry 集成** — 收集运行时异常
 

@@ -40,6 +40,8 @@ def main():
     parser = argparse.ArgumentParser(description="Horizon - AI-Driven Information Aggregation System")
     parser.add_argument("--hours", type=int, help="Force fetch from last N hours")
     parser.add_argument("--date", type=str, help="Fetch content for a specific date (YYYY-MM-DD), overrides --hours")
+    parser.add_argument("--live-wxmp", action="store_true",
+                        help="微信新闻源强制走实时抓取,跳过 collector 中间表(诊断/补数据)")
     args = parser.parse_args()
 
     try:
@@ -77,7 +79,11 @@ def main():
 
         # Create and run orchestrator
         orchestrator = HorizonOrchestrator(config, storage)
-        asyncio.run(orchestrator.run(force_hours=args.hours, refetch_date=args.date))
+        asyncio.run(orchestrator.run(
+            force_hours=args.hours,
+            refetch_date=args.date,
+            live_wxmp=args.live_wxmp,
+        ))
 
     except KeyboardInterrupt:
         console.print("\n[yellow]⚠️  Interrupted by user[/yellow]")

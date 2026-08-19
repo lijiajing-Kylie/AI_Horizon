@@ -527,6 +527,10 @@ class WxMpConfig(BaseModel):
 
     enabled: bool = True
     feeds: List[WxMpSourceConfig] = Field(default_factory=list, description="订阅的公众号列表")
+    use_collector: bool = Field(
+        default=True,
+        description="微信新闻抓取走 collector 中间表（wxmp_articles）；设为 False 回到旧的实时抓取行为。",
+    )
     gather_content: bool = Field(default=True, description="是否抓取文章完整正文（公开链接纯 HTTP）")
     clean_html: bool = Field(default=False, description="是否对抓取的正文做 HTML 清洗")
     proxy: Optional[str] = Field(default=None, description="HTTP 代理地址（可选）")
@@ -540,6 +544,32 @@ class WxMpConfig(BaseModel):
     weread: WeReadConfigModel = Field(
         default_factory=WeReadConfigModel, description="微信读书通道可调参数"
     )
+
+
+class WxmpArticle(BaseModel):
+    """中间表 wxmp_articles 的一行（独立采集 daemon 落库，新闻/报告管道只读消费）。
+
+    字段对齐 db._SCHEMA 里的 wxmp_articles 表；published_at 为 UTC datetime，
+    序列化走 db._dt_iso。consumed_* 两个消费标记由消费侧写回，collector 抓取
+    时不触碰。
+    """
+
+    id: str  # "wechat:{weread_mp_id}:{native_id}",与 ContentItem.id 格式一致
+    feed_name: str
+    weread_mp_id: str
+    native_id: str
+    title: str
+    url: str
+    cover_image: Optional[str] = None
+    published_at: datetime
+    raw_html: Optional[str] = None
+    display_html: Optional[str] = None
+    content_text: Optional[str] = None
+    content_hash: Optional[str] = None
+    fetched_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    last_synced_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    consumed_news_run_date: Optional[str] = None  # 新闻消费标记(run_date 粒度,YYYY-MM-DD)
+    consumed_reports_at: Optional[str] = None  # 报告消费标记(ISO 时间戳)
 
 
 class SourcesConfig(BaseModel):

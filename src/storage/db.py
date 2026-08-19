@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, List, Optional
 
-from ..models import ContentItem
+from ..models import ContentItem, WxmpArticle
 from ..papers.models import Paper
 from ..reports.models import Report
 
@@ -243,6 +243,38 @@ CREATE INDEX IF NOT EXISTS idx_reports_published_at ON reports(published_at);
 """
 
 
+# 微信抓取中间表：独立采集 daemon(horizon-wxmp-collector)抓到的公众号文章
+# 统一落这里，新闻/报告两条管道只读消费、各记消费标记，不再重复调 src/we_read。
+# 单独抽成常量，让 _migrate_wxmp_articles_table 复用同一份 DDL；回滚时删掉
+# 下面 `_SCHEMA += WXMP_ARTICLES_DDL` 一行 + 本常量 + 迁移链调用即可不再建表。
+WXMP_ARTICLES_DDL = """
+CREATE TABLE IF NOT EXISTS wxmp_articles (
+    id                    TEXT PRIMARY KEY,  -- "wechat:{weread_mp_id}:{native_id}",与 ContentItem.id 格式一致
+    feed_name             TEXT NOT NULL,
+    weread_mp_id          TEXT NOT NULL,
+    native_id             TEXT NOT NULL,
+    title                 TEXT NOT NULL,
+    url                   TEXT NOT NULL UNIQUE,  -- 自然键,幂等去重
+    cover_image           TEXT,
+    published_at          TEXT NOT NULL,         -- UTC ISO-8601(与 items.published_at 同格式,字典序可比)
+    raw_html              TEXT,                  -- fix_wechat_images(原始正文)
+    display_html          TEXT,                  -- sanitize_wxmp_display_html(raw_html)
+    content_text          TEXT,                  -- _html_to_text(raw_html) 纯文本
+    content_hash          TEXT,                  -- sha1(url)
+    fetched_at            TEXT NOT NULL,
+    last_synced_at        TEXT NOT NULL,
+    consumed_news_run_date TEXT,                 -- 新闻消费标记(run_date 粒度,YYYY-MM-DD)
+    consumed_reports_at   TEXT,                  -- 报告消费标记(ISO 时间戳)
+    created_at            TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_wxmp_articles_published_at ON wxmp_articles(published_at);
+CREATE INDEX IF NOT EXISTS idx_wxmp_articles_weread_mp_id ON wxmp_articles(weread_mp_id);
+CREATE INDEX IF NOT EXISTS idx_wxmp_articles_feed_name ON wxmp_articles(feed_name);
+"""
+
+_SCHEMA += WXMP_ARTICLES_DDL
+
+
 # Columns added after the initial schema — applied via ALTER TABLE for
 # existing DB files, since CREATE TABLE IF NOT EXISTS won't add them.
 _ITEMS_COLUMN_MIGRATIONS: list[tuple[str, str]] = [
@@ -302,6 +334,21 @@ def _migrate_reports_table(conn: sqlite3.Connection) -> None:
         if column not in existing:
             conn.execute(f"ALTER TABLE reports ADD COLUMN {column} {ddl}")
     conn.commit()
+
+
+def _migrate_wxmp_articles_table(conn: sqlite3.Connection) -> None:
+    """确保中间表 wxmp_articles 存在(幂等)。
+
+    该表完全由 _SCHEMA 里的 CREATE TABLE IF NOT EXISTS 创建(每次
+    executescript 已自动幂等应用,无需列迁移);这里仅作迁移链上的兜底,
+    兼容极少数 executescript 未建表的场景,保证调用点一定可用。
+    """
+    existing = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='wxmp_articles'"
+    ).fetchone()
+    if existing is None:
+        conn.executescript(WXMP_ARTICLES_DDL)
+        conn.commit()
 
 
 # 收藏表的新增列（Pattern A：老库幂等 ALTER，新库 CREATE TABLE 已带列）。
@@ -753,8 +800,13 @@ class HorizonDB:
         conn = getattr(self._local, "conn", None)
         if conn is None:
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
-            conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
+            conn = sqlite3.connect(str(self.db_path), check_same_thread=False, timeout=30)
             conn.row_factory = sqlite3.Row
+            # 部署后 collector(常驻)+ 管道 + API 多进程写同一库文件:WAL 让读写互不
+            # 阻塞,busy_timeout 兜住偶发写锁碰撞(默认 5s 在大事务下不够,daemon 曾
+            # 因撞锁整个退出)。两个 PRAGMA 均为连接级/库级配置,WAL 持久写回库头。
+            conn.execute("PRAGMA journal_mode=WAL").fetchone()
+            conn.execute("PRAGMA busy_timeout=30000")
             conn.executescript(_SCHEMA)
             conn.commit()
             _migrate_items_table(conn)
@@ -763,6 +815,7 @@ class HorizonDB:
             _migrate_favorites_note(conn)
             _migrate_topics_table(conn)
             _migrate_fts_tokenizer(conn)
+            _migrate_wxmp_articles_table(conn)
             self._local.conn = conn
         return conn
 
@@ -1110,6 +1163,166 @@ class HorizonDB:
             meta = json.loads(row["metadata_json"]) if row["metadata_json"] else {}
             state[row["id"]] = (row["display_html_zh"], meta.get("display_html_source_hash"))
         return state
+
+    # -- wxmp_articles(微信抓取中间表) --------------------------------------
+    # 独立采集 daemon(horizon-wxmp-collector)把公众号文章统一落这张表;新闻/报告
+    # 两条管道各自按窗口读、各记消费标记,互不干扰。表是缓存性质,与 items/
+    # reports 无 schema 耦合,删了可重建。
+
+    def get_wxmp_article_urls(self, weread_mp_id: str) -> set[str]:
+        """查询某公众号已入库的 url 集合,daemon 用来跳过已存在文章(不重复抓正文)。"""
+        rows = self.conn.execute(
+            "SELECT url FROM wxmp_articles WHERE weread_mp_id = ?", (weread_mp_id,)
+        ).fetchall()
+        return {r["url"] for r in rows}
+
+    def upsert_wxmp_articles(self, articles: List[WxmpArticle]) -> int:
+        """把 daemon 抓到的文章写进中间表。
+
+        以 url 为自然键:已存在的行只覆盖正文/元数据列,**绝不覆盖**
+        consumed_news_run_date / consumed_reports_at 两个消费标记。
+        返回影响行数。
+        """
+        for a in articles:
+            self.conn.execute(
+                """INSERT INTO wxmp_articles (
+                    id, feed_name, weread_mp_id, native_id, title, url, cover_image,
+                    published_at, raw_html, display_html, content_text, content_hash,
+                    fetched_at, last_synced_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(url) DO UPDATE SET
+                    title = excluded.title,
+                    cover_image = excluded.cover_image,
+                    raw_html = excluded.raw_html,
+                    display_html = excluded.display_html,
+                    content_text = excluded.content_text,
+                    content_hash = excluded.content_hash,
+                    last_synced_at = excluded.last_synced_at""",
+                (
+                    a.id, a.feed_name, a.weread_mp_id, a.native_id, a.title, str(a.url),
+                    a.cover_image, _dt_iso(a.published_at), a.raw_html, a.display_html,
+                    a.content_text, a.content_hash, _dt_iso(a.fetched_at),
+                    _dt_iso(a.last_synced_at),
+                ),
+            )
+        self.conn.commit()
+        return len(articles)
+
+    def get_wxmp_articles_window(
+        self,
+        *,
+        since_ts: float,
+        feed_names: Optional[Iterable[str]] = None,
+        exclude_news_run_date: Optional[str] = None,
+        exclude_reports_consumed: bool = False,
+    ) -> list[dict[str, Any]]:
+        """时间窗口读中间表,供新闻/报告两条管道消费。
+
+        published_at 与 since_ts 的 ISO 串做字典序比较(同格式可比)。
+        feed_names: 只读这些公众号(报告源按账号过滤)。
+        exclude_news_run_date: 排除已被该 run_date 消费过的行
+            (consumed_news_run_date IS DISTINCT FROM ?)。
+        exclude_reports_consumed: 排除报告管道已消费的行——只有重抓过
+            (last_synced_at > consumed_reports_at)的文章才重新进报告。
+        返回 dict 行,含消费端需要的全部正文列。
+        """
+        since_iso = _dt_iso(datetime.fromtimestamp(since_ts, tz=timezone.utc))
+        where = ["published_at >= ?"]
+        params: list[Any] = [since_iso]
+        if feed_names:
+            names = list(feed_names)
+            placeholders = ",".join("?" for _ in names)
+            where.append(f"feed_name IN ({placeholders})")
+            params.extend(names)
+        if exclude_news_run_date:
+            where.append("consumed_news_run_date IS DISTINCT FROM ?")
+            params.append(exclude_news_run_date)
+        if exclude_reports_consumed:
+            where.append(
+                "(consumed_reports_at IS NULL OR last_synced_at > consumed_reports_at)"
+            )
+        rows = self.conn.execute(
+            f"""SELECT id, native_id, feed_name, weread_mp_id, title, url, cover_image,
+                       published_at, raw_html, display_html, content_text
+                FROM wxmp_articles
+                WHERE {' AND '.join(where)}
+                ORDER BY published_at DESC""",
+            [_to_sqlite_param(p) for p in params],
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def mark_wxmp_articles_consumed_news(
+        self, ids: Iterable[str], run_date: str
+    ) -> int:
+        """给一批文章打上"已被某 run_date 日报消费"的标记。"""
+        ids = list(dict.fromkeys(ids))
+        if not ids:
+            return 0
+        placeholders = ",".join("?" for _ in ids)
+        cur = self.conn.execute(
+            f"UPDATE wxmp_articles SET consumed_news_run_date = ? "
+            f"WHERE id IN ({placeholders})",
+            (run_date, *ids),
+        )
+        self.conn.commit()
+        return cur.rowcount
+
+    def mark_wxmp_articles_consumed_reports(
+        self, ids: Iterable[str], at: Optional[str] = None
+    ) -> int:
+        """给一批文章打上"已被报告管道消费"的标记(默认当前时间戳)。"""
+        ids = list(dict.fromkeys(ids))
+        if not ids:
+            return 0
+        at = at or _now_iso()
+        placeholders = ",".join("?" for _ in ids)
+        cur = self.conn.execute(
+            f"UPDATE wxmp_articles SET consumed_reports_at = ? "
+            f"WHERE id IN ({placeholders})",
+            (at, *ids),
+        )
+        self.conn.commit()
+        return cur.rowcount
+
+    def reset_wxmp_articles_news_consumption(self, run_date: str) -> int:
+        """清掉某 run_date 的新闻消费标记,供崩溃后重跑同一日期恢复。"""
+        cur = self.conn.execute(
+            "UPDATE wxmp_articles SET consumed_news_run_date = NULL "
+            "WHERE consumed_news_run_date = ?",
+            (run_date,),
+        )
+        self.conn.commit()
+        return cur.rowcount
+
+    def prune_wxmp_articles(self, before_iso: str) -> int:
+        """删除已过保留期且被两条管道都消费过的行;未消费的过期行一律保留。"""
+        cur = self.conn.execute(
+            """DELETE FROM wxmp_articles
+               WHERE published_at < ? AND consumed_news_run_date IS NOT NULL
+                 AND consumed_reports_at IS NOT NULL""",
+            (before_iso,),
+        )
+        self.conn.commit()
+        return cur.rowcount
+
+    def rewrite_wechat_img_proxy(self, old_prefix: str, new_prefix: str) -> dict[str, int]:
+        """把三张表 display_html 里的微信图片代理地址前缀整体替换(存量回填)。
+
+        代理地址形如 ``<prefix><quote(url, safe='')>``;新旧方案编码方式一致,
+        编码段可原样保留,纯字符串替换即可(幂等,重复执行无副作用)。
+        覆盖 wxmp_articles / items / reports 三处持久化 display_html 的表,
+        返回每表更新行数。
+        """
+        counts: dict[str, int] = {}
+        for table in ("wxmp_articles", "items", "reports"):
+            cur = self.conn.execute(
+                f"UPDATE {table} SET display_html = REPLACE(display_html, ?, ?) "
+                f"WHERE display_html LIKE ?",
+                (old_prefix, new_prefix, f"%{old_prefix}%"),
+            )
+            counts[table] = cur.rowcount
+        self.conn.commit()
+        return counts
 
     # -- papers -----------------------------------------------------------
 

@@ -63,3 +63,21 @@ class WeReadSyncState:
     def subscribed_count(self) -> int:
         """Number of feeds ever recorded as synced (informational)."""
         return len(self._load().get("feeds") or {})
+
+    # ── collector 调度计划(horizon-wxmp-collector 用)───────────────────────
+    # 持久化文件额外增加顶层 key "schedule": {mp_id: {"next_run_at": ts}},
+    # 与 feeds/last_sync_at 并列,status 向后兼容、collector 只增不改。
+
+    def feed_next_run(self, mp_id: str) -> Optional[int]:
+        """读某公众号的下次计划抓取时刻(schedule[mp_id].next_run_at)。"""
+        data = self._load()
+        entry = (data.get("schedule") or {}).get(str(mp_id)) or {}
+        ts = entry.get("next_run_at")
+        return int(ts) if ts else None
+
+    def record_feed_schedule(self, mp_id: str, next_run_at: int) -> None:
+        """记录某公众号的下次计划抓取时刻(原子写)。"""
+        data = self._load()
+        schedule = data.setdefault("schedule", {})
+        schedule[str(mp_id)] = {"next_run_at": int(next_run_at)}
+        self._atomic_write(data)

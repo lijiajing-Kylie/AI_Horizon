@@ -58,6 +58,25 @@ _INLINE_TAGS = {
     "time", "label", "q", "tt", "var", "big", "kbd", "samp",
 }
 
+def _row_to_art_dict(row: dict) -> dict:
+    """把中间表 wxmp_articles 的行映射成实时抓取的 art-dict 形状。
+
+    _cache_article 从 art 读 url/publish_time/pic_url 重新包装(输出 cache 里是
+    link/updated/image),所以这里必须产出与 _gather_feed_weread 一致的字段名。
+    updated 直接透传中间表的 published_at ISO 字符串(_parse_dt 对 str 走
+    fromisoformat,无需格式转换),使 fetch_detail 的清洗/过短回退直抓逻辑原样复用。
+    """
+    return {
+        "id": row["native_id"],
+        "title": row["title"],
+        "description": "",
+        "content": row["raw_html"] or "",
+        "url": row["url"],
+        "pic_url": row["cover_image"] or "",
+        "publish_time": row["published_at"],
+    }
+
+
 class WxMpReportConfig:
     """微信报告源配置：从内置 we-mp-rss 核心获取公众号文章作为报告。
 
@@ -75,6 +94,8 @@ class WxMpReportConfig:
         gather_content: bool = True,
         max_page: int = 1,
         gather_interval: int = 3,
+        db=None,
+        use_store: bool = True,
     ) -> None:
         self.account_names = account_names or []
         self.max_age_days = max_age_days
@@ -86,6 +107,10 @@ class WxMpReportConfig:
         self.gather_content = gather_content
         self.max_page = max_page
         self.gather_interval = gather_interval
+        # collector 中间表分支:db 非 None 且 use_store=True 时,从 wxmp_articles
+        # 读账号文章,不再重复调转发服务。use_store=False 回到旧的实时抓取。
+        self.db = db
+        self.use_store = use_store
 
 
 class WxMpReportFetcher(ReportSourceFetcher):
@@ -102,6 +127,9 @@ class WxMpReportFetcher(ReportSourceFetcher):
         # Cache: native_id → article dict (populated during fetch_native_ids)
         self._article_cache: Dict[str, dict] = {}
         self._wxmp_config: Optional[WxMpConfig] = None
+        # store 分支读走的 native_id 集合;detail 全部完成后由 fetcher 统一标记
+        # 消费(崩溃则不标记、下次重读)。
+        self._store_consumed_ids: List[str] = []
 
     def _ensure_init(self) -> WxMpConfig:
         """Resolve the wxmp config (no we-mp-rss core seeding anymore)."""
@@ -138,6 +166,32 @@ class WxMpReportFetcher(ReportSourceFetcher):
         fresh token; CI / non-interactive runs skip the source fail-open.
         """
         self._ensure_init()
+        # ── collector 中间表分支:不要求登录,从 wxmp_articles 读账号文章 ──
+        # 必须在 ensure_login 之前——store 路径不调转发服务,不需要登录态。
+        # 窗口整体为空(新机器/CI/collector 未跑)时 fall through 到下方实时路径。
+        if self.cfg.use_store and self.cfg.db:
+            cutoff = datetime.now(timezone.utc) - timedelta(days=self.cfg.max_age_days)
+            rows = self.cfg.db.get_wxmp_articles_window(
+                since_ts=cutoff.timestamp(),
+                feed_names=self.cfg.account_names,
+                exclude_reports_consumed=True,
+            )
+            if rows:
+                self._store_consumed_ids = []
+                native_ids: List[str] = []
+                for row in rows:
+                    self._cache_article(
+                        row["native_id"], _row_to_art_dict(row), row["feed_name"]
+                    )
+                    self._store_consumed_ids.append(row["id"])  # 完整 id,供消费标记
+                    native_ids.append(row["native_id"])
+                logger.info(
+                    "报告源 wxmp 走 collector 中间表:%d 篇文章(窗口 %d 天)",
+                    len(rows), self.cfg.max_age_days,
+                )
+                return native_ids
+            logger.info("报告源 wxmp 中间表窗口为空,降级实时抓取。")
+
         wc = build_client_from_wxmp_config(self._wxmp_config, http_client=client)
         if not await ensure_login(wc):
             logger.warning(
@@ -158,6 +212,15 @@ class WxMpReportFetcher(ReportSourceFetcher):
                 if await ensure_login(wc, force=True):
                     continue  # 新 token，重试全部账号
                 return []
+
+    def mark_reports_consumed(self) -> None:
+        """标记本次 store 分支读走的文章为「已被报告管道消费」。
+
+        由 fetcher 在 detail 循环全部完成后调用——崩溃落在标记前则不标记、
+        下次重读,reports 是 UPSERT 累积(按 id)不会丢。
+        """
+        if self.cfg.db and self._store_consumed_ids:
+            self.cfg.db.mark_wxmp_articles_consumed_reports(self._store_consumed_ids)
 
     async def _fetch_ids(self, wc) -> List[str]:
         """List each configured account's articles; 401 propagates up to

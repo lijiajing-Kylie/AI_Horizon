@@ -47,11 +47,11 @@ def test_span_stripped_text_kept() -> None:
 
 
 def test_data_src_becomes_src() -> None:
-    """微信懒加载 data-src → src，并替换为后端图片代理地址。"""
+    """微信懒加载 data-src → src，并替换为 weserv 图片代理地址。"""
     display = sanitize_wxmp_display_html(
         '<p><img data-src="https://mmbiz.qpic.cn/x" alt="配图"></p>'
     )
-    assert "/api/img-proxy?url=" in display
+    assert "https://images.weserv.nl/?url=" in display
     assert "https%3A%2F%2Fmmbiz.qpic.cn%2Fx" in display  # 原 URL 编码在代理 query 里
     assert "data-src" not in display
 
@@ -65,7 +65,7 @@ def test_body_image_kept_with_attrs() -> None:
     assert 'width="400"' in display
     assert 'height="300"' in display
     assert 'alt="示意图"' in display
-    assert display.count("/api/img-proxy?url=") == 1
+    assert display.count("https://images.weserv.nl/?url=") == 1
 
 
 def test_non_wechat_image_src_not_proxied() -> None:
@@ -74,6 +74,7 @@ def test_non_wechat_image_src_not_proxied() -> None:
         '<p><img src="https://cdn.example.com/photo.png" alt="普通图"></p>'
     )
     assert 'src="https://cdn.example.com/photo.png"' in display
+    assert "images.weserv.nl" not in display
     assert "/api/img-proxy" not in display
 
 

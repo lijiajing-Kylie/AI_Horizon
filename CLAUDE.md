@@ -94,13 +94,12 @@
 | `src/reports/` | 报告库:models / cli / fetcher / filter / scoring / sources/* / wxmp_browser_resolver / pdf / pdf_downloader |
 | `src/papers/` | 论文库:models / cli / fetcher / weekly / sources/* / topics / seed_data |
 | `src/we_read/` | **微信抓取通道**:纯 HTTP 客户端(weread.111965.xyz 转发服务),登录态 token 存 `data/auth/weread.json`。**本包不 import 任何 wxmp scraper 业务代码,以便通道故障时只换 `src/we_read/`** |
-| `src/api/` | FastAPI 查询 API + Jinja2 兜底页 + `/debug` |
+| `src/wxmp_collector/` | **微信独立采集 daemon**(`horizon-wxmp-collector`):每号随机 4-8h 间隔抓公众号 → 中间表 `wxmp_articles`;整体隔离,回滚删目录即退旧行为 |
 | `src/mcp/` | MCP server(把管道步骤暴露为工具)+ per-run 工件存储 |
 | `src/services/` | 邮件(SMTP/IMAP 订阅)与 Webhook(钉钉/飞书/Slack/Discord) |
 | `src/config/` | `constants.py`(供应商默认值/来源角色映射/域名映射)+ `pyconfig_editor.py`(改 `data/config.py`) |
 | `frontend/` | React SPA(独立 npm 工程) |
 | `data/` | **运行时数据**:`config.py`(主配置)、`horizon.db`、`summaries/`、`auth/`、`wxmp/`、`reports_pdfs/` |
-| `wechat-collector/` | 微信调试工具(⚠️ 仍 import 已删除的 `src.we_mp_rss`,见第 10 节) |
 | `scripts/export_static_data.py` | 导出静态 JSON 到 GitHub Pages |
 | `debug-frontend/` | 静态诊断面板(`/debug`) |
 
@@ -322,21 +321,29 @@ uv sync --extra openbb     # OpenBB 财经 SDK(可选)
 uv sync --extra twitter    # Playwright Twitter 抓取(可选)
 
 # 三条管道
-uv run horizon             # 新闻管道,默认 24h 窗口
-uv run horizon --hours 48
-uv run horizon-papers            # 论文库,全部启用源
-uv run horizon-papers --source openalex    # 单源
+uv run horizon                      # 新闻管道,默认 24h 窗口
+uv run horizon --hours 48           # 自定义时间窗
+uv run horizon --date YYYY-MM-DD    # 按日期回填
+uv run horizon --live-wxmp          # 微信强制实时抓取(跳过 collector 中间表,诊断用)
+uv run horizon-papers            # 论文库:默认只跑 arXiv 每周精选(经典论文一次性入库,不重复跑)
+uv run horizon-papers --source openalex    # 单独刷新经典论文(按需跑)
+uv run horizon-papers --source all         # 经典 + 精选全跑
 uv run horizon-papers --dry-run           # 只出匹配报告,不写库
 uv run horizon-reports           # 报告库
 uv run horizon-reports backfill-pdfs      # 给库内报告补下载 PDF
 uv run horizon-reports backfill-composite # 重算综合分(不调 LLM)
 uv run horizon-reports extract-keywords   # 回填 AI 关键词
 
-# 微信抓取(we_read 通道)
+# 微信抓取(we_read 通道 + 独立采集 daemon)
 uv run horizon-wxmp login    # 扫微信二维码登录(token 存 data/auth/weread.json)
 uv run horizon-wxmp status   # 查看登录态
 uv run horizon-wxmp subscribe <share-link>  # 从分享链接解析公众号并订阅
 uv run horizon-wxmp migrate  # 批量迁移 feed 列表(写 data/config.py)
+uv run horizon-wxmp-collector                  # 常驻采集:每号随机 4-8h 间隔抓公众号 → 中间表 wxmp_articles
+uv run horizon-wxmp-collector once             # 单轮全量后退出(手动补抓/CI)
+uv run horizon-wxmp-collector status           # 每号 next_run_at/上次同步/中间表计数
+uv run horizon-wxmp-collector reset-news --run-date YYYY-MM-DD  # 崩溃重跑清某天新闻消费标记
+uv run horizon-wxmp-collector prune --retention-days 60         # 清理已消费且过期的中间表行
 
 # API / MCP / 交互式配置
 uv run horizon-api           # FastAPI,http://localhost:8000,热重载
@@ -376,9 +383,9 @@ npm run lint       # oxlint
 
 ## 9. Current Status — 当前进度
 
-**当前分支 `we-mp-rss-embedded`,正在做微信抓取通道迁移:we-mp-rss(rachelos/Playwright)→ `src/we_read`(纯 HTTP)。** 该分支领先 `main` 9 个 commit,当前工作树有大量未提交改动。
+**微信抓取通道迁移已完成:we-mp-rss(rachelos/Playwright)→ `src/we_read`(纯 HTTP),已合入 `main`。** 以下为迁移记录。
 
-### 进行中的迁移(未提交改动,git status)
+### 微信抓取通道迁移(已合入 main)
 
 - **微信抓取换通道**:旧的 `src/we_mp_rss/` 整包(36 个文件,含 3 个 JS 反爬脚本)已 staged 删除,改为 `src/we_read/`(9 个文件:client/config/errors/login/model/retry/state/token_store;weread.111965.xyz 转发服务,纯 HTTP,无需 Playwright、无需外部 we-mp-rss 服务)。`pyproject.toml` 标注 `# DEPRECATED — we-mp-rss (rachelos) scraping removed` 并新增 `segno`(登录二维码渲染)。
 - **`data/config.py`**:31 条 feed 全部补 `weread_mp_id`(`feed_id` 保留作废弃回退);新增纯 `weread_mp_id` 的"字节跳动Seed";wxmp `enabled=True`、telegram 重新启用。**旧 feed 若缺 `weread_mp_id` 需补,否则抓不到**(`test_feed_without_weread_mp_id_is_skipped` 锁了这个行为)。
@@ -396,7 +403,7 @@ npm run lint       # oxlint
 - **话题**:`topics` 表加 `scope` 隔离新闻/论文两套 taxonomy,主题页回到三大块。
 - **微信**:固定 UA 防风控 + 独立微信调试 collector(早期;现已进一步换 we_read 通道)。
 - **前端**:论文页搜索替代时间筛选、首页元信息、搜索键盘导航、报告列表页时间/综合排序切换。
-- **部署**:VPS 自动化部署方案(`docs/product/horizon-vps-deployment-plan.md`)。
+- **部署**:阿里云部署方案(`docs/product/horizon-aliyun-deployment-plan.md`,**待实施的自包含执行手册**:qianwenai-deploy skill + ROS 单机 ECS(cn-guangzhou)+ mihomo 代理 sidecar + 数据迁移 + 热更新;新窗口照文档直接实施);旧手工方案 v2(`docs/product/horizon-vps-deployment-plan-v2.md`,collector 常驻 + 双服务 Compose + SQLite 加固/备份)。
 
 ---
 
@@ -404,9 +411,8 @@ npm run lint       # oxlint
 
 ### 迁移遗留(当前分支,需在本分支处理)
 
-- **`wechat-collector/` 调试工具会损坏**:`collector.py`、`ab_test_free_publish.py`、`test_fetch_recent.py` 仍直接 `import src.we_mp_rss`,`src/we_mp_rss/` 删除后这些工具全部 break;其 `README.md` 也声称"驱动内置 we-mp-rss v1.5.2 核心"。
-- **多处过时注释/文档仍写"内置 we-mp-rss"**:`src/models.py:560`(wxmp description)、`src/config/constants.py:192`、`src/orchestrator.py:431`、`src/reports/fetcher.py:46/55`、`data/config.py` wxmp 注释;README 的 wxmp 章节(`README.md:329-336/361`)仍描述旧 rachelos 流程(Playwright、`data/wxmp/` 存登录态)——与现实现(pure HTTP、`weread_mp_id`)矛盾。
-- **`data/config.py` 仍在手工迁移**:31+ 条 feed 的 `weread_mp_id` 靠人肉补;`horizon-wxmp subscribe/migrate` 可辅助,但 VPS 部署文档仍按旧流程写。
+- **代码注释仍写"内置 we-mp-rss"**(文档已清理):`src/models.py:560`(wxmp description)、`src/config/constants.py:192`、`src/orchestrator.py:431`、`src/reports/fetcher.py:46/55`、`data/config.py` wxmp 注释——README 与 VPS/总览文档已在 2026-08-17 清理中修正,仅剩代码注释待改。
+- **`data/config.py` 仍在手工迁移**:31+ 条 feed 的 `weread_mp_id` 靠人肉补;`horizon-wxmp subscribe/migrate` 可辅助(VPS 部署文档已按 we_read 通道更新)。
 - **微信报告 PDF 解析依赖浏览器**:`wxmp_browser_resolver` 需要 Playwright + 可用的微信文章访问(登录态/风控),"阅读原文"/二维码两条策略都失败时报告只有原始文章链接、无 PDF。
 
 ### 架构 / 数据层

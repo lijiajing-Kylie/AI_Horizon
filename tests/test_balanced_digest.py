@@ -169,7 +169,7 @@ def test_run_applies_balanced_digest_before_enrichment(tmp_path, monkeypatch) ->
         item.published_at = day_start - timedelta(hours=12)
     enriched_ids: list[str] = []
 
-    async def fetch_all_sources(since):  # type: ignore[no-untyped-def]
+    async def fetch_all_sources(since, *, run_date=None, live_wxmp=False):  # type: ignore[no-untyped-def]
         return items
 
     async def analyze_content(input_items):  # type: ignore[no-untyped-def]

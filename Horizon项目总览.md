@@ -21,8 +21,20 @@ Horizon 由三条相互独立、共用 SQLite 与前端壳的管线组成：
 另有微信相关独立组件：
 
 - `src/scrapers/wxmp.py` —— 微信公众号抓取（新闻管道源之一）。
-- `src/we_read/` —— 微信读书（WeRead）扫码登录 + 数据抓取，独立子模块。
-- `wechat-collector/` —— 独立的微信抓取调试 collector 脚本。
+- `src/we_read/` —— 微信公号抓取通道（纯 HTTP 转发服务 weread.111965.xyz），独立子模块。
+- `src/wxmp_collector/` —— 微信独立采集 daemon（`horizon-wxmp-collector`）：按公众号随机间隔抓取，文章统一落中间表 `wxmp_articles`，新闻/报告两条管道只读消费。
+
+### 产品理念：一条主线、每线四步、三条底线
+
+无论对付哪类信息，Horizon 都走同样的四步：**抓**（拿回原始内容）→ **筛**（AI 判断值不值得读——最核心的一步）→ **读**（整理成人话、翻译成中文、补齐背景）→ **送**（日报、网页、邮件等渠道送达）。三条管道各自演绎这四步：
+
+**新闻管道——四道关卡。** ① **相关性门**：AI 先判定"是不是 AI/LLM 相关内容"，不是的直接丢，连加分机会都没有；② **打分**：AI 从十个维度评估（来源权威性、新颖度、技术含量、真实影响力、社区验证、内容完整度，再扣营销味 / 重复 / 内容单薄 / AI 相关性弱），总分由程序固定公式计算，过默认 7 分才进简报，不够则按分回填补足；③ **去重**：先按链接去重，再用 AI 做语义去重——标题不同但讲同一件事的合成一条、归并溯源；④ **条数上限与来源均衡**：全局上限（默认 30 条），仅在够格内容不足、需要降格补位时才启用来源配额，防止某一类来源刷屏；被挤掉的都记录原因。
+
+**论文管道——两条腿。** **经典论文**由人工种子清单直接入库（不打分，信任清单，保证地基）；**每周精选**去 arXiv 先规则过滤（撤稿 / 摘要过短 / 关键词黑名单），再让 AI 从创新性、技术质量、影响潜力、相关性四维打分，只挑顶尖若干篇。精选论文生成**三段式解读**（概览 / 方法 / 评估）并翻译成中文，让用户先判断"值不值得精读"再决定是否啃原文；单段解读失败只丢该段、不影响整篇入库。
+
+**报告管道——给范例不给规则。** 筛选不给 AI 一堆规则，而是给三份标杆报告作为 exemplar，让它判断新报告是不是同类；1–5 分、4 分以上保留，评估失败**宁可保留也不误删**（fail-open）。筛出的报告会做 AI 关键词提取、正文清洗、尽力拿 PDF（含从微信"阅读原文"解析），并用综合分（AI 相关度 × 篇幅）排序。
+
+**一个产品。** 三条管道共用一个查询接口、一个网页、一个数据库：首页 / 日报、论文页、报告页、跨三库搜索、收藏、话题偏好都在同一个站里。产品设计的三条底线：**AI 是增强不是闸门**（任何一步 AI 故障都不能让内容消失：报告保留、翻译回退原文、解读丢段不丢篇）；**AI 只打分不算分**（总分一律程序固定公式计算，可复现可审计）；**中文优先、内容只做 AI**（打分理由 / 日报 / 解读一律中文，专有名词保留原文，只做 AI/LLM/技术内容）。
 
 ## 3. 技术栈
 
@@ -85,31 +97,80 @@ Horizon 由三条相互独立、共用 SQLite 与前端壳的管线组成：
 | `src/setup/` | 交互式配置向导（`horizon-wizard`） |
 | `src/papers/` | 论文管线：模型、抓取器、CLI、源、富化、seed 数据 |
 | `src/reports/` | 报告管线：模型、抓取器、CLI、源注册表、综合评分、PDF 下载 |
-| `src/we_read/` | 微信读书扫码登录与抓取 |
+| `src/we_read/` | 微信读书扫码登录与抓取通道（纯 HTTP 转发服务） |
+| `src/wxmp_collector/` | 微信独立采集 daemon（`horizon-wxmp-collector`）：每号随机 4-8h 间隔抓公众号 → 中间表 `wxmp_articles` |
 | `frontend/` | React SPA（Vite + React 19 + TS + Tailwind v4） |
 | `debug-frontend/` | `/debug` 静态调试面板 |
-| `data/` | 运行时数据：`config.py`、`summaries/`、`subscribers.json`、`horizon.db`、`reports_pdfs/`、`wxmp/` |
+| `data/` | 运行时数据：`config.py`、`summaries/`、`subscribers.json`、`horizon.db`、`reports_pdfs/`、`auth/`（微信登录态） |
 | `docs/` | GitHub Pages 站点（Jekyll），`_posts/` 接收生成的日报 |
-| `wechat-collector/` | 微信抓取调试 collector |
 | `scripts/` | 运维脚本（`daily-run.sh`、静态导出、MCP 检查） |
 
 ## 8. 常用命令
 
+### 依赖与配置
+
 ```bash
 uv sync                       # 安装依赖
-uv run horizon                # 默认 24h 新闻管道
-uv run horizon --hours 48     # 自定义时间窗
-uv run horizon-wizard         # 交互式配置向导
-uv run horizon-api            # API 服务，http://localhost:8000
-uv run horizon-mcp            # MCP 服务器
-uv run horizon-papers         # 论文库
-uv run horizon-reports        # 报告库
-uv run horizon-wxmp           # 微信抓取 CLI
-uv run pytest                 # 全部测试
-uv run pytest --cov=src       # 带覆盖率
+uv sync --extra dev           # 含 pytest
+uv run horizon-wizard         # 交互式配置向导（生成 data/config.py）
+```
 
-cd frontend && npm install && npm run dev   # 前端开发（Vite 代理 /api）
-cd frontend && npm run build                # 前端构建（tsc -b && vite build）
+### 三条管道
+
+```bash
+uv run horizon                        # 新闻日报（默认 24h 窗口）
+uv run horizon --hours 48             # 自定义时间窗
+uv run horizon --date YYYY-MM-DD      # 按日期回填
+uv run horizon --live-wxmp            # 微信强制实时抓取（跳过 collector 中间表，诊断用）
+uv run horizon-papers                 # 论文库：默认只跑 arXiv 每周精选（经典论文一次性入库，不重复跑）
+uv run horizon-papers --source openalex   # 单独刷新经典论文（按需跑）
+uv run horizon-papers --source all        # 经典 + 精选全跑
+uv run horizon-papers --dry-run           # 只出匹配报告，不写库
+uv run horizon-reports                # 报告库
+uv run horizon-reports backfill-pdfs      # 给库内报告补下载 PDF
+uv run horizon-reports backfill-composite # 重算综合分（不调 LLM）
+uv run horizon-reports extract-keywords   # 回填 AI 关键词
+```
+
+### 微信抓取（登录 + 独立采集 daemon）
+
+```bash
+uv run horizon-wxmp login           # 扫微信二维码登录（token 存 data/auth/weread.json）
+uv run horizon-wxmp status          # 查看登录态
+uv run horizon-wxmp subscribe <share-link>  # 从分享链接解析公众号并订阅
+uv run horizon-wxmp migrate         # 批量迁移 feed 列表（写 data/config.py）
+uv run horizon-wxmp-collector                   # 常驻采集：每号随机 4-8h 间隔 → 中间表
+uv run horizon-wxmp-collector once              # 单轮全量后退出（手动补抓 / CI）
+uv run horizon-wxmp-collector status            # 每号下次计划 / 上次同步 / 中间表计数
+uv run horizon-wxmp-collector reset-news --run-date YYYY-MM-DD   # 崩溃重跑清某天新闻消费标记
+uv run horizon-wxmp-collector prune --retention-days 60          # 清理已消费且过期的中间表行
+```
+
+### 查询 / MCP / 前端
+
+```bash
+uv run horizon-api                 # FastAPI，http://localhost:8000
+uv run horizon-mcp                 # MCP 服务器
+cd frontend && npm install && npm run dev    # 前端开发（Vite 代理 /api）
+cd frontend && npm run build                 # 前端构建（tsc -b && vite build）
+cd frontend && npm run lint                  # oxlint
+```
+
+### 测试
+
+```bash
+uv run pytest                # 全部测试
+uv run pytest tests/test_rss.py
+uv run pytest -k "test_name"
+uv run pytest --cov=src      # 带覆盖率
+```
+
+### 运维
+
+```bash
+docker compose run --rm horizon             # Docker 跑新闻管道
+docker compose run --rm horizon --hours 48
+scripts/export_static_data.py               # 导出静态 JSON 到 GitHub Pages
 ```
 
 ## 9. CI/CD
@@ -118,11 +179,11 @@ cd frontend && npm run build                # 前端构建（tsc -b && vite buil
 - `.github/workflows/deploy-docs.yml` —— 推送 `docs/**` 时部署 GitHub Pages。
 - `.github/workflows/deploy-frontend.yml` —— 前端构建与部署。
 
-## 10. 当前开发状态（截至 2026-08-11）
+## 10. 当前开发状态（截至 2026-08-17）
 
-- **当前分支**：`we-mp-rss-embedded`（已基于 `main`）。
-- **进行中**：移除内置的 we-mp-rss 抓取核心（`src/we_mp_rss/` 已标记删除），微信公众号抓取迁移到本地 `wechat-collector` + `wxmp_browser_resolver` 方案，`pyproject.toml` 已将 we-mp-rss 标记为 DEPRECATED。
-- **近期方向**：报告库综合分 / AI 关键词 / wxmp 正文清洗、论文库移除 HF 源、列表页排序、主题 scope 隔离（新闻/论文主题分开）、VPS 自动化部署方案（见 `docs/product/horizon-vps-deployment-plan.md`）。
+- **微信通道**：已迁移到 `src/we_read` 纯 HTTP 通道（转发服务 weread.111965.xyz），`horizon-wxmp login/status/subscribe/migrate` 管理登录态与订阅，无需 Playwright / 外部 we-mp-rss 服务；旧的 `wechat-collector` 调试工具与 `src/we_mp_rss/` 遗留已清理。
+- **微信独立采集**：新增 `horizon-wxmp-collector` 常驻 daemon，把公众号抓取与新闻/报告管道解耦——每号随机 4-8h 间隔采集落中间表 `wxmp_articles`，日报/报告只读表并各记消费标记；`use_collector` / `use_store` 开关可一键回到旧的实时抓取。
+- **近期方向**：报告库综合分 / AI 关键词 / wxmp 正文清洗、论文库移除 HF 源、列表页排序、主题 scope 隔离（新闻/论文主题分开）、VPS 自动化部署方案 v2（见 `docs/product/horizon-vps-deployment-plan-v2.md`）。
 - **产品文档**：完整 PRD 见 `docs/product/PRD_Horizon_AI_News_Radar.md`。
 
 ## 11. 相关文档

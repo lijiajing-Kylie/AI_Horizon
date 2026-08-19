@@ -9,7 +9,7 @@ from rich.console import Console
 
 logger = logging.getLogger(__name__)
 
-from .models import Config, ContentItem
+from .models import Config, ContentItem, SourceType
 from .storage.manager import StorageManager
 from .storage.db import HorizonDB
 from .services.email import EmailManager
@@ -27,7 +27,7 @@ from .scrapers.gdelt import GDELTScraper
 from .scrapers.google_news import GoogleNewsScraper
 from .scrapers.huawei_news import HuaweiNewsScraper
 from .scrapers.seed_bytedance import ByteDanceSeedScraper
-from .scrapers.wxmp import WxMpScraper
+from .scrapers.wxmp import WxMpScraper, WxmpStoredScraper
 from .ai.client import create_ai_client
 from .ai.analyzer import ContentAnalyzer
 from .ai.summarizer import DailySummarizer
@@ -64,12 +64,19 @@ class HorizonOrchestrator:
             else None
         )
 
-    async def run(self, force_hours: int = None, refetch_date: str = None) -> None:
+    async def run(
+        self,
+        force_hours: int = None,
+        refetch_date: str = None,
+        live_wxmp: bool = False,
+    ) -> None:
         """Execute the complete workflow.
 
         Args:
             force_hours: Optional override for time window in hours
             refetch_date: Optional absolute date (YYYY-MM-DD) to re-fetch for, overrides force_hours
+            live_wxmp: Force the WeChat source to live-fetch (skip the collector
+                intermediate table) — the realtime path, used for diagnosis/backfill.
         """
         self.console.print("[bold cyan]🌅 Horizon - Starting aggregation...[/bold cyan]\n")
 
@@ -103,7 +110,11 @@ class HorizonOrchestrator:
                 self.console.print(f"📅 Fetching content since: {since.strftime('%Y-%m-%d %H:%M:%S')}\n")
 
             # 2. Fetch content from all sources
-            all_items = await self.fetch_all_sources(since)
+            # 先算出 run_date,供 collector 消费标记与 WxmpStoredScraper 使用。
+            today = refetch_date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            all_items = await self.fetch_all_sources(
+                since, run_date=today, live_wxmp=live_wxmp
+            )
             self.console.print(f"📥 Fetched {len(all_items)} items from all sources\n")
 
             # 2.25 Scope items to the fetch window (previous day 00:00 UTC – that day 00:00 UTC)
@@ -146,9 +157,15 @@ class HorizonOrchestrator:
 
             # 4.1 Persist ALL scored items immediately (selected=False) so
             #     dropped items are available for later audit queries.
-            today = refetch_date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
             self.db.save_items(analyzed_items, today, len(all_items), selected=False, replace=True)
             self.console.print(f"💾 Persisted {len(analyzed_items)} scored items to SQLite (pre-filter)\n")
+
+            # 4.11 标记已消费的微信文章(collector 中间表消费标记)。
+            # 落库成功后才标记 → 崩溃重跑不丢;兜底实时抓的文章 id 在中间表
+            # 不存在,按 id 匹配不到自然不标记。
+            wxmp_ids = [i.id for i in analyzed_items if i.source_type == SourceType.WECHAT]
+            if wxmp_ids:
+                self.db.mark_wxmp_articles_consumed_news(wxmp_ids, today)
 
             # 4.5 Filter by AI relevance (binary gate — only AI/LLM content passes)
             relevant_items = [
@@ -355,13 +372,22 @@ class HorizonOrchestrator:
         day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
         return day_start - timedelta(hours=24), day_start
 
-    async def fetch_all_sources(self, since: datetime) -> List[ContentItem]:
+    async def fetch_all_sources(
+        self,
+        since: datetime,
+        *,
+        run_date: Optional[str] = None,
+        live_wxmp: bool = False,
+    ) -> List[ContentItem]:
         """Fetch content from all configured sources.
 
         This is a stable stage entry point for integrations such as MCP.
 
         Args:
             since: Fetch items published after this time
+            run_date: 当日 run_date(YYYY-MM-DD);非 None 时微信源可用 collector
+                中间表路径(WxmpStoredScraper),None 则走实时抓取(旧行为)。
+            live_wxmp: 强制微信源走实时抓取,跳过中间表(诊断/补数据用)。
 
         Returns:
             List[ContentItem]: All fetched items
@@ -433,10 +459,14 @@ class HorizonOrchestrator:
                 bt_scraper = ByteDanceSeedScraper(self.config.sources.bytedance_news, client)
                 tasks.append(self._fetch_with_progress("ByteDance Seed", bt_scraper, since))
 
-            # WeChat MP accounts (bundled we-mp-rss core, process-internal)
+            # WeChat MP accounts(collector 中间表优先;空表自动降级实时)
             if self.config.sources.wxmp and self.config.sources.wxmp.enabled:
-                wxmp_scraper = WxMpScraper(self.config.sources.wxmp, client)
-                tasks.append(self._fetch_with_progress("WeChat MP", wxmp_scraper, since))
+                cfg = self.config.sources.wxmp
+                if cfg.use_collector and run_date and not live_wxmp:
+                    scraper = WxmpStoredScraper(cfg, self.db, run_date)
+                else:
+                    scraper = WxMpScraper(cfg, client)
+                tasks.append(self._fetch_with_progress("WeChat MP", scraper, since))
 
             # Fetch all concurrently
             results = await asyncio.gather(*tasks, return_exceptions=True)

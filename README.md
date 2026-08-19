@@ -27,7 +27,7 @@
 
 📡 Your own AI-powered news radar. Generates daily briefings in English & Chinese. | 构建你专属的 AI 新闻雷达
 
-[📖 Live Demo](https://thysrael.github.io/Horizon/) · [📋 Configuration Guide](https://thysrael.github.io/Horizon/configuration) · [简体中文](README_zh.md) · [日本語](README_ja.md)
+[📖 Live Demo](https://thysrael.github.io/Horizon/) · [📋 Configuration Guide](https://thysrael.github.io/Horizon/configuration) · [简体中文](README_zh.md)
 
 </div>
 
@@ -321,19 +321,21 @@ uv run horizon --hours 48  # Fetch from last 48 hours
 
 #### WeChat Official Accounts (optional)
 
-WeChat MP articles are fetched by a **bundled** copy of the we-mp-rss core
-(`src/we_mp_rss/`) — no external Docker service needed. To enable it:
+WeChat MP articles are fetched through the **`src/we_read`** pure-HTTP channel
+(forwarding service `weread.111965.xyz`) — no Playwright, no external
+we-mp-rss service needed. To enable it:
 
 ```bash
-uv run playwright install chromium      # one-time browser install
 uv run horizon-wxmp login               # scan the QR code with WeChat
 uv run horizon-wxmp status              # verify the login is valid
 ```
 
-Login state (token/cookies) is stored under `data/wxmp/`. Subscribe to
-accounts by adding their `MP_WXS_*` feed_id to `sources.wxmp.feeds` in
-`data/config.py`. If the login expires, the source is skipped with a hint to
-re-run `horizon-wxmp login`.
+Login state is stored under `data/auth/weread.json`. Subscribe to accounts
+with `uv run horizon-wxmp subscribe <share-link>` (parses the account from a
+share link and writes it back to `data/config.py`), or use
+`uv run horizon-wxmp migrate` to bulk-migrate feeds; the config field is
+`sources.wxmp.feeds[].weread_mp_id`. If the login expires, the source is
+skipped with a hint to re-run `horizon-wxmp login`.
 
 #### With Docker
 
@@ -358,7 +360,7 @@ Horizon works great as a **GitHub Actions** cron job. See [`.github/workflows/da
 | **Telegram** | Public channel messages | — |
 | **Twitter / X** | Tweets from specific users | Yes (top N replies) |
 | **GitHub** | User events & repo releases | — |
-| **WeChat MP** | WeChat Official Account articles (bundled we-mp-rss core) | Requires `horizon-wxmp login` scan + Playwright |
+| **WeChat MP** | WeChat Official Account articles | Requires `horizon-wxmp login` scan; pure HTTP via we_read, no Playwright |
 | **OpenBB** | Financial company news by watchlist/provider | — |
 
 ## Where Your Briefing Goes

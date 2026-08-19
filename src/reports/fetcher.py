@@ -45,6 +45,7 @@ async def fetch_all_reports(
     ai_client=None,  # Optional[AIClient] — created by the CLI when ai_filter_enabled
     wxmp_config=None,  # Optional[WxMpConfig] — feeds/params for bundled we-mp-rss
     wxmp_max_age: int | None = None,  # Override max_age_days for wxmp source
+    db=None,  # Optional[HorizonDB] — collector 中间表读分支 + 消费标记
 ) -> List[Report]:
     """Fetch reports from every source named in `config.sources`, dedup by id.
 
@@ -53,6 +54,9 @@ async def fetch_all_reports(
 
     *wxmp_config* (a ``WxMpConfig`` from ``config.sources.wxmp``) is forwarded
     to the bundled we-mp-rss report fetcher for feeds and gather settings.
+
+    *db* 非 None 时,微信报告源优先从 collector 中间表读(use_store=True),
+    窗口为空自动降级实时抓取;detail 全部完成后统一打消费标记。
     """
     reports: Dict[str, Report] = {}
     browser_fetchers: list = []
@@ -86,6 +90,7 @@ async def fetch_all_reports(
                 max_age_days=wxmp_max_age or 7,
                 known_feeds=known_feeds,
                 wxmp=wc,
+                db=db,
             ))
         else:
             fetcher = fetcher_cls()
@@ -133,6 +138,13 @@ async def fetch_all_reports(
             "[%d/%d] %s: %d native ids, %d kept (running total: %d)",
             idx, total_sources, source_name, len(native_ids), source_kept, len(reports) + len(wxmp_reports),
         )
+
+        # 标记 store 分支已消费的微信文章(detail 循环全部完成后才标记——
+        # 崩溃落在标记前则下次重读,reports UPSERT 累积按 id 不会丢)。
+        if source_name == "wxmp":
+            mark_consume = getattr(fetcher, "mark_reports_consumed", None)
+            if mark_consume is not None:
+                mark_consume()
 
         # Collect fetchers that need browser cleanup.
         if hasattr(fetcher, "close"):
