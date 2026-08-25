@@ -672,7 +672,7 @@ OSS 桶:    <BUCKET>(产物+数据包,7 天 lifecycle)
 | 镜像拉取（鸡生蛋：`python:3.11-slim`、`metacubex/mihomo` 在 Docker Hub，大陆靠阿里加速器） | Alibaba Cloud Linux 预配加速器一般可用 | 失败则 fallback：本机（有代理）`docker build --platform linux/amd64 -f Dockerfile.vps -t horizon:local . && docker save horizon:local | gzip > /tmp/horizon-image.tar.gz` → OSS → ECS `docker load`，compose 去掉 `build:` 段；mihomo 同理（或本机拉 `metacubex/mihomo:Meta` 转存） |
 | 首次 boot `compose up` 失败（`.env` 未就位） | **预期行为**，Phase C 补齐后手动 up | `/var/log/qianwenai-bootstrap.log` |
 | 删栈 = 数据全丢 | 每日备份留 14 份；建议定期 `rsync` 回本机 | 删栈前必须拉回最新备份（第 6 节） |
-| 公网无鉴权 | 用户已接受；`/debug` fail-closed（`HORIZON_API_ENV` 不设即关） | 需要时后续加 nginx basic auth（自定义 userdata，超出本手册） |
+| 公网无鉴权 | 用户已接受；`include_debug` 调试块 fail-closed（`HORIZON_API_ENV` 不设即关） | 需要时后续加 nginx basic auth（自定义 userdata，超出本手册） |
 | 境外 AI provider 切换 | 无需改配置：不在 NO_PROXY 的域名自动走代理 | — |
 | EIP 流量费 | 按量计费，微信图床代理经服务器中转会产生流量 | 控制台账单；异常时查 nginx 访问日志 |
 

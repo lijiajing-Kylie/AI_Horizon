@@ -63,7 +63,7 @@
 
 - **后端**:Python 3.11+,asyncio + `httpx`,Pydantic v2 全部数据模型,SQLite 持久化,`uv` 包管理
 - **AI**:多 provider 抽象(Anthropic / OpenAI 兼容 / Azure / Gemini / provider 链回退),OpenAI 兼容一家覆盖 ali/deepseek/doubao/minimax/ollama
-- **API**:FastAPI + uvicorn(`horizon-api`),另有 Jinja2 服务端渲染兜底页 + `/debug` 静态诊断面板
+- **API**:FastAPI + uvicorn(`horizon-api`),另有 Jinja2 服务端渲染兜底页
 - **前端**:React 19 + Vite + TypeScript + Tailwind v4 + react-router,独立 npm 工程(`frontend/`)
 - **抓取**:`httpx` 为主;Playwright 用于需 JS 渲染/登录态的场景(Twitter、华为新闻、阿里云报告、微信报告 PDF 解析)
 
@@ -101,7 +101,6 @@
 | `frontend/` | React SPA(独立 npm 工程) |
 | `data/` | **运行时数据**:`config.py`(主配置)、`horizon.db`、`summaries/`、`auth/`、`wxmp/`、`reports_pdfs/` |
 | `scripts/export_static_data.py` | 导出静态 JSON 到 GitHub Pages |
-| `debug-frontend/` | 静态诊断面板(`/debug`) |
 
 ### 配置系统
 
@@ -112,7 +111,7 @@
 
 ### 查询 API 与前端
 
-- `GET /api/*`:items、daily、topics、search、stats、papers、reports、favorites、topic-prefs、global-search(跨三库全文)。服务器渲染兜底页在 `/`、`/topics`;`/debug` 是静态诊断面板。
+- `GET /api/*`:items、daily、topics、search、stats、papers、reports、favorites、topic-prefs、global-search(跨三库全文)。服务器渲染兜底页在 `/`、`/topics`。
 - 前端路由全部走 `HashRouter`(`frontend/`):`/`、`/daily`、`/topics`、`/search`、`/favorites`、`/papers`、`/reports`、`/preferences` 等。
 - 收藏/屏蔽:前端生成匿名 `X-User-Id` 头,后端按 id 隔离状态(见第 5 节 user 表);服务端渲染页无此机制,刻意不在范围内。
 

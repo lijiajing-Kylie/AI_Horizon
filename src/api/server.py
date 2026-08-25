@@ -16,7 +16,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse, FileResponse, Response
+from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel
 
 from ..ai.content_selection import build_analysis_input, build_enrichment_input
@@ -1266,15 +1266,6 @@ def web_topic_news(
             "dates": dates,
         },
     )
-
-
-_DEBUG_FRONTEND = Path(__file__).resolve().parent.parent.parent / "debug-frontend"
-
-
-@app.get("/debug", response_class=HTMLResponse)
-def debug_dashboard() -> FileResponse:
-    """Serve the debug frontend dashboard (same-origin — no CORS needed)."""
-    return FileResponse(str(_DEBUG_FRONTEND / "index.html"))
 
 
 # ── WeChat image proxy(LEGACY fallback)─────────────────────────────────────

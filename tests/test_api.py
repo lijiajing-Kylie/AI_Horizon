@@ -509,15 +509,6 @@ class TestWebTopics:
         assert r.status_code == 404
 
 
-class TestDebugDashboard:
-    def test_debug_dashboard(self, client):
-        r = client.get("/debug")
-        # The debug frontend exists, but if the path is wrong we get 404
-        # FileResponse returns 200 if the file exists
-        assert r.status_code == 200
-        assert "text/html" in r.headers["content-type"]
-
-
 # ---------------------------------------------------------------------------
 # Scrape diagnostics (dev-only debug block)
 # ---------------------------------------------------------------------------

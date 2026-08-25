@@ -79,7 +79,7 @@ Horizon 由三条相互独立、共用 SQLite 与前端壳的管线组成：
 ## 6. 查询 API 与前端
 
 - **SQLite 持久化**（`src/storage/db.py`）：`items` 表 + FTS5 全文索引，`topics` / `news_topics` 主题分组，`user_item_state`（收藏）、`user_topic_prefs`（订阅/屏蔽）按浏览器 ID 隔离。
-- **REST API**（`src/api/server.py`，入口 `horizon-api`）：`/api/items`、`/api/topics`、`/api/daily/*`、`/api/search`、`/api/papers`、`/api/reports`、收藏 / 主题偏好等；`/debug` 提供静态调试面板。
+- **REST API**（`src/api/server.py`，入口 `horizon-api`）：`/api/items`、`/api/topics`、`/api/daily/*`、`/api/search`、`/api/papers`、`/api/reports`、收藏 / 主题偏好等。
 - **前端**（`frontend/`）：HashRouter 路由 —— 首页、每日列表 / 详情、条目详情、主题列表 / 详情、收藏、偏好设置、搜索、论文列表 / 详情、报告列表 / 详情。收藏与主题偏好通过 `X-User-Id` 请求头实现无登录机制。
 - **设计系统**：卡片使用 `.glass` 毛玻璃样式，颜色全部走 CSS 变量 token（`--ink` / `--muted` / `--accent` / `--line` / `--bg` / `--card`），禁止硬编码 Tailwind 颜色；前端禁止使用 emoji，外部链接用 accent 纯文字。
 - **静态导出**：`scripts/export_static_data.py` 将库数据导出为 JSON，供 GitHub Pages 静态展示。
@@ -100,7 +100,6 @@ Horizon 由三条相互独立、共用 SQLite 与前端壳的管线组成：
 | `src/we_read/` | 微信读书扫码登录与抓取通道（纯 HTTP 转发服务） |
 | `src/wxmp_collector/` | 微信独立采集 daemon（`horizon-wxmp-collector`）：每号随机 4-8h 间隔抓公众号 → 中间表 `wxmp_articles` |
 | `frontend/` | React SPA（Vite + React 19 + TS + Tailwind v4） |
-| `debug-frontend/` | `/debug` 静态调试面板 |
 | `data/` | 运行时数据：`config.py`、`summaries/`、`subscribers.json`、`horizon.db`、`reports_pdfs/`、`auth/`（微信登录态） |
 | `docs/` | GitHub Pages 站点（Jekyll），`_posts/` 接收生成的日报 |
 | `scripts/` | 运维脚本（`daily-run.sh`、静态导出、MCP 检查） |
