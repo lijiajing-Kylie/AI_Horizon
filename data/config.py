@@ -303,7 +303,7 @@ reports = {
     "sources": [
         "aliyunreports",                                # 阿里云报告
         {"name": "wxmp", "ai_filter": True,             # 微信公众号报告
-         "account_names": ["腾讯研究院", "阿里研究院"]},
+         "account_names": ["腾讯研究院", "阿里研究院", "智元研究院"]},
     ],
     "aliyunreports_year": f"{datetime.now().year}年",  # 阿里云报告筛选年份（动态取当前年）
 }

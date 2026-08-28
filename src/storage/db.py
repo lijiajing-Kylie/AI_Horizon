@@ -1772,6 +1772,28 @@ class HorizonDB:
             "latest_fetched_at": latest_fetched_at,
         }
 
+    def existing_report_native_ids(
+        self, source: str, native_ids: Iterable[str]
+    ) -> set[str]:
+        """Return the subset of *native_ids* already present in `reports` for *source*.
+
+        静态列表源（`reuse_existing=True`）用它跳过已入库报告的 re-fetch。
+        (source, native_id) 按构造唯一——主键是 ``{source}:{native_id}``。
+        """
+        ids = list(native_ids)
+        if not ids:
+            return set()
+        existing: set[str] = set()
+        for i in range(0, len(ids), 500):
+            batch = ids[i : i + 500]
+            marks = ",".join("?" * len(batch))
+            rows = self.conn.execute(
+                f"SELECT native_id FROM reports WHERE source = ? AND native_id IN ({marks})",
+                (source, *batch),
+            ).fetchall()
+            existing.update(row["native_id"] for row in rows)
+        return existing
+
     def get_report(self, report_id: str) -> Optional[dict[str, Any]]:
         """Get a single report by its source-namespaced id."""
         row = self.conn.execute("SELECT * FROM reports WHERE id = ?", (report_id,)).fetchone()

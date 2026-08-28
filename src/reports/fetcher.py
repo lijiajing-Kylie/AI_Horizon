@@ -95,7 +95,21 @@ async def fetch_all_reports(
         else:
             fetcher = fetcher_cls()
 
-        native_ids = await fetcher.fetch_native_ids(client)
+        raw_ids = await fetcher.fetch_native_ids(client)
+        native_ids = raw_ids
+        skipped_existing = 0
+        if db is not None and getattr(fetcher, "reuse_existing", False) and raw_ids:
+            # 静态列表源(如 aliyunreports 整年重列)：查库内已有 native_id，跳过已入库的，
+            # 避免每轮重抓 + 重过 AI 过滤 + 刷新 updated_row_at。详情基本不变，
+            # 需要重试的(如补 PDF)走 backfill-* 子命令。
+            existing = db.existing_report_native_ids(source_name, raw_ids)
+            if existing:
+                native_ids = [n for n in raw_ids if n not in existing]
+                skipped_existing = len(raw_ids) - len(native_ids)
+                logger.info(
+                    "  %s: 跳过 %d/%d 条已入库报告，剩 %d 条需抓取",
+                    source_name, skipped_existing, len(raw_ids), len(native_ids),
+                )
         source_kept = 0
         filter_skipped = 0
         for n_idx, native_id in enumerate(native_ids):
@@ -135,8 +149,8 @@ async def fetch_all_reports(
             )
 
         logger.info(
-            "[%d/%d] %s: %d native ids, %d kept (running total: %d)",
-            idx, total_sources, source_name, len(native_ids), source_kept, len(reports) + len(wxmp_reports),
+            "[%d/%d] %s: %d native ids (%d new), %d kept (running total: %d)",
+            idx, total_sources, source_name, len(raw_ids), len(native_ids), source_kept, len(reports) + len(wxmp_reports),
         )
 
         # 标记 store 分支已消费的微信文章(detail 循环全部完成后才标记——

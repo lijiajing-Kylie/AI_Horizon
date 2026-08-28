@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock
+from zoneinfo import ZoneInfo
 
 import httpx
 import pytest
 
 from src.models import ReportsConfig
 from src.reports.fetcher import fetch_all_reports
+from src.reports.models import Report
 from src.reports.sources.aliresearch import AliResearchFetcher
+from src.reports.sources.aliyunreports import AliyunReportsFetcher
 
 
 def _json_response(payload: dict) -> MagicMock:
@@ -125,3 +129,46 @@ def test_fetch_all_reports_skips_unknown_source() -> None:
 
     assert reports == []
     client.post.assert_not_called()
+
+
+def test_reuse_existing_skips_already_ingested_reports(monkeypatch) -> None:
+    """静态列表源(reuse_existing)对已入库报告跳过 fetch_detail,不刷新 updated_row_at。"""
+    fetched: list[str] = []
+    tz = ZoneInfo("Asia/Shanghai")
+
+    async def fake_native_ids(self, client):
+        return ["new-1", "existing-1", "existing-2"]
+
+    async def fake_detail(self, client, native_id):
+        fetched.append(native_id)
+        return Report(
+            id=f"aliyunreports:{native_id}",
+            source="aliyunreports",
+            native_id=native_id,
+            title=f"报告 {native_id}",
+            institution="阿里云",
+            url=f"https://www.aliyun.com/reports/{native_id}",
+            content_text="正文",
+            published_at=datetime(2026, 1, 1, tzinfo=tz),
+            updated_at=datetime(2026, 1, 1, tzinfo=tz),
+            fetched_at=datetime(2026, 8, 25, tzinfo=tz),
+        )
+
+    monkeypatch.setattr(AliyunReportsFetcher, "fetch_native_ids", fake_native_ids)
+    monkeypatch.setattr(AliyunReportsFetcher, "fetch_detail", fake_detail)
+
+    db = MagicMock()
+    db.existing_report_native_ids.return_value = {"existing-1", "existing-2"}
+
+    config = ReportsConfig(
+        enabled=True,
+        sources=["aliyunreports"],
+        download_pdfs=False,
+    )
+    reports = asyncio.run(fetch_all_reports(config, client=AsyncMock(), db=db))
+
+    assert fetched == ["new-1"]
+    assert [r.native_id for r in reports] == ["new-1"]
+    db.existing_report_native_ids.assert_called_once_with(
+        "aliyunreports", ["new-1", "existing-1", "existing-2"]
+    )

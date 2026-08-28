@@ -72,6 +72,8 @@ class AliyunReportsFetcher(ReportSourceFetcher):
 
     source_name = "aliyunreports"
     requires_browser = False  # we manage our own browser
+    # 整年列表源：每轮都重列"当年"全部报告且详情基本静态，跳过已入库的，避免重复处理。
+    reuse_existing = True
 
     def __init__(self, config: Optional[AliyunReportsConfig] = None):
         self.cfg = config or AliyunReportsConfig()
