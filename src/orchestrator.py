@@ -10,6 +10,7 @@ from rich.console import Console
 logger = logging.getLogger(__name__)
 
 from .models import Config, ContentItem, SourceType
+from .run_lock import RunLock
 from .storage.manager import StorageManager
 from .storage.db import HorizonDB
 from .services.email import EmailManager
@@ -80,6 +81,13 @@ class HorizonOrchestrator:
         """
         self.console.print("[bold cyan]🌅 Horizon - Starting aggregation...[/bold cyan]\n")
 
+        # 单实例锁:同一 run_date 被并发运行会互相覆盖 items 快照(见 run_lock.py),
+        # 先抢锁——抢不到说明已有进程在跑同一天,立即退出,不烧 token 也不动库。
+        # 锁文件放 data/locks/,flock 在进程退出(含崩溃)时由内核自动释放。
+        run_date = refetch_date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        run_lock = RunLock(self.storage.data_dir / "locks", run_date)
+        run_lock.acquire()
+
         # Check email subscriptions if configured
         if (
             self.email_manager
@@ -111,7 +119,7 @@ class HorizonOrchestrator:
 
             # 2. Fetch content from all sources
             # 先算出 run_date,供 collector 消费标记与 WxmpStoredScraper 使用。
-            today = refetch_date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            today = run_date
             all_items = await self.fetch_all_sources(
                 since, run_date=today, live_wxmp=live_wxmp
             )
@@ -352,6 +360,8 @@ class HorizonOrchestrator:
                 )
 
             raise
+        finally:
+            run_lock.release()
 
     def _determine_time_window(
         self, force_hours: int = None, refetch_date: str = None

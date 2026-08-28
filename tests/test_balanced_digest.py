@@ -155,7 +155,7 @@ def test_run_applies_balanced_digest_before_enrichment(tmp_path, monkeypatch) ->
             },
         ),
     )
-    storage = SimpleNamespace()
+    storage = SimpleNamespace(data_dir=tmp_path)
     orchestrator = HorizonOrchestrator(config, storage)
     items = [
         make_item("ai", 9.0, "ai"),

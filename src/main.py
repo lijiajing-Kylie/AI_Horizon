@@ -11,6 +11,7 @@ from rich.console import Console
 from .logging_config import silence_http_loggers
 from .storage.manager import ConfigError, StorageManager
 from .orchestrator import HorizonOrchestrator
+from .run_lock import RunLockError
 
 
 console = Console()
@@ -85,6 +86,11 @@ def main():
             live_wxmp=args.live_wxmp,
         ))
 
+    except RunLockError as e:
+        # 同一 run_date 已有进程在跑(并发双跑会互相覆盖 items 快照),
+        # 快速退出,不打 token、不发通知。非 0 退出码便于脚本感知。
+        console.print(f"\n[yellow]⚠️  {e}[/yellow]")
+        sys.exit(1)
     except KeyboardInterrupt:
         console.print("\n[yellow]⚠️  Interrupted by user[/yellow]")
         sys.exit(0)
