@@ -20,7 +20,7 @@ from src.we_read.client import WeReadClient
 from src.we_read.config import WeReadConfig
 from src.we_read.errors import WeReadAuthError
 from src.we_read.token_store import WeReadTokenStore
-from src.wxmp_collector.daemon import run_daemon, sync_feed
+from src.wxmp_collector.daemon import filter_feeds, run_daemon, sync_feed
 
 
 def _mk_client(tmp_path, handler) -> WeReadClient:
@@ -254,6 +254,68 @@ def test_run_daemon_auth_recovers_automatically(tmp_path) -> None:
         assert {r["feed_name"] for r in rows} == {"登录失效号", "正常号"}  # A 重试成功,B 也入库
     finally:
         asyncio.run(_close(client))
+
+
+def test_filter_feeds_matches_name_or_mp_id() -> None:
+    feed_a = _feed(name="机器之心", mp="MP_A")
+    feed_b = _feed(name="新智元", mp="MP_B")
+    feeds = [feed_a, feed_b]
+    assert filter_feeds(feeds, ["机器之心"]) == [feed_a]
+    assert filter_feeds(feeds, ["MP_B"]) == [feed_b]
+    assert filter_feeds(feeds, ["机器之心", "MP_B"]) == [feed_a, feed_b]
+    assert filter_feeds(feeds, ["不存在的号"]) == []
+    assert filter_feeds(feeds, []) == feeds
+    assert filter_feeds(feeds, None) == feeds
+
+
+def test_run_daemon_once_feed_filter_only_touches_selected(tmp_path) -> None:
+    """once + feeds 子集 → 只抓选中的号,未选号不被触碰。"""
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/articles"):
+            mp = request.url.path.split("/")[-2]
+            return httpx.Response(200, json=[
+                _art(mp.lower(), f"https://mp.weixin.qq.com/s/{mp.lower()}")
+            ])
+        return httpx.Response(200, text=_BODY)
+
+    client = _mk_client(tmp_path, handler)
+    feed_a = _feed(name="机器之心", mp="MP_A")
+    feed_b = _feed(name="新智元", mp="MP_B")
+    wxmp = _wxmp(feed_a)
+    wxmp.feeds = [feed_a, feed_b]
+    config = SimpleNamespace(sources=SimpleNamespace(wxmp=wxmp))
+    db = HorizonDB(str(tmp_path / "h.db"))
+    try:
+        asyncio.run(run_daemon(
+            config,
+            interval=(10, 20),
+            feeds=[feed_a],  # 只抓机器之心
+            once=True,
+            db_path=str(tmp_path / "h.db"),
+            state_path=str(tmp_path / "weread_sync.json"),
+            client=client,
+            inter_feed_jitter=(0, 0),
+        ))
+        rows = db.get_wxmp_articles_window(since_ts=0)
+        assert {r["feed_name"] for r in rows} == {"机器之心"}
+    finally:
+        asyncio.run(_close(client))
+
+
+def test_cli_feed_arg_append_and_filter() -> None:
+    from src.wxmp_collector.cli import _apply_feed_filter, _build_parser
+
+    args = _build_parser().parse_args(
+        ["once", "--feed", "机器之心", "--feed", "MP_WXS_3073282833"]
+    )
+    assert args.command == "once"
+    assert args.feed == ["机器之心", "MP_WXS_3073282833"]
+
+    feed = _feed(name="机器之心", mp="MP_A")
+    assert _apply_feed_filter([feed], SimpleNamespace(feed=["机器之心"])) == [feed]
+    assert _apply_feed_filter([feed], SimpleNamespace(feed=None)) == [feed]
+    with pytest.raises(SystemExit):
+        _apply_feed_filter([feed], SimpleNamespace(feed=["不存在的号"]))
 
 
 def test_run_daemon_once_upserts_and_persists_schedule(tmp_path) -> None:

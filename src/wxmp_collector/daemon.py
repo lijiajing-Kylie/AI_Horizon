@@ -34,6 +34,18 @@ from .scheduler import random_interval
 logger = logging.getLogger(__name__)
 
 
+def filter_feeds(feeds, names) -> list:
+    """按公众号名称或 weread_mp_id 精确匹配子集;names 为空 → 原列表。
+
+    供 `--feed` 过滤:每个目标字符串匹配 ``f.name == s`` 或
+    ``f.weread_mp_id == s``,任一命中即保留。
+    """
+    if not names:
+        return list(feeds)
+    wanted = set(names)
+    return [f for f in feeds if f.name in wanted or f.weread_mp_id in wanted]
+
+
 def _sha1(text: str) -> str:
     """content_hash = sha1(url),与中间表 DDL 注释一致。"""
     return hashlib.sha1(text.encode("utf-8")).hexdigest()
@@ -172,6 +184,7 @@ async def run_daemon(
     config,
     *,
     interval: tuple[int, int] = (4 * 3600, 8 * 3600),
+    feeds: Optional[list] = None,
     max_age_days: Optional[int] = None,
     retention_days: int = 60,
     once: bool = False,
@@ -183,6 +196,8 @@ async def run_daemon(
     auth_max_wait_sec: Optional[float] = None,
 ) -> None:
     """常驻调度循环(once=True 时抓一轮全量后退出)。
+
+    feeds 可传入预先过滤的公众号子集(`--feed` 场景);None 时用全部启用公众号。
 
     首启:常驻模式每号随机初始计划时间(非立即,避免启动瞬间全部开抓);
     once 模式强制全部立即到期,抓完一轮退出。
@@ -196,7 +211,8 @@ async def run_daemon(
     默认行为与文档一致。
     """
     wxmp = config.sources.wxmp
-    feeds = [f for f in wxmp.feeds if f.enabled and f.weread_mp_id]
+    if feeds is None:
+        feeds = [f for f in wxmp.feeds if f.enabled and f.weread_mp_id]
     db = HorizonDB(db_path)
     state = WeReadSyncState(state_path) if state_path else WeReadSyncState()
     client = client or build_client_from_wxmp_config(wxmp)

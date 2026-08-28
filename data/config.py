@@ -196,7 +196,7 @@ sources = {
             {"name": "晚点LatePost", "feed_id": "MP_WXS_3572959446", "weread_mp_id": "MP_WXS_3572959446"},
             {"name": "机器之心", "feed_id": "MP_WXS_3073282833", "weread_mp_id": "MP_WXS_3073282833"},
             {"name": "极客公园", "feed_id": "MP_WXS_1304308441", "weread_mp_id": "MP_WXS_1304308441"},
-            {"name": "架构师之路", "feed_id": "MP_WXS_2398610099", "weread_mp_id": "MP_WXS_2398610099"},
+            {"name": "架构师之路", "feed_id": "MP_WXS_2398610099", "weread_mp_id": "MP_WXS_2398610099", "enabled": False},
             {"name": "海外独角兽", "feed_id": "MP_WXS_3869640945", "weread_mp_id": "MP_WXS_3869640945"},
             {"name": "深科技", "feed_id": "MP_WXS_3218265689", "weread_mp_id": "MP_WXS_3218265689"},
             {"name": "甲子光年", "feed_id": "MP_WXS_3599245772", "weread_mp_id": "MP_WXS_3599245772"},
@@ -211,6 +211,7 @@ sources = {
             {"name": "阿里技术", "feed_id": "MP_WXS_3885737868", "weread_mp_id": "MP_WXS_3885737868"},
             {"name": "阿里研究院", "feed_id": "MP_WXS_2395844153", "weread_mp_id": "MP_WXS_2395844153"},
             {"name": "字节跳动Seed", "weread_mp_id": "MP_WXS_3930693616"},
+            {"name": "智元研究院", "weread_mp_id": "MP_WXS_3933336933"},
         ],
     },
 }

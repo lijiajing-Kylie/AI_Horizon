@@ -3,6 +3,7 @@
 用法:
     horizon-wxmp-collector                        # 常驻(每号随机 4-8h 间隔)
     horizon-wxmp-collector once                   # 单轮全量后退出(手动/CI 补数据)
+    horizon-wxmp-collector once --feed 机器之心   # 单轮只抓指定公众号(名称或 weread_mp_id,可多次)
     horizon-wxmp-collector status                 # 每号 next_run_at/上次同步/中间表计数
     horizon-wxmp-collector reset-news --run-date 2026-08-16   # 清某天新闻消费标记
     horizon-wxmp-collector prune --retention-days 60          # 清理已消费且过期的行
@@ -20,6 +21,7 @@ import logging
 import sys
 import time
 from datetime import datetime, timedelta, timezone
+from typing import Optional
 
 from dotenv import load_dotenv
 from rich.console import Console
@@ -31,7 +33,7 @@ from ..storage.db import HorizonDB, _dt_iso
 from ..storage.manager import ConfigError, StorageManager
 from ..we_read.errors import WeReadAuthError
 from ..we_read.state import WeReadSyncState
-from .daemon import run_daemon
+from .daemon import filter_feeds, run_daemon
 
 logger = logging.getLogger(__name__)
 console = Console()
@@ -51,6 +53,9 @@ def _build_parser() -> argparse.ArgumentParser:
                         help="中间表清理保留期(天),默认 60")
     common.add_argument("--db", default="data/horizon.db",
                         help="SQLite 库路径,默认 data/horizon.db")
+    common.add_argument("--feed", action="append", default=None,
+                        help="只抓指定公众号(可多次,按名称或 weread_mp_id 精确匹配);"
+                             "未匹配任何启用公众号时报错退出")
 
     parser = argparse.ArgumentParser(
         prog="horizon-wxmp-collector",
@@ -81,6 +86,23 @@ def _load_config():
     return storage.load_config()
 
 
+def _apply_feed_filter(feeds, args) -> list:
+    """按 --feed 精确匹配过滤公众号列表;未匹配任何时打印可用提示并退出(exit 1)。
+
+    --feed 没指定时原样返回;匹配支持名称或 weread_mp_id。
+    """
+    if not args.feed:
+        return feeds
+    selected = filter_feeds(feeds, args.feed)
+    if not selected:
+        console.print(
+            f"[bold red]--feed 未匹配到任何启用公众号:{'、'.join(args.feed)}。"
+            "可用名称/ID 见 `horizon-wxmp-collector status`。[/bold red]"
+        )
+        raise SystemExit(1)
+    return selected
+
+
 async def _run_simple(args) -> None:
     """reset-news / prune / backfill-img-proxy 不需要完整 config,直接操作库。"""
     db = HorizonDB(args.db)
@@ -100,7 +122,9 @@ async def _run_simple(args) -> None:
 async def _cmd_status(args, config) -> None:
     state = WeReadSyncState()
     db = HorizonDB(args.db)
-    feeds = [f for f in config.sources.wxmp.feeds if f.enabled and f.weread_mp_id]
+    feeds = _apply_feed_filter(
+        [f for f in config.sources.wxmp.feeds if f.enabled and f.weread_mp_id], args
+    )
     counts: dict[str, int] = {}
     for r in db.conn.execute(
         "SELECT weread_mp_id, COUNT(*) AS cnt FROM wxmp_articles GROUP BY weread_mp_id"
@@ -138,7 +162,9 @@ async def _cmd_daemon(args, config) -> None:
     if not config.sources.wxmp or not config.sources.wxmp.enabled:
         console.print("[yellow]sources.wxmp 未启用或不存在,collector 无事可做。[/yellow]")
         return
-    feeds = [f for f in config.sources.wxmp.feeds if f.enabled and f.weread_mp_id]
+    feeds = _apply_feed_filter(
+        [f for f in config.sources.wxmp.feeds if f.enabled and f.weread_mp_id], args
+    )
     if not feeds:
         console.print("[yellow]没有启用的公众号(weread_mp_id)。先 `horizon-wxmp subscribe` 订阅。[/yellow]")
         return
@@ -152,6 +178,7 @@ async def _cmd_daemon(args, config) -> None:
         await run_daemon(
             config,
             interval=(args.interval_min * 60, args.interval_max * 60),
+            feeds=feeds,
             max_age_days=args.max_age_days,
             retention_days=args.retention_days,
             once=once,

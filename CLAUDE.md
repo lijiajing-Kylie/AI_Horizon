@@ -340,7 +340,8 @@ uv run horizon-wxmp subscribe <share-link>  # 从分享链接解析公众号并�
 uv run horizon-wxmp migrate  # 批量迁移 feed 列表(写 data/config.py)
 uv run horizon-wxmp-collector                  # 常驻采集:每号随机 4-8h 间隔抓公众号 → 中间表 wxmp_articles
 uv run horizon-wxmp-collector once             # 单轮全量后退出(手动补抓/CI)
-uv run horizon-wxmp-collector status           # 每号 next_run_at/上次同步/中间表计数
+uv run horizon-wxmp-collector once --feed 机器之心   # 单轮只抓指定公众号(名称或 weread_mp_id,可多次;不匹配时报错)
+uv run horizon-wxmp-collector status --feed 机器之心 # status 同样可按 --feed 过滤
 uv run horizon-wxmp-collector reset-news --run-date YYYY-MM-DD  # 崩溃重跑清某天新闻消费标记
 uv run horizon-wxmp-collector prune --retention-days 60         # 清理已消费且过期的中间表行
 
