@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-themes="tokyo-night,dracula,catppuccin-mocha,nord,corporate-clean">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Horizon 课题汇报 · 追踪最新AI信息</title>
+<link rel="stylesheet" href="../../../.agents/skills/html-ppt/assets/fonts.css">
+<link rel="stylesheet" href="../../../.agents/skills/html-ppt/assets/base.css">
+<link rel="stylesheet" id="theme-link" href="../../../.agents/skills/html-ppt/assets/themes/corporate-clean.css">
+<link rel="stylesheet" href="../../../.agents/skills/html-ppt/assets/animations/animations.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="tpl-presenter-mode-reveal">
+<div class="deck">
+
+  <!-- ============ 1 ============ -->
+  <section class="slide" data-title="封面">
+    <p class="kicker">课题汇报 · 2026-08</p>
+    <h1 class="cover-h1 anim-fade-up" data-anim="fade-up">Horizon<br><span class="grad">追踪最新AI信息</span></h1>
+    <div class="deck-footer">
+      <span class="slide-number" data-current="1" data-total="10"></span>
+    </div>
+    <aside class="notes">
+      <p>各位好。今天花二十分钟，汇报 <strong>Horizon 这个项目</strong>——我们自己做的 AI 信息聚合系统。</p>
+      <p>它做一件事：从大量信息源里，把 AI 领域值得读的内容筛出来，翻译成中文，每天自动出一份<strong>精选简报</strong>。</p>
+      <p>我按这个顺序讲：先讲背景，再讲它是什么、怎么做、做到什么程度，最后讲下一步计划。数据都是系统里真实跑的。</p>
+      <p>大家可以随时打断提问。</p>
+    </aside>
+  </section>
+
+  <!-- ============ 2 ============ -->
+  <section class="slide" data-title="背景">
+    <p class="kicker">背景</p>
+    <h2 class="h2 anim-fade-up" data-anim="fade-up">信息过载时代，缺的是高价值信息</h2>
+    <div class="grid g2 mt-l anim-fade-up" data-anim="fade-up">
+      <div class="card">
+        <h4>信息很多，真正值得读的很少</h4>
+        <p class="dim">每天来自新闻、公众号、论文、研报的信息量巨大，但真正与 AI 前沿相关、具有阅读价值的内容只占少数。找到"该读什么"，本身就需要大量筛选时间。</p>
+      </div>
+      <div class="card">
+        <h4>一手信息获取门槛高</h4>
+        <p class="dim">AI 前沿内容大量首发于海外平台，存在语言与访问门槛；依赖国内转载，又容易更新滞后、或内容删减。</p>
+      </div>
+    </div>
+    <div class="deck-footer">
+      <span class="slide-number" data-current="2" data-total="10"></span>
+    </div>
+    <aside class="notes">
+      <p>先说为什么做这件事。</p>
+      <p>每天来自新闻、公众号、论文、研报的信息量很大，但真正与 AI 前沿相关、有阅读价值的内容只占少数。<strong>找到该读什么</strong>，本身就要花大量筛选时间。</p>
+      <p>另一个门槛在一手信息：AI 前沿内容大多首发在海外平台，有<strong>语言和访问门槛</strong>；靠国内转载，又容易滞后，甚至被删减。</p>
+      <p>所以 Horizon 的出发点很简单：把筛选和翻译这件事做掉，让用户直接读高价值的内容。</p>
+    </aside>
+  </section>
+
+  <!-- ============ 3 ============ -->
+  <section class="slide slide-top" data-title="定位">
+    <p class="kicker">产品定位</p>
+    <h2 class="h2 anim-fade-up" data-anim="fade-up">让高质量 AI 信息<br>及时、集中、易读地呈现在面前</h2>
+    <div class="flow flow2 mt-l anim-fade-up" data-anim="fade-up">
+      <div class="step"><span class="idx">01</span><h4>及时</h4><p class="dim">持续获取国内外最新 AI 新闻、论文，以及大厂报告</p></div>
+      <div class="step"><span class="idx">02</span><h4>集中</h4><p class="dim">将分散在不同平台的信息统一汇集，来源可追溯</p></div>
+      <div class="step"><span class="idx">03</span><h4>高质量</h4><p class="dim">通过 AI 筛选、评分与去重，过滤低价值和重复内容</p></div>
+      <div class="step"><span class="idx">04</span><h4>易读</h4><p class="dim">提供中文翻译、摘要和重点解读，快速理解核心内容</p></div>
+    </div>
+    <div class="deck-footer">
+      <span class="slide-number" data-current="3" data-total="10"></span>
+    </div>
+    <aside class="notes">
+      <p>这一页从用户需求出发，讲产品的定位。</p>
+      <p>用户要的，是让高质量的 AI 信息<strong>及时、集中、易读</strong>地出现在面前。第一是<strong>及时</strong>，持续拿到国内外最新的新闻、论文和大厂报告；第二是<strong>集中</strong>，散在各平台的信息汇到一起，来源可追溯。</p>
+      <p>第三是<strong>高质量</strong>，靠 AI 筛选、评分、去重，过滤低价值和重复内容；第四是<strong>易读</strong>，给中文翻译、摘要和重点解读，快速抓住核心。</p>
+      <p>这四个词，就是 Horizon 定位的四个支点。下面看它和现有方案的区别。</p>
+    </aside>
+  </section>
+
+  <!-- ============ 4 ============ -->
+  <section class="slide" data-title="对比">
+    <p class="kicker">对比</p>
+    <h2 class="h2 anim-fade-up" data-anim="fade-up">不追求更快、更全，而是更精、更可控</h2>
+    <table class="cmp mt-l anim-fade-up" data-anim="fade-up">
+      <tr><th>维度</th><th>AIHot 等聚合站</th><th>Horizon</th></tr>
+      <tr><td>产品目标</td><td>尽可能及时、全面覆盖 AI 动态</td><td class="hl">每天留下少量真正值得关注的内容</td></tr>
+      <tr><td>更新节奏</td><td>分钟级 / 小时级持续更新</td><td class="hl">日级整理，不追求实时</td></tr>
+      <tr><td>信息量</td><td>信息量大，适合持续刷取</td><td class="hl">每日数量可控，降低阅读负担</td></tr>
+      <tr><td>信息源</td><td>由平台统一维护</td><td class="hl">数据源可自由增删</td></tr>
+      <tr><td>筛选强度</td><td>更强调覆盖面</td><td class="hl">可自行控制每天最终留下多少条</td></tr>
+      <tr><td>功能</td><td>产品能力相对固定</td><td class="hl">需要什么功能，就可以继续扩展</td></tr>
+    </table>
+    <div class="deck-footer">
+      <span class="slide-number" data-current="4" data-total="10"></span>
+    </div>
+    <aside class="notes">
+      <p>这一页把 Horizon 和市面上的 AI 聚合站放在一起看。</p>
+      <p>聚合站的目标是<strong>及时、全面</strong>，分钟级更新、信息量大，适合持续刷取。Horizon 走另一个方向：每天留下少量<strong>真正值得关注</strong>的内容，日级整理，不追求实时，降低阅读负担。</p>
+      <p>差异还在于可控性。聚合站的信息源和功能由平台统一维护；Horizon 数据源可以自由增删，每天留下多少条也能自己控制，需要什么功能就继续扩展。</p>
+      <p>这份定位对应页面标题：更精、更可控。下面看产品本身长什么样。</p>
+    </aside>
+  </section>
+
+  <!-- ============ 5 ============ -->
+  <section class="slide" data-title="产品全景">
+    <p class="kicker">产品形态</p>
+    <h2 class="h2 anim-fade-up" data-anim="fade-up">目前主要覆盖三类内容</h2>
+    <div class="grid g3 mt-l anim-fade-up" data-anim="fade-up">
+      <div class="card">
+        <h4>新闻日报</h4>
+        <p class="dim">每天筛选国内外 AI 相关新闻，集中整理成中文日报。</p>
+      </div>
+      <div class="card">
+        <h4>学术论文</h4>
+        <p class="dim">追踪前沿 AI 研究论文，并单独设置 AI + 金融板块。</p>
+      </div>
+      <div class="card">
+        <h4>研究报告</h4>
+        <p class="dim">重点收录互联网大厂的高质量 AI 研究报告。</p>
+      </div>
+    </div>
+    <p class="lede mt-l anim-fade-up" data-anim="fade-up">不同类型的 AI 内容集中在一个地方，统一查看、搜索和收藏。</p>
+    <div class="deck-footer">
+      <span class="slide-number" data-current="5" data-total="10"></span>
+    </div>
+    <aside class="notes">
+      <p>这一页讲产品目前覆盖的三类内容，也就是用户每天能拿到的东西。</p>
+      <p>第一类<strong>新闻日报</strong>，每天筛选国内外 AI 相关新闻，整理成中文日报；第二类<strong>学术论文</strong>，追踪前沿研究，还单独设了 AI 加金融的板块；第三类<strong>研究报告</strong>，重点收录互联网大厂的高质量 AI 研报。</p>
+      <p>三类内容放在同一个地方，统一查看、搜索和收藏，入口是一个前端。</p>
+      <p>下一页看这三类内容背后的处理流程。</p>
+    </aside>
+  </section>
+
+  <!-- ============ 6 ============ -->
+  <section class="slide" data-title="工作流">
+    <p class="kicker">AI 处理</p>
+    <h2 class="h2 anim-fade-up" data-anim="fade-up">从原始内容到可读信息，AI 做了哪些处理</h2>
+    <div class="ai-steps mt-l anim-fade-up" data-anim="fade-up">
+      <div class="step"><span class="idx">01</span><h4>相关性过滤</h4><p class="dim">判断内容是否真正与 AI 相关，过滤广告和明显无关内容</p></div>
+      <div class="step"><span class="idx">02</span><h4>价值筛选</h4><p class="dim">从技术深度、新颖性、行业影响等维度评分，优先保留值得读的内容</p></div>
+      <div class="step"><span class="idx">03</span><h4>语义去重</h4><p class="dim">识别不同来源对同一事件的重复报道，去重，并对多源报道事件加分</p></div>
+      <div class="step"><span class="idx">04</span><h4>翻译整理</h4><p class="dim">将英文内容翻译成中文，降低阅读门槛</p></div>
+      <div class="step"><span class="idx">05</span><h4>解读补充</h4><p class="dim">生成摘要和推荐理由，提取主题与关键词；论文进一步提供完整的 AI 解读</p></div>
+    </div>
+    <div class="deck-footer">
+      <span class="slide-number" data-current="6" data-total="10"></span>
+    </div>
+    <aside class="notes">
+      <p>这一页讲从原始内容到可读信息，AI 做了哪些处理，一共五步。</p>
+      <p>第一步<strong>相关性过滤</strong>，判断内容是不是真的和 AI 相关，过滤广告和明显无关的内容；第二步<strong>价值筛选</strong>，从技术深度、新颖性、行业影响这些维度打分，留下值得读的。</p>
+      <p>第三步<strong>语义去重</strong>，去掉不同来源对同一事件的重复报道，多源报道的事件还会加分；第四步<strong>翻译整理</strong>，英文内容翻成中文，降低阅读门槛。</p>
+      <p>第五步<strong>解读补充</strong>，生成摘要和推荐理由、提取主题和关键词；论文还会提供完整的 AI 解读。这五步，就是内容从原始到可读的核心处理。</p>
+    </aside>
+  </section>
+
+  <!-- ============ 7 ============ -->
+  <section class="slide" data-title="当前进展">
+    <p class="kicker">当前进展 · 截至 2026-08-18</p>
+    <h2 class="h2 anim-fade-up" data-anim="fade-up">一组运行中的真实数据</h2>
+    <div class="metrics mt-l anim-fade-up" data-anim="fade-up">
+      <div class="metric"><div class="num">51</div><div class="lbl">连续产出日报（期）</div><div class="hint">最新一期 2026-08-18</div></div>
+      <div class="metric"><div class="num">5,242</div><div class="lbl">累计入库新闻（条）</div><div class="hint">多源累计</div></div>
+      <div class="metric"><div class="num">22–30</div><div class="lbl">每日精选（条）</div><div class="hint">控制在可读完的量</div></div>
+      <div class="metric"><div class="num">190</div><div class="lbl">论文库（篇）</div><div class="hint">精选 103 · 金融 23 · 经典 64</div></div>
+      <div class="metric"><div class="num">25</div><div class="lbl">研究报告库（份）</div><div class="hint">微信公号 19 · 阿里云 6</div></div>
+      <div class="metric"><div class="num">12</div><div class="lbl">信息源类型（类）</div><div class="hint">RSS 40 · 公众号 31</div></div>
+    </div>
+    <div class="deck-footer">
+      <span class="slide-number" data-current="7" data-total="10"></span>
+    </div>
+    <aside class="notes">
+      <p>上面讲了 AI 怎么处理内容，这一页看它实际跑出来的数据。</p>
+      <p>这几个数字是<strong>直接查数据库</strong>的真实数据。</p>
+      <p>到 8 月 18 号，已连续产出 51 期日报，累计入库 5242 条新闻。论文库 190 篇，报告库 25 份，这些数字每天都会更新。</p>
+      <p>报告库刚开始积累，数量还少，之后会持续增长。<strong>整个系统目前每天自动运行</strong>，不需要人工干预，每日精选也控制在能读完的量。</p>
+      <p>待会儿我可以现场打开站点，大家直接看最近一期日报。</p>
+    </aside>
+  </section>
+
+  <!-- ============ 8 ============ -->
+  <section class="slide" data-title="触达">
+    <p class="kicker">使用方式</p>
+    <h2 class="h2 anim-fade-up" data-anim="fade-up">以网页阅读为主，消息推送可配置</h2>
+    <div class="ai-steps entry2 mt-l anim-fade-up" data-anim="fade-up">
+      <div class="step">
+        <span class="idx">01</span>
+        <h4>网页端 <span class="sub-tag">主要入口</span></h4>
+        <p class="dim">日报、论文、报告统一在网页查看，支持搜索、筛选、收藏和详情阅读</p>
+      </div>
+      <div class="step">
+        <span class="idx">02</span>
+        <h4>消息推送</h4>
+        <p class="dim">支持邮件推送，或Webhook 方式推送到企业微信、飞书等</p>
+      </div>
+    </div>
+    <div class="deck-footer">
+      <span class="slide-number" data-current="8" data-total="10"></span>
+    </div>
+    <aside class="notes">
+      <p>这一页讲用户怎么使用。</p>
+      <p>主入口是<strong>网页端</strong>，日报、论文、报告统一在一个页面查看，支持搜索、筛选、收藏和详情阅读。</p>
+      <p>消息推送支持<strong>邮件和 Webhook</strong>，可以把摘要推到企业微信、飞书这些常用工具里，需要的人开，不需要的可以关。</p>
+      <p>这正好对应页面标题：网页为主，推送可选。两者共用同一份内容，维护一处。下面讲工程和运维。</p>
+    </aside>
+  </section>
+
+  <!-- ============ 9 ============ -->
+  <section class="slide" data-title="工程">
+    <p class="kicker">工程</p>
+    <h2 class="h2 anim-fade-up" data-anim="fade-up">当前运行方式与下一步扩展</h2>
+
+    <div class="run-cols mt-l anim-fade-up" data-anim="fade-up">
+      <div class="group-block">
+        <div class="group-label">当前</div>
+        <div class="card step-card">
+          <span class="idx">01</span>
+          <h4>本地运行</h4>
+          <p class="dim">目前 Horizon 在本地运行，日报由人工触发；触发后筛选、翻译、解读等流程自动完成；微信公众号独立、低频持续采集，日报生成时直接读取已采集内容。</p>
+        </div>
+        <div class="card step-card">
+          <span class="idx">02</span>
+          <h4>用户隔离</h4>
+          <p class="dim">收藏、偏好等个性化数据已实现浏览器级用户隔离，为后续账号体系预留扩展空间。</p>
+        </div>
+      </div>
+      <div class="group-block">
+        <div class="group-label">下一步</div>
+        <div class="card step-card">
+          <span class="idx">03</span>
+          <h4>云端运行</h4>
+          <p class="dim">迁移至云服务器，实现采集任务持续运行、日报定时生成，并提供稳定的网页访问。</p>
+        </div>
+        <div class="card step-card">
+          <span class="idx">04</span>
+          <h4>账号体系</h4>
+          <p class="dim">接入账号登录，升级为账号级用户隔离，支持跨浏览器、跨设备同步收藏和偏好。</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="deck-footer">
+      <span class="slide-number" data-current="9" data-total="10"></span>
+    </div>
+    <aside class="notes">
+      <p>这一页讲目前的运行方式和下一步扩展，分两块。</p>
+      <p>先看<strong>当前</strong>。Horizon 在本地运行，日报由人工触发，触发后筛选、翻译、解读自动完成；微信采集独立、低频持续，日报直接读已采内容。个性化数据已经做了<strong>浏览器级用户隔离</strong>，收藏和偏好各浏览器独立，为账号体系留了扩展空间。</p>
+      <p><strong>下一步</strong>分两件事：迁移到<strong>云服务器</strong>，让采集持续、日报定时、网页稳定访问；然后是<strong>账号体系</strong>，接入登录后升级为账号级隔离，支持跨浏览器、跨设备同步收藏和偏好。</p>
+      <p>以上就是目前和下一步的安排。最后做个小结。</p>
+    </aside>
+  </section>
+
+  <!-- ============ 10 ============ -->
+  
+
+  <!-- ============ 11 ============ -->
+  
+
+  <!-- ============ 12 ============ -->
+  <section class="slide" data-title="结语">
+    <p class="kicker">结语</p>
+    <h1 class="cover-h1 anim-fade-up" data-anim="fade-up">每天的信息过载<br>变成<span class="grad">一份能读完的精选</span></h1>
+    <p class="lede mt-m anim-fade-up" data-anim="fade-up">Horizon 把散落在多个信息源里的 AI 内容，筛成每天一份能读完的简报。</p>
+    <p class="lede mt-m anim-fade-up" data-anim="fade-up"><strong>下一步：移动端体验优化 + 多用户扩展。</strong></p>
+    <div class="speaker mt-l anim-fade-up" data-anim="fade-up">
+      <div class="av"></div>
+      <div><b>谢谢</b><span>现场可打开站点查看最近一期日报</span></div>
+    </div>
+    <div class="deck-footer">
+      <span class="slide-number" data-current="10" data-total="10"></span>
+    </div>
+    <aside class="notes">
+      <p>总结一句：Horizon 把散落在各个信息源里的 AI 内容，筛成<strong>每天一份能读完的简报</strong>。</p>
+      <p>它现在已经每天自动在跑，累计 51 期日报，数据都可以在站点上直接看到。整个项目从设计到实现都是我们自己从头做的，后续有清晰的迭代空间。</p>
+      <p>接下来按刚才说的方向推进：云端迁移、账号体系，再补上移动端体验。</p>
+      <p>今天可以现场打开站点，看最近一期日报。谢谢大家，欢迎提问。</p>
+    </aside>
+  </section>
+
+</div>
+<script src="../../../.agents/skills/html-ppt/assets/runtime.js"></script>
+</body>
+</html>

@@ -1,0 +1,296 @@
+/* Horizon 产品汇报 deck · scoped styles
+ * 基于 presenter-mode-reveal 模板，补充 metrics / 对比表 / 流程 / 路线图 / 风险等布局。
+ * 所有颜色、圆角、阴影一律走主题 token（--text-* / --accent / --surface / --border / --grad）。
+ */
+
+.tpl-presenter-mode-reveal .slide {
+  padding: 64px 88px;
+}
+
+/* ---- 封面 ---- */
+.tpl-presenter-mode-reveal .cover-h1 {
+  font-size: clamp(44px, 5.8vw, 78px);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  margin: 0 0 20px 0;
+}
+.tpl-presenter-mode-reveal .cover-h1 .grad {
+  background: var(--grad, linear-gradient(135deg, var(--accent), #bc8cff));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* ---- 大数字卡片（metrics） ---- */
+.tpl-presenter-mode-reveal .metrics {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  width: 100%;
+}
+.tpl-presenter-mode-reveal .metric {
+  background: var(--surface, rgba(255,255,255,0.03));
+  border: 1px solid var(--border, rgba(255,255,255,0.1));
+  border-radius: 12px;
+  padding: 22px 20px;
+  text-align: left;
+}
+.tpl-presenter-mode-reveal .metric .num {
+  font-size: clamp(30px, 3.4vw, 44px);
+  font-weight: 800;
+  line-height: 1.05;
+  background: var(--grad, linear-gradient(135deg, var(--accent), #bc8cff));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  font-family: var(--font-mono, monospace);
+}
+.tpl-presenter-mode-reveal .metric .lbl {
+  margin-top: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+.tpl-presenter-mode-reveal .metric .hint {
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+@media (max-width: 820px) {
+  .tpl-presenter-mode-reveal .metrics { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* ---- 对比表 ---- */
+.tpl-presenter-mode-reveal .cmp {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14.5px;
+}
+.tpl-presenter-mode-reveal .cmp th {
+  font-size: 12.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  text-align: left;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border, rgba(255,255,255,0.12));
+}
+.tpl-presenter-mode-reveal .cmp td {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border, rgba(255,255,255,0.08));
+  color: var(--text-2);
+  vertical-align: top;
+}
+.tpl-presenter-mode-reveal .cmp td:first-child { color: var(--text-1); font-weight: 600; white-space: nowrap; }
+.tpl-presenter-mode-reveal .cmp .hl td {
+  background: var(--surface, rgba(255,255,255,0.04));
+  color: var(--text-1);
+}
+.tpl-presenter-mode-reveal .cmp .hl td:not(:first-child) { color: var(--accent); font-weight: 600; }
+
+/* ---- 流程四步 ---- */
+.tpl-presenter-mode-reveal .flow {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  width: 100%;
+}
+.tpl-presenter-mode-reveal .flow .step {
+  background: var(--surface, rgba(255,255,255,0.03));
+  border: 1px solid var(--border, rgba(255,255,255,0.1));
+  border-radius: 12px;
+  padding: 20px 18px;
+  text-align: left;
+}
+.tpl-presenter-mode-reveal .flow .idx {
+  font-family: var(--font-mono, monospace);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--accent);
+  margin-bottom: 10px;
+  display: block;
+}
+.tpl-presenter-mode-reveal .flow h4 {
+  font-size: 18px;
+  margin: 0 0 8px 0;
+  color: var(--text-1);
+}
+.tpl-presenter-mode-reveal .flow .dim {
+  font-size: 13.5px;
+  color: var(--text-2);
+  line-height: 1.55;
+  margin: 0;
+}
+@media (max-width: 900px) {
+  .tpl-presenter-mode-reveal .flow { grid-template-columns: 1fr 1fr; }
+}
+
+/* ---- 信息源分类 ---- */
+.tpl-presenter-mode-reveal .src-big {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 22px;
+  width: 100%;
+}
+.tpl-presenter-mode-reveal .src-big .big {
+  font-size: clamp(30px, 3.4vw, 44px);
+  font-weight: 800;
+  font-family: var(--font-mono, monospace);
+  color: var(--accent);
+  line-height: 1;
+  margin-bottom: 10px;
+}
+.tpl-presenter-mode-reveal .src-big h4 { font-size: 17px; margin: 0 0 8px 0; color: var(--text-1); }
+.tpl-presenter-mode-reveal .src-big p { font-size: 13.5px; color: var(--text-2); line-height: 1.6; margin: 0; }
+@media (max-width: 820px) {
+  .tpl-presenter-mode-reveal .src-big { grid-template-columns: 1fr; }
+}
+
+/* ---- 底线 / 风险 行 ---- */
+.tpl-presenter-mode-reveal .principles {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+}
+.tpl-presenter-mode-reveal .principles .p {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  background: var(--surface, rgba(255,255,255,0.03));
+  border: 1px solid var(--border, rgba(255,255,255,0.1));
+  border-radius: 10px;
+  padding: 14px 18px;
+  text-align: left;
+}
+.tpl-presenter-mode-reveal .principles .pn {
+  font-family: var(--font-mono, monospace);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--accent);
+  white-space: nowrap;
+  padding-top: 2px;
+}
+.tpl-presenter-mode-reveal .principles .pt { font-size: 14.5px; color: var(--text-2); line-height: 1.55; }
+.tpl-presenter-mode-reveal .principles .pt b { color: var(--text-1); }
+
+/* ---- 路线图三阶段 ---- */
+.tpl-presenter-mode-reveal .roadmap {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 18px;
+  width: 100%;
+}
+.tpl-presenter-mode-reveal .phase {
+  background: var(--surface, rgba(255,255,255,0.03));
+  border: 1px solid var(--border, rgba(255,255,255,0.1));
+  border-radius: 12px;
+  padding: 20px 20px;
+  text-align: left;
+}
+.tpl-presenter-mode-reveal .phase .ptag {
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: var(--accent);
+  display: block;
+  margin-bottom: 10px;
+}
+.tpl-presenter-mode-reveal .phase.next .ptag { color: var(--text-3); }
+.tpl-presenter-mode-reveal .phase h4 { font-size: 16px; margin: 0 0 10px 0; color: var(--text-1); }
+.tpl-presenter-mode-reveal .phase ul { list-style: none; margin: 0; padding: 0; }
+.tpl-presenter-mode-reveal .phase li {
+  font-size: 13.5px;
+  color: var(--text-2);
+  line-height: 1.6;
+  padding-left: 14px;
+  position: relative;
+}
+.tpl-presenter-mode-reveal .phase li::before { content: '—'; position: absolute; left: 0; color: var(--accent); }
+.tpl-presenter-mode-reveal .phase.next li::before { color: var(--text-3); }
+@media (max-width: 900px) {
+  .tpl-presenter-mode-reveal .roadmap { grid-template-columns: 1fr; }
+}
+
+/* ---- 渠道四卡 ---- */
+.tpl-presenter-mode-reveal .channel { text-align: center; }
+.tpl-presenter-mode-reveal .channel .ico {
+  font-size: 22px;
+  margin-bottom: 10px;
+  display: block;
+}
+.tpl-presenter-mode-reveal .channel h4 { font-size: 16px; margin: 0 0 6px 0; color: var(--text-1); }
+.tpl-presenter-mode-reveal .channel p { font-size: 13px; color: var(--text-2); line-height: 1.55; margin: 0; }
+
+/* ---- 标签 pill ---- */
+.tpl-presenter-mode-reveal .pill {
+  display: inline-block;
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  padding: 3px 12px;
+  border-radius: 999px;
+  background: var(--surface, rgba(255,255,255,0.05));
+  border: 1px solid var(--border, rgba(255,255,255,0.12));
+  color: var(--text-2);
+  margin: 0 4px 4px 0;
+}
+
+/* ---- 定位页（第 3 页）：标题上移 + 卡片 2x2 + 正文放大 ---- */
+.tpl-presenter-mode-reveal .slide-top { justify-content: flex-start; padding-top: 56px; }
+.tpl-presenter-mode-reveal .flow.flow2 { grid-template-columns: repeat(2, 1fr); gap: 18px; width: 66%; margin: 0 auto; }
+.tpl-presenter-mode-reveal .flow.flow2 .step { padding: 26px 28px; }
+.tpl-presenter-mode-reveal .flow.flow2 h4 { font-size: 21px; margin-bottom: 10px; }
+.tpl-presenter-mode-reveal .flow.flow2 .dim { font-size: 16.5px; line-height: 1.6; }
+
+/* 删除 #xx 标签后：页脚页码靠右 */
+.tpl-presenter-mode-reveal .deck-footer { justify-content: flex-end; }
+
+/* ---- 分组标签（当前/下一步）---- */
+.tpl-presenter-mode-reveal .group-block { width: 100%; }
+.tpl-presenter-mode-reveal .group-label {
+  font-family: var(--font-mono, monospace);
+  font-size: 13px; font-weight: 700; letter-spacing: .12em;
+  color: var(--accent); text-align: left; margin-bottom: 12px;
+}
+
+/* ---- 运行方式左右两列（第 9 页）：当前在左，下一步在右 ---- */
+.tpl-presenter-mode-reveal .run-cols {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 40px; width: 100%;
+}
+.tpl-presenter-mode-reveal .run-cols .group-block { display: flex; flex-direction: column; gap: 14px; }
+.tpl-presenter-mode-reveal .run-cols .step-card {
+  background: var(--surface, rgba(255,255,255,0.03));
+  border: 1px solid var(--border, rgba(255,255,255,0.1));
+  border-radius: 12px; padding: 20px 22px; text-align: left;
+}
+.tpl-presenter-mode-reveal .run-cols .step-card .idx {
+  font-family: var(--font-mono, monospace); font-size: 15px; font-weight: 700;
+  color: var(--accent); display: block; margin-bottom: 10px;
+}
+.tpl-presenter-mode-reveal .run-cols .step-card h4 { font-size: 18px; margin: 0 0 8px 0; color: var(--text-1); }
+.tpl-presenter-mode-reveal .run-cols .step-card .dim { font-size: 15px; color: var(--text-2); line-height: 1.6; margin: 0; }
+@media (max-width: 900px) {
+  .tpl-presenter-mode-reveal .run-cols { grid-template-columns: 1fr; }
+}
+
+/* ---- 使用方式（第 8 页）：2 列卡片，复用 ai-steps 卡片样式 ---- */
+.tpl-presenter-mode-reveal .ai-steps.entry2 { grid-template-columns: repeat(2, 1fr); gap: 20px; }
+.tpl-presenter-mode-reveal .ai-steps .sub-tag {
+  font-size: 12px; font-weight: 600; color: var(--accent);
+  background: rgba(177,151,196,0.12); padding: 2px 10px; border-radius: 999px;
+  margin-left: 8px; vertical-align: 2px; white-space: nowrap;
+}
+@media (max-width: 820px) {
+  .tpl-presenter-mode-reveal .ai-steps.entry2 { grid-template-columns: 1fr; }
+}
+
+/* ---- AI 处理五步（第 6 页）：3 列网格 ---- */
+.tpl-presenter-mode-reveal .ai-steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; width: 100%; }
+.tpl-presenter-mode-reveal .ai-steps .step { background: var(--surface, rgba(255,255,255,0.03)); border: 1px solid var(--border, rgba(255,255,255,0.1)); border-radius: 12px; padding: 22px 22px; text-align: left; }
+.tpl-presenter-mode-reveal .ai-steps .idx { font-family: var(--font-mono, monospace); font-size: 15px; font-weight: 700; color: var(--accent); display: block; margin-bottom: 10px; }
+.tpl-presenter-mode-reveal .ai-steps h4 { font-size: 18px; margin: 0 0 8px 0; color: var(--text-1); }
+.tpl-presenter-mode-reveal .ai-steps .dim { font-size: 15px; color: var(--text-2); line-height: 1.6; margin: 0; }
+@media (max-width: 900px) {
+  .tpl-presenter-mode-reveal .ai-steps { grid-template-columns: repeat(2, 1fr); }
+}

@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Horizon · 你的 AI 信息雷达 — 产品汇报</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+    :root {
+        --color-primary: #B197C4;        /* Horizon 品牌紫 */
+        --color-accent: #F5B971;         /* 雷达信号暖橙 */
+        --color-background: #0d0f14;
+        --color-surface: rgba(255,255,255,0.045);
+        --color-surface-hi: rgba(255,255,255,0.08);
+        --color-line: rgba(255,255,255,0.10);
+        --color-text: #E8EAF0;
+        --color-muted: #9AA3B2;
+        --primitive-gradient-primary: linear-gradient(135deg, #B197C4 0%, #8f6fc0 55%, #F5B971 130%);
+        --primitive-gradient-glow: radial-gradient(600px 320px at 50% -10%, rgba(177,151,196,0.22), transparent 70%);
+        --typography-font-heading: 'Space Grotesk', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+        --typography-font-body: 'Inter', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+        background: var(--color-background);
+        color: var(--color-text);
+        font-family: var(--typography-font-body);
+        overflow: hidden;
+    }
+    .slide-deck { position: relative; width: 100vw; height: 100vh; overflow: hidden; }
+    @media (min-width: 769px) {
+        .slide-deck {
+            max-width: calc(100vh * 16 / 9);
+            max-height: calc(100vw * 9 / 16);
+            margin: auto; position: absolute; inset: 0;
+        }
+    }
+    .slide {
+        position: absolute; width: 100%; height: 100%;
+        display: flex; flex-direction: column; justify-content: center; align-items: center;
+        text-align: center; padding: 60px 64px;
+        opacity: 0; visibility: hidden; transition: opacity 0.4s;
+        background:
+            var(--primitive-gradient-glow),
+            linear-gradient(180deg, #10131a 0%, #0d0f14 100%);
+        overflow: hidden;
+    }
+    .slide.active { opacity: 1; visibility: visible; }
+    .slide-content { width: 100%; max-width: 1100px; max-height: 100%; overflow: hidden; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 22px; }
+
+    h1, h2, .eyebrow { font-family: var(--typography-font-heading); }
+    .eyebrow { font-size: 12px; letter-spacing: .32em; text-transform: uppercase; color: var(--color-accent); font-weight: 700; margin-bottom: 2px; }
+    .slide-title { font-size: clamp(30px, 4.6vw, 58px); line-height: 1.12; font-weight: 700; color: var(--color-text); }
+    .slide-title .grad { background: var(--primitive-gradient-primary); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+    .sub { font-size: clamp(15px, 1.9vw, 21px); color: var(--color-muted); line-height: 1.6; max-width: 860px; }
+
+    /* 通用卡片 */
+    .card { background: var(--color-surface); border: 1px solid var(--color-line); border-radius: 18px; padding: 22px 24px; text-align: left; }
+    .num { font-family: var(--typography-font-heading); font-weight: 700; background: var(--primitive-gradient-primary); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+
+    /* Feature Grid */
+    .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; width: 100%; }
+    .grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; width: 100%; }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; width: 100%; }
+    @media (max-width: 900px) { .grid4 { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 768px) { .grid3, .grid2 { grid-template-columns: 1fr; } .slide { padding: 34px 24px; } }
+
+    .card .card-title { font-family: var(--typography-font-heading); font-size: 17px; font-weight: 700; margin-bottom: 8px; color: var(--color-text); }
+    .card p { font-size: 14px; color: var(--color-muted); line-height: 1.55; }
+    .tag { display: inline-block; font-size: 12px; padding: 3px 10px; border-radius: 999px; background: rgba(177,151,196,0.16); color: var(--color-primary); margin: 3px 3px 0 0; font-family: var(--typography-font-heading); }
+
+    /* 对比表 */
+    table.cmp { width: 100%; border-collapse: collapse; font-size: 15px; text-align: left; }
+    table.cmp th { font-family: var(--typography-font-heading); font-size: 13px; letter-spacing: .06em; color: var(--color-muted); padding: 12px 16px; border-bottom: 1px solid var(--color-line); }
+    table.cmp td { padding: 14px 16px; border-bottom: 1px solid rgba(255,255,255,0.06); color: var(--color-text); }
+    table.cmp tr.hl td { background: rgba(177,151,196,0.10); color: var(--color-primary); font-weight: 600; }
+    table.cmp td:first-child { color: var(--color-muted); }
+
+    /* 流程 timeline */
+    .flow { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; width: 100%; }
+    .flow .step { position: relative; }
+    .flow .step .idx { width: 46px; height: 46px; margin: 0 auto 12px; border-radius: 14px; display: flex; align-items: center; justify-content: center; font-family: var(--typography-font-heading); font-weight: 700; font-size: 18px; background: linear-gradient(135deg, rgba(177,151,196,0.28), rgba(245,185,113,0.22)); color: var(--color-text); border: 1px solid var(--color-line); }
+    .flow .step h3 { font-family: var(--typography-font-heading); font-size: 18px; margin-bottom: 6px; }
+    .flow .step p { font-size: 13px; color: var(--color-muted); line-height: 1.5; }
+    .flow .arrow { position: absolute; top: 22px; left: calc(100% - 6px); color: var(--color-accent); font-size: 20px; z-index: 2; }
+    @media (max-width: 768px) { .flow { grid-template-columns: 1fr 1fr; } .flow .arrow { display: none; } }
+
+    /* Metrics */
+    .metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; width: 100%; }
+    .metric { background: var(--color-surface); border: 1px solid var(--color-line); border-radius: 18px; padding: 26px 18px; }
+    .metric .num { font-size: clamp(34px, 4.4vw, 52px); line-height: 1.05; }
+    .metric .lbl { margin-top: 8px; font-size: 13px; color: var(--color-muted); letter-spacing: .03em; }
+    .metric .hint { margin-top: 4px; font-size: 11px; color: rgba(154,163,178,0.7); }
+    @media (max-width: 768px) { .metrics { grid-template-columns: repeat(2, 1fr); } }
+
+    /* 风险行 */
+    .risk { display: flex; flex-direction: column; gap: 14px; width: 100%; }
+    .risk .row { display: flex; gap: 16px; align-items: flex-start; background: var(--color-surface); border: 1px solid var(--color-line); border-radius: 14px; padding: 16px 20px; text-align: left; }
+    .risk .k { min-width: 120px; font-family: var(--typography-font-heading); font-weight: 700; color: var(--color-accent); font-size: 15px; padding-top: 1px; }
+    .risk .v { color: var(--color-muted); font-size: 14px; line-height: 1.55; }
+    @media (max-width: 768px) { .risk .row { flex-direction: column; gap: 4px; } .risk .k { min-width: 0; } }
+
+    /* Roadmap timeline */
+    .roadmap { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; width: 100%; }
+    .phase { background: var(--color-surface); border: 1px solid var(--color-line); border-radius: 18px; padding: 22px 22px; text-align: left; }
+    .phase .phead { display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; }
+    .phase .ptag { font-family: var(--typography-font-heading); font-size: 12px; font-weight: 700; letter-spacing: .08em; padding: 3px 10px; border-radius: 999px; }
+    .phase.done .ptag { background: rgba(177,151,196,0.18); color: var(--color-primary); }
+    .phase.now .ptag { background: rgba(245,185,113,0.18); color: var(--color-accent); }
+    .phase.next .ptag { background: rgba(255,255,255,0.08); color: var(--color-muted); }
+    .phase h3 { font-family: var(--typography-font-heading); font-size: 17px; }
+    .phase ul { list-style: none; }
+    .phase li { font-size: 13.5px; color: var(--color-muted); line-height: 1.6; padding-left: 16px; position: relative; }
+    .phase li::before { content: '—'; position: absolute; left: 0; color: var(--color-primary); }
+    @media (max-width: 900px) { .roadmap { grid-template-columns: 1fr; } }
+
+    /* 底线行 */
+    .principles { display: flex; flex-direction: column; gap: 12px; width: 100%; }
+    .principles .p { display: flex; gap: 14px; align-items: flex-start; background: var(--color-surface); border: 1px solid var(--color-line); border-radius: 14px; padding: 16px 20px; text-align: left; }
+    .principles .pn { font-family: var(--typography-font-heading); font-weight: 700; font-size: 15px; background: var(--primitive-gradient-primary); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; white-space: nowrap; }
+    .principles .pt { color: var(--color-text); font-size: 14px; line-height: 1.55; }
+    .principles .pt b { color: var(--color-text); }
+
+    /* 引用 / 强调 */
+    .quote { font-family: var(--typography-font-heading); font-size: clamp(20px, 2.6vw, 30px); color: var(--color-text); line-height: 1.4; max-width: 900px; }
+    .quote .grad { background: var(--primitive-gradient-primary); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+
+    /* footer 页码 */
+    .pagefoot { position: absolute; bottom: 18px; right: 30px; font-size: 12px; color: rgba(154,163,178,0.5); font-family: var(--typography-font-heading); }
+
+    /* 进度条 & 导航 */
+    .progress-bar { position: fixed; top: 0; left: 0; height: 3px; background: var(--primitive-gradient-primary); transition: width 0.3s; z-index: 1000; }
+    .nav-controls { position: fixed; bottom: 26px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 18px; z-index: 1000; }
+    .nav-btn { background: rgba(255,255,255,0.08); border: 1px solid var(--color-line); color: var(--color-text); width: 38px; height: 38px; border-radius: 50%; cursor: pointer; font-size: 16px; }
+    .nav-btn:hover { background: rgba(255,255,255,0.16); }
+    .slide-counter { color: rgba(255,255,255,0.5); font-size: 13px; font-family: var(--typography-font-heading); }
+
+    /* 动画 */
+    .slide .animate-fade-up { opacity: 0; animation: fadeUp 0.6s ease-out forwards; }
+    .slide .animate-scale { opacity: 0; animation: scaleIn 0.55s ease-out forwards; }
+    .slide.active .d1 { animation-delay: .05s; } .slide.active .d2 { animation-delay: .18s; }
+    .slide.active .d3 { animation-delay: .31s; } .slide.active .d4 { animation-delay: .44s; }
+    .slide.active .d5 { animation-delay: .57s; } .slide.active .d6 { animation-delay: .70s; }
+    @keyframes fadeUp { from { opacity: 0; transform: translateY(26px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes scaleIn { from { opacity: 0; transform: scale(0.94); } to { opacity: 1; transform: scale(1); } }
+
+    /* 覆盖图（第9页 chart） */
+    .row-chart { display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 22px; align-items: center; width: 100%; }
+    .chart-box { background: var(--color-surface); border: 1px solid var(--color-line); border-radius: 16px; padding: 14px; height: 210px; }
+    @media (max-width: 900px) { .row-chart { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="progress-bar" id="progressBar"></div>
+<div class="slide-deck">
+
+    <!-- ========== S1 封面 ========== -->
+    <div class="slide active">
+        <div class="slide-content">
+            <div class="eyebrow animate-fade-up d1">产品汇报 · 2026-08</div>
+            <h1 class="slide-title animate-fade-up d2">Horizon<br><span class="grad">你的 AI 信息雷达</span></h1>
+            <p class="sub animate-fade-up d3">一套会"思考"的信息筛选系统 — 从信息过载里，每天只给你最值得读的 AI 内容</p>
+        </div>
+        <div class="pagefoot">1 / 14</div>
+    </div>
+
+    <!-- ========== S2 痛点 ========== -->
+    <div class="slide">
+        <div class="slide-content">
+            <div class="eyebrow animate-fade-up d1">为什么需要它</div>
+            <h1 class="slide-title animate-fade-up d2">信息过载时代，缺的不是信息<br>是 <span class="grad">"值得读的信息"</span></h1>
+            <div class="grid2 animate-stagger" style="margin-top:6px">
+                <div class="card d3"><div class="card-title">推送越多，越读不到好东西</div><p>社交平台、新闻 App、公众号、论文、研报…每天数千条推送，真正有用的可能只有两三条 — <b style="color:var(--color-text)">时间是最大的成本</b>。</p></div>
+                <div class="card d4"><div class="card-title">中文读者尤其吃亏</div><p>AI / 技术领域的高质量内容以英文为主 — 看得懂，不等于读得懂。语言与筛选，双重门槛。</p></div>
+            </div>
+            <p class="sub animate-fade-up d5">现有工具都没解决"筛选"：RSS 只会按规则列清单，平台推荐只会投喂点击量。</p>
+        </div>
+        <div class="pagefoot">2 / 14</div>
+    </div>
+
+    <!-- ========== S3 定位 ========== -->
+    <div class="slide">
+        <div class="slide-content">
+            <div class="eyebrow animate-fade-up d1">Horizon 是什么</div>
+            <h1 class="slide-title animate-fade-up d2">自动抓取 · AI 筛选 · 中文精读 · <span class="grad">每日一份精选</span></h1>
+            <div class="grid4 animate-fade-up d3" style="margin-top:4px">
+                <div class="card"><div class="card-title">① 自动抓取</div><p>从 <b style="color:var(--color-text)">60+ 信息源</b> 采集技术新闻、论文、研究报告</p></div>
+                <div class="card"><div class="card-title">② AI 筛选</div><p>判断"这一条值不值得读" — <b style="color:var(--color-text)">能思考的筛选器</b></p></div>
+                <div class="card"><div class="card-title">③ 中文精读</div><p>翻译成中文，补充背景：为什么重要、对谁有用</p></div>
+                <div class="card"><div class="card-title">④ 每日精选</div><p>自动产出一份<b style="color:var(--color-text)">精选简报</b> — 只读结果，不筛噪音</p></div>
+            </div>
+            <p class="quote animate-fade-up d4">愿景：<span class="grad">让每个人拥有自己的 AI 信息雷达</span></p>
+        </div>
+        <div class="pagefoot">3 / 14</div>
+    </div>
+
+    <!-- ========== S4 对比 ========== -->
+    <div class="slide">
+        <div class="slide-content">
+            <div class="eyebrow animate-fade-up d1">本质区别</div>
+            <h1 class="slide-title animate-fade-up d2">RSS 靠规则、平台靠点击<br>Horizon 靠 <span class="grad">理解内容</span></h1>
+            <table class="cmp animate-fade-up d3">
+                <tr><th>维度</th><th>传统 RSS</th><th>平台推荐</th><th>Horizon</th></tr>
+                <tr><td>筛选方式</td><td>元数据规则</td><td>点击行为</td><td class="hl">AI 语义理解 + 多维评分</td></tr>
+                <tr><td>去重</td><td>无</td><td>无</td><td class="hl">URL + AI 语义去重，同一件事只留一条</td></tr>
+                <tr><td>输出</td><td>原始列表</td><td>信息流</td><td class="hl">中文精选简报 + 深度背景</td></tr>
+                <tr><td>开放</td><td>高</td><td>封闭</td><td class="hl">全开源、可自部署，数据在自己手里</td></tr>
+            </table>
+            <p class="sub animate-fade-up d4">三个卖点：<span class="tag">AI 语义去重</span><span class="tag">中文优先</span><span class="tag">开源可控</span></p>
+        </div>
+        <div class="pagefoot">4 / 14</div>
+    </div>
+
+    <!-- ========== S5 产品全景 ========== -->
+    <div class="slide">
+        <div class="slide-content">
+            <div class="eyebrow animate-fade-up d1">产品形态</div>
+            <h1 class="slide-title animate-fade-up d2">一个站，<span class="grad">三类内容</span></h1>
+            <div class="grid3 animate-fade-up d3">
+                <div class="card"><div class="card-title">📰 新闻日报库</div><p>每日精选 <b style="color:var(--color-text)">22–30 条</b>中文简报，聚焦 AI / LLM / 技术领域</p></div>
+                <div class="card"><div class="card-title">📄 学术论文库</div><p>每周精选 arXiv 论文 + AI 三段式解读（概览 / 方法 / 评估）</p></div>
+                <div class="card"><div class="card-title">📚 研究报告库</div><p>机构报告（阿里云、微信公号等）自动整理并下载 PDF</p></div>
+            </div>
+            <p class="sub animate-fade-up d4">统一网页前端：首页 / 日报 / 论文 / 报告 / 跨库搜索 / 收藏 / 偏好 — 全部打通</p>
+        </div>
+        <div class="pagefoot">5 / 14</div>
+    </div>
+
+    <!-- ========== S6 四步流水线 ========== -->
+    <div class="slide">
+        <div class="slide-content">
+            <div class="eyebrow animate-fade-up d1">背后只有四步</div>
+            <h1 class="slide-title animate-fade-up d2">抓 → 筛 → 读 → <span class="grad">送</span></h1>
+            <div class="flow animate-fade-up d3" style="margin-top:6px">
+                <div class="step"><div class="idx">1</div><h3>抓</h3><p>60+ 源并发采集，新闻 / 论文 / 报告三条线并行</p></div>
+                <div class="step"><div class="arrow">→</div><div class="idx">2</div><h3>筛</h3><p>AI 判断相关性、打分、去重 — 最核心的一步</p></div>
+                <div class="step"><div class="arrow">→</div><div class="idx">3</div><h3>读</h3><p>翻译成中文、补齐背景、生成解读 — 把信息变成知识</p></div>
+                <div class="step"><div class="arrow">→</div><div class="idx">4</div><h3>送</h3><p>日报、网页、邮件、webhook 多渠道送达</p></div>
+            </div>
+            <p class="sub animate-fade-up d4">把"信息"加工成"知识" — 用户只读最终结果</p>
+        </div>
+        <div class="pagefoot">6 / 14</div>
+    </div>
+
+    <!-- ========== S7 信息源覆盖 ========== -->
+    <div class="slide">
+        <div class="slide-content">
+            <div class="eyebrow animate-fade-up d1">内容从哪来</div>
+            <h1 class="slide-title animate-fade-up d2">12 类信息源 · 40 条 RSS · <span class="grad">31 个公众号</span></h1>
+            <div class="grid3 animate-fade-up d3">
+                <div class="card"><div class="card-title">🌐 全球技术社区</div><p>Hacker News · Reddit · GitHub · Twitter · Telegram</p></div>
+                <div class="card"><div class="card-title">🏛 权威来源</div><p>GDELT 全球事件 · Google News · 华为 · 字节跳动 · OpenBB 财经</p></div>
+                <div class="card"><div class="card-title">🇨🇳 中文内容</div><p>31 个公众号：机器之心 · 量子位 · 阿里技术 · 腾讯研究院…</p></div>
+            </div>
+            <p class="sub animate-fade-up d4">聚焦 <span class="tag">AI</span><span class="tag">LLM</span><span class="tag">技术</span> — 不做大而全的通用新闻，做精而深的垂直内容</p>
+        </div>
+        <div class="pagefoot">7 / 14</div>
+    </div>
+
+    <!-- ========== S8 AI 核心竞争力 ========== -->
+    <div class="slide">
+        <div class="slide-content">
+            <div class="eyebrow animate-fade-up d1">核心竞争力</div>
+            <h1 class="slide-title animate-fade-up d2">三道关卡，把 100 条信息<br>缩成 <span class="grad">30 条精华</span></h1>
+            <div class="flow animate-fade-up d3" style="margin-top:4px">
+                <div class="step"><div class="idx">①</div><h3>相关性门</h3><p>非 AI / 技术内容直接剔除 — 宁缺毋滥</p></div>
+                <div class="step"><div class="arrow">→</div><div class="idx">②</div><h3>十维评分</h3><p>来源权威 · 新颖度 · 技术含量 · 真实影响力 · 社区验证…</p></div>
+                <div class="step"><div class="arrow">→</div><div class="idx">③</div><h3>语义去重</h3><p>多家报道同一件事，合并成一条、保留最权威来源</p></div>
+            </div>
+            <div class="principles animate-fade-up d4" style="width:100%">
+                <div class="p"><span class="pn">底线 1</span><span class="pt"><b>AI 只打分、不算分</b> — 总分由固定公式计算，可复现、可审计</span></div>
+                <div class="p"><span class="pn">底线 2</span><span class="pt"><b>AI 是增强、不是闸门</b> — AI 出错时绝不丢内容，宁保留原文</span></div>
+                <div class="p"><span class="pn">底线 3</span><span class="pt"><b>中文优先</b> — 摘要、解读、日报全部中文，专有名词保留原文</span></div>
+            </div>
+        </div>
+        <div class="pagefoot">8 / 14</div>
+    </div>
+
+    <!-- ========== S9 当前成果 ========== -->
+    <div class="slide">
+        <div class="slide-content">
+            <div class="eyebrow animate-fade-up d1">当前成果 · 数字说话</div>
+            <h1 class="slide-title animate-fade-up d2">不是 demo，是<span class="grad">已连续运转的系统</span></h1>
+            <div class="metrics animate-fade-up d3">
+                <div class="metric"><div class="num">51</div><div class="lbl">连续产出日报（期）</div><div class="hint">最新 2026-08-18</div></div>
+                <div class="metric"><div class="num">5,242</div><div class="lbl">累计入库新闻（条）</div><div class="hint">多源累计，持续增长</div></div>
+                <div class="metric"><div class="num">22–30</div><div class="lbl">每日精选（条）</div><div class="hint">宁缺毋滥的中文简报</div></div>
+                <div class="metric"><div class="num">190</div><div class="lbl">论文库（篇）</div><div class="hint">每周精选 103 · 金融 23 · 经典 64</div></div>
+                <div class="metric"><div class="num">25</div><div class="lbl">研究报告库（份）</div><div class="hint">微信公号 19 · 阿里云 6</div></div>
+                <div class="metric"><div class="num">12</div><div class="lbl">信息源类型（类）</div><div class="hint">RSS 40 · 公众号 31 · 社区/权威源</div></div>
+            </div>
+            <p class="sub animate-fade-up d4">现场演示：打开 GitHub Pages 站点，查看最近一期日报</p>
+        </div>
+        <div class="pagefoot">9 / 14</div>
+    </div>
+
+    <!-- ========== S10 多端送达 ========== -->
+    <div class="slide">
+        <div class="slide-content">
+            <div class="eyebrow animate-fade-up d1">触达方式</div>
+            <h1 class="slide-title animate-fade-up d2">日报不只在一个网站<br>会<span class="grad">主动送到你面前</span></h1>
+            <div class="grid4 animate-fade-up d3">
+                <div class="card"><div class="card-title">🌐 网页</div><p>GitHub Pages 公开站点，手机电脑都能看</p></div>
+                <div class="card"><div class="card-title">📧 邮件</div><p>自动收发，订阅 / 退订自助管理</p></div>
+                <div class="card"><div class="card-title">💬 团队协作</div><p>飞书 · 钉钉 · Slack · Discord 自动推送</p></div>
+                <div class="card"><div class="card-title">🔌 API</div><p>可查询接口，支持二次开发接入</p></div>
+            </div>
+            <p class="sub animate-fade-up d4">产品不是被动等人来看，而是主动进到用户的日常工具里</p>
+        </div>
+        <div class="pagefoot">10 / 14</div>
+    </div>
+
+    <!-- ========== S11 运行与交付 ========== -->
+    <div class="slide">
+        <div class="slide-content">
+            <div class="eyebrow animate-fade-up d1">运行与交付</div>
+            <h1 class="slide-title animate-fade-up d2">全自动运转 · <span class="grad">可部署 · 可迁移</span></h1>
+            <div class="grid3 animate-fade-up d3">
+                <div class="card"><div class="card-title">⚙️ 全自动</div><p>定时自动执行：抓取 → 打分 → 出日报 → 多渠道分发，<b style="color:var(--color-text)">无需人工干预</b></p></div>
+                <div class="card"><div class="card-title">🛡 高可用</div><p>容器化部署 + 微信采集独立 daemon — 采集与日报解耦，<b style="color:var(--color-text)">单点故障不影响出报</b></p></div>
+                <div class="card"><div class="card-title">🏠 可自持</div><p>已沉淀 VPS / 阿里云一键部署方案，可迁移到自有服务器 — <b style="color:var(--color-text)">数据在自己手里</b></p></div>
+            </div>
+            <p class="sub animate-fade-up d4">两个结论：① 全自动 ② 可自部署 — 工程上可靠、可交付</p>
+        </div>
+        <div class="pagefoot">11 / 14</div>
+    </div>
+
+    <!-- ========== S12 路线图 ========== -->
+    <div class="slide">
+        <div class="slide-content">
+            <div class="eyebrow animate-fade-up d1">路线图</div>
+            <h1 class="slide-title animate-fade-up d2">核心链路已打通<br>下一步是<span class="grad">体验与生态</span></h1>
+            <div class="roadmap animate-fade-up d3">
+                <div class="phase done">
+                    <div class="phead"><span class="ptag">已完成 · Phase 1</span></div>
+                    <ul>
+                        <li>多源抓取 + AI 筛选</li>
+                        <li>三大知识库</li>
+                        <li>双语日报 + 搜索收藏</li>
+                        <li>多端输出 + 容器化</li>
+                    </ul>
+                </div>
+                <div class="phase now">
+                    <div class="phead"><span class="ptag">进行中 · Phase 2</span></div>
+                    <ul>
+                        <li>移动端适配</li>
+                        <li>长线话题追踪</li>
+                        <li>用户反馈回路</li>
+                        <li>个性化评分</li>
+                    </ul>
+                </div>
+                <div class="phase next">
+                    <div class="phead"><span class="ptag">展望 · Phase 3–4</span></div>
+                    <ul>
+                        <li>AI 趋势预测 + 知识图谱</li>
+                        <li>多用户协作</li>
+                        <li>企业私有化版</li>
+                    </ul>
+                </div>
+            </div>
+            <p class="sub animate-fade-up d4">地基已打牢，后面每一步都有明确方向</p>
+        </div>
+        <div class="pagefoot">12 / 14</div>
+    </div>
+
+    <!-- ========== S13 风险与应对 ========== -->
+    <div class="slide">
+        <div class="slide-content">
+            <div class="eyebrow animate-fade-up d1">风险与应对</div>
+            <h1 class="slide-title animate-fade-up d2">知道风险在哪<br>也<span class="grad">准备了应对</span></h1>
+            <div class="risk animate-fade-up d3">
+                <div class="row"><span class="k">微信内容风控</span><span class="v">登录态失效、图片防盗链 → 已实现采集与日报解耦，降级不丢内容</span></div>
+                <div class="row"><span class="k">AI 成本与幻觉</span><span class="v">失败即回退原文、所有背景标注来源，不因 AI 出错而丢内容</span></div>
+                <div class="row"><span class="k">当前单用户架构</span><span class="v">已列入多用户协作路线图，逐步演进</span></div>
+            </div>
+            <p class="sub animate-fade-up d4">主动讲风险，证明想得远、有预案</p>
+        </div>
+        <div class="pagefoot">13 / 14</div>
+    </div>
+
+    <!-- ========== S14 结语 ========== -->
+    <div class="slide">
+        <div class="slide-content">
+            <div class="eyebrow animate-fade-up d1">结语</div>
+            <h1 class="slide-title animate-fade-up d2">把"信息过载"变成<br><span class="grad">每天 20 分钟读完最值得读的内容</span></h1>
+            <p class="sub animate-fade-up d3">Horizon 把散落在一百多个角落的高价值 AI 内容，筛成每天一份能读完的精华。</p>
+            <p class="quote animate-fade-up d4" style="margin-top:6px">下一步：<span class="grad">移动端体验优化 + 多用户扩展</span></p>
+            <p class="sub animate-fade-up d5" style="margin-top:4px">谢谢 · 欢迎现场打开站点体验</p>
+        </div>
+        <div class="pagefoot">14 / 14</div>
+    </div>
+
+</div><!-- /.slide-deck -->
+
+<div class="nav-controls">
+    <button class="nav-btn" onclick="prevSlide()">←</button>
+    <span class="slide-counter"><span id="current">1</span> / <span id="total">14</span></span>
+    <button class="nav-btn" onclick="nextSlide()">→</button>
+</div>
+
+<script>
+    let current = 1;
+    const total = document.querySelectorAll('.slide').length;
+    document.getElementById('total').textContent = total;
+
+    function showSlide(n) {
+        if (n < 1) n = 1;
+        if (n > total) n = total;
+        current = n;
+        document.querySelectorAll('.slide').forEach((s, i) => s.classList.toggle('active', i === n - 1));
+        document.getElementById('current').textContent = n;
+        document.getElementById('progressBar').style.width = (n / total * 100) + '%';
+    }
+    function nextSlide() { showSlide(current + 1); }
+    function prevSlide() { showSlide(current - 1); }
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); nextSlide(); }
+        if (e.key === 'ArrowLeft') { e.preventDefault(); prevSlide(); }
+    });
+    document.addEventListener('click', (e) => { if (!e.target.closest('.nav-controls')) nextSlide(); });
+    showSlide(1);
+</script>
+</body>
+</html>
