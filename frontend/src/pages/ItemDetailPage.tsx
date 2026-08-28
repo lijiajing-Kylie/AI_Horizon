@@ -330,7 +330,10 @@ export default function ItemDetailPage() {
         </div>
 
         {/* ---- Right: reasoning / scoring / sources, sticky ---- */}
-        <aside className="lg:sticky lg:top-[86px] lg:self-start space-y-6">
+        {/* Sticky column can outgrow the viewport (long summary + score
+            breakdown + sources); cap its height to the viewport so the
+            overflow scrolls inside the column instead of being cut off. */}
+        <aside className="lg:sticky lg:top-[86px] lg:self-start space-y-6 lg:max-h-[calc(100vh-110px)] lg:overflow-y-auto">
           {/* 摘要 */}
           {content.summary && (
             <section className="glass rounded-[22px] p-5">

@@ -2,7 +2,7 @@ import { useCallback } from 'react'
 import { Link, useSearchParams, useLocation } from 'react-router-dom'
 import { useApi } from '../hooks/useApi'
 import { useScrollRestoration } from '../hooks/useScrollRestoration'
-import { getDailyDetail, getTopics } from '../api/client'
+import { getDailyDetail, getTopics, getRunDates } from '../api/client'
 import { todayStr, formatDate, timeAgo } from '../utils/date'
 import { SECTION_NAMES, groupBySection } from '../utils/sections'
 import DailyCalendar from '../components/DailyCalendar'
@@ -20,8 +20,12 @@ export default function DailyListPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const location = useLocation()
 
+  const { data: runDates } = useApi(() => getRunDates(), [])
+  // 默认展示最新一天：今天有日报就是今天；今天还没跑 pipeline 则回退到最近有数据的一天
+  const latestDate = runDates?.[0] || today
+
   // ── Derive selected date from URL params ───────────────────────────────
-  const selectedDate = searchParams.get('date') || today
+  const selectedDate = searchParams.get('date') || latestDate
 
   const setSelectedDate = useCallback(
     (date: string) => {
@@ -37,11 +41,11 @@ export default function DailyListPage() {
     [setSearchParams],
   )
 
-  const { data: todayData, loading: todayLoading } = useApi(() => getDailyDetail(today), [today])
+  const { data: latestData, loading: latestLoading } = useApi(() => getDailyDetail(latestDate), [latestDate])
 
   const { data: selectedData, loading: selectedLoading } = useApi(
-    () => (selectedDate ? getDailyDetail(selectedDate) : Promise.resolve(null)),
-    [selectedDate],
+    () => (selectedDate && selectedDate !== latestDate ? getDailyDetail(selectedDate) : Promise.resolve(null)),
+    [selectedDate, latestDate],
   )
 
   const { data: topicsData } = useApi(() => getTopics(), [])
@@ -51,13 +55,13 @@ export default function DailyListPage() {
   }
   const displayTopics = featuredTopics.slice(0, TOPICS_PREVIEW_COUNT)
 
-  // 右侧面板优先显示 todayData（选中的日期是今天时复用已有的请求）
-  const displayData = selectedDate === today ? todayData : selectedData
-  const displayLoading = selectedDate === today ? todayLoading : selectedLoading
+  // 右侧面板优先显示 latestData（选中的日期是最新一天时复用已有的请求）
+  const displayData = selectedDate === latestDate ? latestData : selectedData
+  const displayLoading = selectedDate === latestDate ? latestLoading : selectedLoading
 
-  const todaySections = todayData ? groupBySection(todayData.items) : new Map()
-  const todayCards = SECTION_NAMES
-    .map(name => ({ name, top: todaySections.get(name)?.[0] }))
+  const latestSections = latestData ? groupBySection(latestData.items) : new Map()
+  const latestCards = SECTION_NAMES
+    .map(name => ({ name, top: latestSections.get(name)?.[0] }))
     .filter((c): c is { name: string; top: NonNullable<typeof c.top> } => !!c.top)
 
   // ── Dynamic backTo ─────────────────────────────────────────────────────
@@ -71,38 +75,38 @@ export default function DailyListPage() {
 
   return (
     <div>
-      {/* ===== Today ===== */}
+      {/* ===== Latest ===== */}
       <section className="mb-14">
         <div className="flex items-end justify-between gap-6 mb-6">
           <div>
             <PageEyebrow>DAILY BRIEF</PageEyebrow>
             <h1 className="text-[28px] font-normal text-[var(--ink)] tracking-wide">
-              <Link to={`/daily/${today}`} state={{ backTo: BACK_TO_DAILY }} className="hover:text-[var(--accent)] transition-colors">
-                今日日报
+              <Link to={`/daily/${latestDate}`} state={{ backTo: BACK_TO_DAILY }} className="hover:text-[var(--accent)] transition-colors">
+                {latestDate === today ? '今日日报' : '最新日报'}
               </Link>
             </h1>
           </div>
           <Link
-            to={`/daily/${today}`}
+            to={`/daily/${latestDate}`}
             state={{ backTo: BACK_TO_DAILY }}
             className="text-sm text-[var(--muted)] mb-1 hover:text-[var(--accent)] transition-colors"
           >
-            {formatDate(today)}
+            {formatDate(latestDate)}
           </Link>
         </div>
 
-        {todayLoading && !todayData && <LoadingSkeleton />}
+        {latestLoading && !latestData && <LoadingSkeleton />}
 
-        {todayData && todayCards.length === 0 && (
+        {latestData && latestCards.length === 0 && (
           <div className="glass rounded-[22px] p-10 text-center text-[var(--muted)]">
-            <p>今日暂无日报数据</p>
+            <p>暂无日报数据</p>
             <p className="text-xs mt-1">等待 GitHub Actions 定时运行 pipeline 后会生成</p>
           </div>
         )}
 
-        {todayCards.length > 0 && (
+        {latestCards.length > 0 && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-            {todayCards.map(({ name, top }) => {
+            {latestCards.map(({ name, top }) => {
               const title = top.metadata?.title_zh || top.title
               return (
                 <article

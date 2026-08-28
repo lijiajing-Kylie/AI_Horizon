@@ -1,8 +1,8 @@
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { useApi } from '../hooks/useApi'
-import { getDailyDetail, getPapers, getReports } from '../api/client'
-import { todayStr } from '../utils/date'
+import { getDailyDetail, getPapers, getReports, getRunDates } from '../api/client'
+import { todayStr, formatDateShort } from '../utils/date'
 import ScoreBadge from '../components/ScoreBadge'
 import LoadingSkeleton from '../components/LoadingSkeleton'
 import EmptyState from '../components/EmptyState'
@@ -53,7 +53,10 @@ function ComingSoon({ label }: { label: string }) {
 export default function HomePage() {
   const today = todayStr()
   const isOrganic = document.documentElement.getAttribute('data-theme') === 'organic'
-  const { data: dailyData, loading, error } = useApi(() => getDailyDetail(today), [today])
+  const { data: runDates } = useApi(() => getRunDates(1), [])
+  // 默认展示最新一天：今天有日报就是今天；今天还没跑 pipeline 则回退到最近有数据的一天
+  const latestDate = runDates?.[0] || today
+  const { data: dailyData, loading, error } = useApi(() => getDailyDetail(latestDate), [latestDate])
   const { data: reportsData } = useApi(() => getReports({ sort: 'composite_score', order: 'desc', per_page: 3 }), [])
   const { data: papersData } = useApi(() => getPapers({ sort: 'published_at', order: 'desc', per_page: 3 }), [])
 
@@ -64,7 +67,8 @@ export default function HomePage() {
   // 列级轻量 meta：日报显示今日条数，论文/报告显示库最近抓取时间。
   const dailyCount = dailyData?.total ?? 0
   const latestPaperFetch = topPapers.reduce((max, p) => (p.fetched_at > max ? p.fetched_at : max), '')
-  const latestReportFetch = topReports.reduce((max, r) => (r.fetched_at > max ? r.fetched_at : max), '')
+  // 报告库全局最近抓取时间由 API 返回（不受前 3 条综合分排序影响）；后端无此字段时回退到当前列表。
+  const latestReportFetch = reportsData?.latest_fetched_at || topReports.reduce((max, r) => (r.fetched_at > max ? r.fetched_at : max), '')
 
   if (loading && !dailyData) return <LoadingSkeleton />
   if (error) return <EmptyState title="加载失败" description={error} />
@@ -73,8 +77,10 @@ export default function HomePage() {
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-stretch">
       {/* Left half: 日报 / 论文 / 报告 columns */}
       <div className="space-y-6">
-        <Column eyebrow="TODAY" title="日报" to={`/daily/${today}`} viewMoreTo="/daily"
-          meta={dailyCount > 0 ? `今日 ${dailyCount} 条` : undefined}>
+        <Column eyebrow="TODAY" title="日报" to={`/daily/${latestDate}`} viewMoreTo="/daily"
+          meta={dailyCount > 0
+            ? (latestDate === today ? `今日 ${dailyCount} 条` : `${formatDateShort(latestDate)} ${dailyCount} 条`)
+            : undefined}>
           {topItems.length > 0 ? (
             <div className="space-y-3">
               {topItems.map(item => (
@@ -91,7 +97,7 @@ export default function HomePage() {
               ))}
             </div>
           ) : (
-            <ComingSoon label="今日日报" />
+            <ComingSoon label={latestDate === today ? '今日日报' : '最新日报'} />
           )}
         </Column>
 
