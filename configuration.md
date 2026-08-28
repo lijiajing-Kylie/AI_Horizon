@@ -408,6 +408,57 @@ Pulls top star-gain repositories from the [OSS Insight](https://ossinsight.io) p
 
 No API key is required.
 
+### WeChat Official Accounts
+
+WeChat MP articles are fetched through the **`src/we_read`** pure-HTTP channel — a forwarding service at `weread.111965.xyz` (no Playwright, no external we-mp-rss service). Login is required: scan the QR code with your WeChat app once, and the session token is stored under `data/auth/weread.json`.
+
+**Login & subscription** (`horizon-wxmp` CLI):
+
+```bash
+uv run horizon-wxmp login                    # scan QR code to log in
+uv run horizon-wxmp status                   # verify login validity
+uv run horizon-wxmp subscribe <share-link>   # resolve an account from a share link and add it to config
+uv run horizon-wxmp migrate                  # bulk-migrate existing feeds to weread_mp_id
+```
+
+```json
+{
+  "sources": {
+    "wxmp": {
+      "enabled": true,
+      "use_collector": true,
+      "gather_content": true,
+      "data_dir": "data/wxmp",
+      "feeds": [
+        { "name": "机器之心", "weread_mp_id": "MP_WXS_3073282833" },
+        { "name": "字节跳动Seed", "weread_mp_id": "MP_WXS_3930693616" }
+      ]
+    }
+  }
+}
+```
+
+- `enabled` — enable or disable the WeChat source globally
+- `feeds` — list of subscribed accounts; each needs `name` (display name) and `weread_mp_id` (resolved from a share link via `horizon-wxmp subscribe`). Feeds missing `weread_mp_id` are skipped.
+- `use_collector` — when `true` (default), the news/report pipelines read WeChat articles from the collector intermediate table `wxmp_articles` instead of calling the forwarding service at run time. Set to `false` to always live-fetch.
+- `gather_content` — fetch full article body when available
+- `data_dir` — legacy login/QR directory (the weread token itself lives in `data/auth/`)
+
+**Collector daemon** (`horizon-wxmp-collector`): a resident process that crawls each account on a randomized 4–8 h interval and writes articles to the `wxmp_articles` table, which the news and report pipelines then consume. Run it alongside the pipelines on a VPS:
+
+```bash
+uv run horizon-wxmp-collector                  # resident daemon
+uv run horizon-wxmp-collector once             # one full pass, then exit (manual catch-up / CI)
+uv run horizon-wxmp-collector status           # per-account next_run_at / last sync / table counts
+uv run horizon-wxmp-collector reset-news --run-date YYYY-MM-DD  # clear a day's news consumption markers
+uv run horizon-wxmp-collector prune --retention-days 60         # drop consumed & expired rows
+```
+
+**Notes**
+
+- The source is auto-disabled in CI (`CI=true`) since it depends on local login state.
+- The login token expires after `token_max_age_days` (default 30); re-run `horizon-wxmp login`. `horizon-auth-check` alerts you when it is about to expire.
+
 ## Filtering
 
 Content is scored 0-10:
