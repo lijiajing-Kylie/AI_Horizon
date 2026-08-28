@@ -3,6 +3,7 @@ import Layout from './components/Layout'
 import HomePage from './pages/HomePage'
 import DailyListPage from './pages/DailyListPage'
 import DailyDetailPage from './pages/DailyDetailPage'
+import TrainingPage from './pages/TrainingPage'
 import ItemDetailPage from './pages/ItemDetailPage'
 import TopicsPage from './pages/TopicsPage'
 import TopicDetailPage from './pages/TopicDetailPage'
@@ -22,6 +23,7 @@ export default function App() {
           <Route path="/" element={<HomePage />} />
           <Route path="/daily" element={<DailyListPage />} />
           <Route path="/daily/:date" element={<DailyDetailPage />} />
+          <Route path="/training" element={<TrainingPage />} />
           <Route path="/items/:id" element={<ItemDetailPage />} />
           <Route path="/topics" element={<TopicsPage />} />
           <Route path="/topics/:slug" element={<TopicDetailPage />} />

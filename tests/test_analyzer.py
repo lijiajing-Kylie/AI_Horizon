@@ -142,3 +142,62 @@ def test_analyze_item_includes_source_note_when_only_rss_summary():
 
     assert "正文抓取failed" in captured["user"]
     assert "rss_summary" in captured["user"]
+
+
+# -- training_relevance dimension -------------------------------------------------
+
+
+def _fake_ai_response_with_training(score: float) -> str:
+    resp = json.loads(_fake_ai_response())
+    resp["training_relevance"] = score
+    return json.dumps(resp)
+
+
+def test_analyze_item_reads_training_relevance():
+    async def fake_complete(system, user):
+        return _fake_ai_response_with_training(4)
+
+    analyzer = ContentAnalyzer(SimpleNamespace(complete=fake_complete))
+    item = _make_item("rss:train:1", raw_content="A deep-learning bootcamp course page.", extraction_status="success")
+
+    asyncio.run(analyzer._analyze_item(item))
+
+    assert item.training_relevance == 4.0
+    assert item.metadata["training_relevance"] == 4.0
+
+
+def test_analyze_item_training_relevance_defaults_zero_on_parse_failure():
+    async def fake_complete(system, user):
+        return "not json"
+
+    analyzer = ContentAnalyzer(SimpleNamespace(complete=fake_complete))
+    item = _make_item("rss:parse-fail")
+
+    asyncio.run(analyzer._analyze_item(item))
+
+    assert item.training_relevance == 0.0
+    assert item.metadata["training_relevance"] == 0.0
+
+
+def test_analyze_item_clamps_training_relevance_to_0_5():
+    async def fake_complete(system, user):
+        return _fake_ai_response_with_training(99)
+
+    analyzer = ContentAnalyzer(SimpleNamespace(complete=fake_complete))
+    item = _make_item("rss:train-clamp", raw_content="x", extraction_status="success")
+
+    asyncio.run(analyzer._analyze_item(item))
+
+    assert item.training_relevance == 5.0
+
+
+def test_analyze_item_missing_training_relevance_is_zero():
+    async def fake_complete(system, user):
+        return _fake_ai_response()  # no training_relevance key
+
+    analyzer = ContentAnalyzer(SimpleNamespace(complete=fake_complete))
+    item = _make_item("rss:train-missing", raw_content="x", extraction_status="success")
+
+    asyncio.run(analyzer._analyze_item(item))
+
+    assert item.training_relevance == 0.0

@@ -48,6 +48,8 @@ class ContentAnalyzer:
                     item.ai_score = 0.0
                     item.ai_reason = "Analysis failed"
                     item.ai_summary = item.title
+                    item.training_relevance = 0.0
+                    item.metadata["training_relevance"] = 0.0
                 if throttle_sec > 0 and index < len(items) - 1:
                     await asyncio.sleep(throttle_sec)
             progress.advance(progress_task)
@@ -113,6 +115,8 @@ class ContentAnalyzer:
             item.ai_reason = "Analysis response parse failed"
             item.ai_summary = item.title
             item.ai_tags = []
+            item.training_relevance = 0.0
+            item.metadata["training_relevance"] = 0.0
             return
 
         # Update item with analysis results
@@ -122,6 +126,8 @@ class ContentAnalyzer:
         item.ai_summary = result.get("summary", item.title)
         item.ai_tags = result.get("tags", [])
         item.metadata["score_breakdown"] = self._build_score_breakdown(result, item.ai_score)
+        item.training_relevance = self._clamp_training_relevance(result.get("training_relevance", 0))
+        item.metadata["training_relevance"] = item.training_relevance
 
     _SCORE_DIMENSIONS = (
         "source_authority",
@@ -173,6 +179,15 @@ class ContentAnalyzer:
 
         score = positive_score + penalty_score
         return max(0.0, min(10.0, score))
+
+    @staticmethod
+    def _clamp_training_relevance(value: Any) -> float:
+        """Parse the AI's training_relevance (0-5) into a clamped float."""
+        try:
+            tr = float(value)
+        except (TypeError, ValueError):
+            tr = 0.0
+        return max(0.0, min(5.0, tr))
 
     # -- topic classification (second-stage) ----------------------------------
 

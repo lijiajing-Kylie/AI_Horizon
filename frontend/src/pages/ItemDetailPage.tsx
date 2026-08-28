@@ -169,7 +169,7 @@ export default function ItemDetailPage() {
       {/* ===== Article info card ===== */}
       <header className="glass news-card rounded-[28px] p-7 mb-6">
         <div className="flex items-start gap-3 mb-3">
-          <ScoreBadge score={item.ai_score} />
+          {!item.is_training && <ScoreBadge score={item.ai_score} />}
           <h1 className="flex-1 text-xl font-semibold text-[var(--ink)] leading-snug">
             {content.title}
           </h1>

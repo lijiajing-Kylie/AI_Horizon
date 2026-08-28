@@ -65,6 +65,7 @@ def _row_to_item(row: sqlite3.Row) -> dict:
         "run_date": row["run_date"],
         "selected": bool(row["selected"]) if "selected" in row.keys() else False,
         "drop_reason": row["drop_reason"] if "drop_reason" in row.keys() else None,
+        "is_training": bool(row["is_training"]) if "is_training" in row.keys() else False,
     }
 
 

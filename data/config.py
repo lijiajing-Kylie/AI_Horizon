@@ -237,6 +237,12 @@ filtering = {
     },
     "default_group": "other",    # 未匹配任何配额组的分类归入此组
     "default_group_limit": 3,    # 默认组在回填时的条目上限，None 为不限制
+
+    # 培训子栏目：独立过滤门。只要 AI 判定 training_relevance >= 阈值即进培训栏目，
+    # 不要求 ai_relevant / ai_score 门槛——课程招生、训练营招募这类带营销属性的内容也能进。
+    "training_enabled": True,
+    "training_relevance_threshold": 4.0,  # 培训相关性阈值（0-5）
+    "training_max_items": 6,              # 培训栏目条目上限，None 为不限制
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════

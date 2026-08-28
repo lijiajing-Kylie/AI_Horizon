@@ -25,6 +25,8 @@ LABELS = {
         "discussion": "Discussion",
         "references": "References",
         "tags": "Tags",
+        "training": "Training",
+        "training_toc": "Training",
         "selected_items": "From {total} items, {selected} important content pieces were selected",
         "empty_analyzed": "Analyzed {total} items, but none met the importance threshold.",
         "empty_body": (
@@ -45,6 +47,8 @@ LABELS = {
         "discussion": "社区讨论",
         "references": "参考链接",
         "tags": "标签",
+        "training": "培训",
+        "training_toc": "培训",
         "selected_items": "从 {total} 条内容中筛选出 {selected} 条重要资讯。",
         "empty_analyzed": "已分析 {total} 条内容，但没有达到重要性阈值的条目。",
         "empty_body": (
@@ -98,20 +102,45 @@ class DailySummarizer:
             "---\n\n"
         )
 
-        # TOC
+        # Split the training sub-track out: training items (course ads / bootcamp
+        # recruiting) render in their own trailing section. A single global index
+        # keeps item-N anchors unique and leaves normal items' anchors unchanged.
+        normal_items = [i for i in items if not i.is_training]
+        training_items = [i for i in items if i.is_training]
+        training_items.sort(key=lambda i: i.training_relevance or 0.0, reverse=True)
+
+        # TOC + body
         toc_entries = []
-        for i, item in enumerate(items):
-            _t = item.metadata.get(f"title_{language}") or item.title
-            t = str(_t).replace("[", "(").replace("]", ")")
-            if language == "zh":
-                t = _pangu(t)
-            score = item.ai_score or "?"
-            toc_entries.append(f"{i + 1}. [{t}](#item-{i + 1}) \u2b50\ufe0f {score}/10")
+        parts = []
+        idx = 0
+        for item in normal_items:
+            idx += 1
+            toc_entries.append(self._toc_line(item, labels, language, idx))
+            parts.append(self._format_item(item, labels, language, idx))
+        if training_items:
+            toc_entries.append(f"\n{labels['training_toc']}")
+            parts.append(f"\n## {labels['training']}\n")
+            for item in training_items:
+                idx += 1
+                toc_entries.append(self._toc_line(item, labels, language, idx, training=True))
+                parts.append(self._format_item(item, labels, language, idx, show_score=False))
         toc = "\n".join(toc_entries) + "\n\n---\n\n"
 
-        parts = [self._format_item(item, labels, language, i + 1) for i, item in enumerate(items)]
-
         return header + toc + "".join(parts)
+
+    @staticmethod
+    def _toc_line(item: ContentItem, labels: dict, language: str, index: int, training: bool = False) -> str:
+        """Build one TOC line. Normal items carry their 0-10 ai_score; training
+        items carry no score \u2014 the training section stands on relevance +
+        summary + reason, not a rating."""
+        _t = item.metadata.get(f"title_{language}") or item.title
+        t = str(_t).replace("[", "(").replace("]", ")")
+        if language == "zh":
+            t = _pangu(t)
+        if training:
+            return f"{index}. [{t}](#item-{index})"
+        score = item.ai_score or "?"
+        return f"{index}. [{t}](#item-{index}) \u2b50\ufe0f {score}/10"
 
     def generate_webhook_overview(
         self,
@@ -160,8 +189,14 @@ class DailySummarizer:
         prefix = f"第 {index}/{total} 条\n\n" if language == "zh" else f"Item {index}/{total}\n\n"
         return prefix + self._format_item(item, labels, language, index).rstrip("-\n ")
 
-    def _format_item(self, item: ContentItem, labels: dict, language: str, index: int) -> str:
-        """Format a single ContentItem into Markdown."""
+    def _format_item(
+        self, item: ContentItem, labels: dict, language: str, index: int, *, show_score: bool = True
+    ) -> str:
+        """Format a single ContentItem into Markdown.
+
+        Training items pass ``show_score=False`` — they are selected by the
+        independent training gate and don't get a news score line.
+        """
         _title = item.metadata.get(f"title_{language}") or item.title
         title = str(_title).replace("[", "(").replace("]", ")")
         url = str(item.url)
@@ -283,9 +318,10 @@ class DailySummarizer:
                 f'<ul>\n{detail_block}\n</ul>\n</details>'
             )
 
+        headline = f"## [{title}]({url}) ⭐️ {score}/10" if show_score else f"## [{title}]({url})"
         lines = [
             f'<a id="item-{index}"></a>',
-            f"## [{title}]({url}) ⭐️ {score}/10",  # ⭐️
+            headline,
             "",
             summary,
             "",

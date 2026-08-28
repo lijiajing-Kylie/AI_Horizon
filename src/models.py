@@ -123,6 +123,13 @@ class ContentItem(BaseModel):
     ai_summary: Optional[str] = None
     ai_tags: List[str] = Field(default_factory=list)
 
+    # Training sub-track: independent filter gate for AI/tech training courses.
+    # training_relevance is the AI 0-5 rating (also persisted in metadata);
+    # is_training is the orchestrator's selection decision (threshold + cap),
+    # set during the filter stage — not emitted directly by the AI.
+    training_relevance: Optional[float] = None  # 0-5 training-course relevance
+    is_training: bool = False  # True = selected into the "培训" section
+
 
 def sub_source_label(item: ContentItem) -> str:
     """Return a human-readable sub-source label for an item."""
@@ -684,6 +691,15 @@ class FilteringConfig(BaseModel):
     category_groups: Dict[str, CategoryGroupConfig] = Field(default_factory=dict, description="按分类设置配额组。key 为组名，value 为该组的分类列表和上限")
     default_group: str = Field(default="other", description="未匹配到任何配额组的分类归入此组")
     default_group_limit: Optional[int] = Field(default=None, gt=0, description="默认组的条目上限")
+
+    # Training sub-track ("培训" 栏目): an independent filter gate for AI/tech
+    # training-course content. Unlike the normal gate (ai_relevant AND
+    # ai_score >= threshold), items pass on training_relevance alone — course
+    # ads / bootcamp recruiting often carry marketing signals that would fail
+    # the normal threshold.
+    training_enabled: bool = Field(default=False, description="是否启用日报“培训”子栏目（独立过滤门）")
+    training_relevance_threshold: float = Field(default=4.0, ge=0, le=5, description="培训相关性阈值（0-5），AI 判定 >= 此值即进培训栏目")
+    training_max_items: Optional[int] = Field(default=6, ge=0, description="培训栏目条目上限（None 不限制）")
 
 
 class Config(BaseModel):

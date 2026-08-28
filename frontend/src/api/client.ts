@@ -78,6 +78,7 @@ export function getItems(params?: {
   run_date?: string; category?: string; tag?: string;
   source_type?: string; search?: string; min_score?: number;
   sort?: string; order?: string; page?: number; per_page?: number;
+  is_training?: boolean;
 }): Promise<PaginatedResponse<NewsItem>> {
   return STATIC_MODE
     ? staticClient.getItems(params)

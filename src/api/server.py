@@ -491,6 +491,7 @@ def list_items(
     order: str = Query("desc", description="Sort direction (asc/desc)"),
     page: int = Query(1, ge=1, description="Page number"),
     per_page: int = Query(20, ge=1, le=100, description="Items per page"),
+    is_training: Optional[bool] = Query(None, description="Filter by training sub-track flag"),
     user_id: Optional[str] = Depends(_get_user_id_optional),
 ) -> dict:
     """Paginated list of scored content items with optional filters.
@@ -513,6 +514,7 @@ def list_items(
         page=page,
         per_page=per_page,
         blocked_topic_ids=blocked_topic_ids,
+        is_training=is_training,
     )
     _attach_favorited(result["items"], user_id)
     return result
@@ -877,7 +879,8 @@ def daily_detail(date: str, user_id: Optional[str] = Depends(_get_user_id_option
     run_date = date.isoformat() if hasattr(date, "isoformat") else str(date)
 
     blocked_topic_ids = db.get_blocked_topic_ids(user_id) if user_id else None
-    result = db.get_items(run_date=run_date, per_page=200, blocked_topic_ids=blocked_topic_ids)
+    # 培训子轨独立成 /training 页：日报端点显式排除 is_training，两块互不掺和
+    result = db.get_items(run_date=run_date, per_page=200, blocked_topic_ids=blocked_topic_ids, is_training=False)
     stats = db.get_stats(run_date=run_date)
     tags = db.get_tags(run_date=run_date)
     topics = _filter_blocked_topics(

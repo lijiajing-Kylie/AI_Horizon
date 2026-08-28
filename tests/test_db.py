@@ -1283,3 +1283,84 @@ class TestRawContentAndExtractionMetadata:
             "rss:blog:1": ("<p>你好</p>", "abc123"),
         }
         db.close()
+
+
+# ---------------------------------------------------------------------------
+# Training sub-track
+# ---------------------------------------------------------------------------
+
+
+class TestTraining:
+    def test_save_roundtrip_is_training(self, tmp_path):
+        db = HorizonDB(db_path=str(tmp_path / "test.db"))
+        item = _make_item(id="hn:train:1", ai_score=2.0)
+        item.is_training = True
+        db.save_items([item], run_date="2026-07-06", total_fetched=1, selected=True)
+
+        result = db.get_items(run_date="2026-07-06", selected_only=True)
+        row = result["items"][0]
+        assert row["is_training"] is True
+        db.close()
+
+    def test_get_items_filters_by_is_training(self, tmp_path):
+        db = HorizonDB(db_path=str(tmp_path / "test.db"))
+        normal = _make_item(id="hn:norm:1")
+        training = _make_item(id="hn:train:2")
+        training.is_training = True
+        db.save_items([normal, training], run_date="2026-07-06", total_fetched=2, selected=True)
+
+        only_training = db.get_items(run_date="2026-07-06", selected_only=True, is_training=True)
+        assert [i["id"] for i in only_training["items"]] == ["hn:train:2"]
+
+        only_normal = db.get_items(run_date="2026-07-06", selected_only=True, is_training=False)
+        assert [i["id"] for i in only_normal["items"]] == ["hn:norm:1"]
+        db.close()
+
+    def test_migrate_adds_is_training_column_default_zero(self, tmp_path):
+        """Existing DBs get the is_training column via the idempotent migration."""
+        path = str(tmp_path / "old.db")
+        conn = sqlite3.connect(path)
+        conn.executescript(
+            """
+            CREATE TABLE items (
+                id TEXT PRIMARY KEY,
+                source_type TEXT NOT NULL,
+                title TEXT NOT NULL,
+                url TEXT NOT NULL,
+                content TEXT,
+                raw_content TEXT,
+                raw_html TEXT,
+                display_html TEXT,
+                display_html_zh TEXT,
+                cover_image TEXT,
+                images_json TEXT NOT NULL DEFAULT '[]',
+                author TEXT,
+                published_at TEXT NOT NULL,
+                fetched_at TEXT NOT NULL,
+                ai_relevant INTEGER,
+                ai_score REAL,
+                ai_reason TEXT,
+                ai_summary TEXT,
+                ai_tags_json TEXT NOT NULL DEFAULT '[]',
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                run_date TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                selected INTEGER NOT NULL DEFAULT 0,
+                drop_reason TEXT,
+                category TEXT
+            );
+            """
+        )
+        conn.commit()
+        conn.close()
+
+        # Opening through HorizonDB runs the idempotent _migrate_items_table.
+        db = HorizonDB(db_path=path)
+        cols = {r["name"] for r in db.conn.execute("PRAGMA table_info(items)")}
+        assert "is_training" in cols
+        # Defaults to 0 (non-training) for legacy rows
+        db.conn.execute("INSERT INTO items (id, source_type, title, url, published_at, fetched_at, run_date) VALUES ('x', 'rss', 't', 'http://e', '2026-01-01', '2026-01-01', '2026-07-06')")
+        db.conn.commit()
+        row = db.conn.execute("SELECT is_training FROM items WHERE id = 'x'").fetchone()
+        assert row[0] == 0
+        db.close()

@@ -17,6 +17,7 @@ import type { NewsItem, Paper, Report } from '../api/types'
 const NAV_LINKS = [
   { to: '/', label: '首页' },
   { to: '/daily', label: '日报' },
+  { to: '/training', label: '培训' },
   { to: '/papers', label: '论文' },
   { to: '/reports', label: '报告' },
   { to: '/favorites', label: '收藏' },

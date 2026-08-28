@@ -36,7 +36,7 @@ from .ai.enricher import ContentEnricher
 from .ai.tokens import get_usage_snapshot
 from .content_extractor import extract_full_content_batch
 from .seed_topics import build_seed_topics
-from .filtering import BalancedDigestResult, apply_balanced_digest
+from .filtering import BalancedDigestResult, apply_balanced_digest, select_training_items
 from .dedup import (
     apply_multi_source_bonus,
     build_source_attribution,
@@ -163,6 +163,23 @@ class HorizonOrchestrator:
             analyzed_items = await self._analyze_content(merged_items)
             self.console.print(f"🤖 Analyzed {len(analyzed_items)} items with AI\n")
 
+            # 4.15 Training sub-track partition — independent filter gate.
+            # Training items pass on training_relevance alone (NOT ai_relevant /
+            # ai_score), so course ads & bootcamp recruiting survive the normal
+            # threshold. Runs before the pre-filter snapshot so persisted rows
+            # carry the correct is_training flag.
+            filtering = self.config.filtering
+            training_items, training_candidate_ids = select_training_items(
+                analyzed_items, filtering
+            )
+            if filtering.training_enabled:
+                self.console.print(
+                    f"🎓 Training: {len(training_items)} items selected "
+                    f"({len(training_candidate_ids)} candidates ≥ {filtering.training_relevance_threshold}, "
+                    f"cap={filtering.training_max_items})\n"
+                )
+            analyzed_pool = [it for it in analyzed_items if it.id not in training_candidate_ids]
+
             # 4.1 Persist ALL scored items immediately (selected=False) so
             #     dropped items are available for later audit queries.
             self.db.save_items(analyzed_items, today, len(all_items), selected=False, replace=True)
@@ -177,10 +194,10 @@ class HorizonOrchestrator:
 
             # 4.5 Filter by AI relevance (binary gate — only AI/LLM content passes)
             relevant_items = [
-                item for item in analyzed_items
+                item for item in analyzed_pool
                 if item.ai_relevant is True
             ]
-            skipped_relevance = len(analyzed_items) - len(relevant_items)
+            skipped_relevance = len(analyzed_pool) - len(relevant_items)
             if skipped_relevance > 0:
                 self.console.print(
                     f"🎯 {len(relevant_items)} items are AI-relevant "
@@ -235,6 +252,16 @@ class HorizonOrchestrator:
             important_items = deduped_items
             deduped_ids = {item.id for item in important_items}
 
+            # 5.5.5 Merge the training sub-track. Dedup runs WITHIN the training
+            # subset only: merge_topic_duplicates keeps group[0] as canonical and
+            # expects ai_score-desc order, so a cross-track dedup would let a
+            # higher-scored normal item absorb a training item and silently empty
+            # the training quota.
+            if training_items:
+                training_items.sort(key=lambda i: i.ai_score or 0.0, reverse=True)
+                training_items = await self.merge_topic_duplicates(training_items)
+                important_items = important_items + training_items
+
             # 5.51 Build unified source attribution for display
             self._build_source_attribution(important_items)
 
@@ -251,15 +278,19 @@ class HorizonOrchestrator:
 
             # 5.8 Apply global digest cap; source-type quotas only when backfilling
             balanced_result = self.apply_balanced_digest(
-                important_items,
+                [i for i in important_items if not i.is_training],
                 enable_group_quotas=backfilled,
             )
-            important_items = balanced_result.items
+            # Training items are already capped by training_max_items and must not
+            # compete for the global max_items budget (their ai_score is low).
+            important_items = balanced_result.items + [i for i in important_items if i.is_training]
             final_ids = {item.id for item in important_items}
 
             # 5.9 Compute drop reasons and mark selection in SQLite
             drop_reason_map: dict[str, str] = {}
             for item in analyzed_items:
+                if item.id in training_candidate_ids:
+                    continue  # training sub-track: no drop reason (cap/dedup drops are implicit)
                 if item.id not in relevant_ids:
                     drop_reason_map[item.id] = "relevance"
                 elif item.id not in score_passed_ids:
@@ -326,7 +357,9 @@ class HorizonOrchestrator:
                 if self.webhook_notifier:
                     await self.webhook_notifier.send_daily_summary(
                         summary=summary,
-                        important_items=important_items,
+                        # Training items are course-marketing-ish content; keep
+                        # them out of the chat-webhook push.
+                        important_items=[i for i in important_items if not i.is_training],
                         all_items_count=len(all_items),
                         date=today,
                         lang=lang,

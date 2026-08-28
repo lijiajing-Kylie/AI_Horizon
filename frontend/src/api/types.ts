@@ -106,6 +106,8 @@ export interface NewsItem {
   metadata: Record<string, any>
   topics: Topic[]
   run_date: string
+  /** 培训子栏目标记（独立过滤门选入的 AI/技术培训课程内容）。 */
+  is_training?: boolean
   content_block?: ContentBlock
   debug?: ScrapeDiagnostics
   /** Only present when the request carried X-User-Id (see utils/userId.ts). */

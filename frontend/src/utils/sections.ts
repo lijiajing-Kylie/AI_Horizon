@@ -20,10 +20,22 @@ export const SECTION_ORDER = [
 // The 4 section display names in canonical order (derived from SECTION_ORDER).
 export const SECTION_NAMES = SECTION_ORDER.map(slug => SECTION_MAP[slug])
 
+// Split training sub-track items out of the normal content flow. Training
+// items live in their own "培训" section (daily detail page) and /training page.
+export function splitTraining(items: NewsItem[]): { normal: NewsItem[]; training: NewsItem[] } {
+  const training: NewsItem[] = []
+  const normal: NewsItem[] = []
+  for (const it of items) (it.is_training ? training : normal).push(it)
+  return { normal, training }
+}
+
 export function groupBySection(items: NewsItem[]): Map<string, NewsItem[]> {
   const map = new Map<string, NewsItem[]>()
 
   for (const item of items) {
+    // Training items are handled by their own section — skip here so they
+    // never surface in the 4 normal content-form cards.
+    if (item.is_training) continue
     const contentTopics = (item.topics || []).filter(t => t.group_name === '内容形态')
     if (contentTopics.length > 0) {
       // Use the first content-type topic as primary section

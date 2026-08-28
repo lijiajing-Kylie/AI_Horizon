@@ -41,7 +41,8 @@ CREATE TABLE IF NOT EXISTS items (
     created_at      TEXT NOT NULL DEFAULT (datetime('now')),
     selected        INTEGER NOT NULL DEFAULT 0,
     drop_reason     TEXT,
-    category        TEXT
+    category        TEXT,
+    is_training     INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_items_selected ON items(selected);
@@ -285,6 +286,7 @@ _ITEMS_COLUMN_MIGRATIONS: list[tuple[str, str]] = [
     ("display_html_zh", "TEXT"),
     ("raw_content", "TEXT"),
     ("category", "TEXT"),
+    ("is_training", "INTEGER NOT NULL DEFAULT 0"),
 ]
 
 
@@ -403,6 +405,7 @@ def _migrate_items_table(conn: sqlite3.Connection) -> None:
     # this migration, so an index referencing a not-yet-added column would
     # fail. Safe to run unconditionally here since the column now always exists.
     conn.execute("CREATE INDEX IF NOT EXISTS idx_items_category ON items(category)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_items_run_date_is_training ON items(run_date, is_training)")
     conn.commit()
 
 
@@ -662,6 +665,7 @@ def _row_to_item(row: sqlite3.Row) -> dict[str, Any]:
         "run_date": row["run_date"],
         "selected": bool(row["selected"]) if "selected" in row.keys() else False,
         "drop_reason": row["drop_reason"] if "drop_reason" in row.keys() else None,
+        "is_training": bool(row["is_training"]) if "is_training" in row.keys() else False,
     }
 
 
@@ -903,6 +907,7 @@ class HorizonDB:
                 1 if selected else 0,
                 drop_reason,
                 category,
+                1 if item.is_training else 0,
             ))
 
         # Extraction-stage columns are set once (step 2.5, before analysis)
@@ -929,7 +934,7 @@ class HorizonDB:
                 "images_json", "author", "published_at", "fetched_at",
                 "ai_relevant", "ai_score", "ai_reason", "ai_summary",
                 "ai_tags_json", "metadata_json", "run_date", "created_at",
-                "selected", "drop_reason", "category",
+                "selected", "drop_reason", "category", "is_training",
             )
         )
 
@@ -939,8 +944,8 @@ class HorizonDB:
                 display_html, display_html_zh, cover_image, images_json, author,
                 published_at, fetched_at, ai_relevant, ai_score,
                 ai_reason, ai_summary, ai_tags_json, metadata_json,
-                run_date, created_at, selected, drop_reason, category
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                run_date, created_at, selected, drop_reason, category, is_training
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 {update_clause}""",
             rows,
@@ -1035,6 +1040,7 @@ class HorizonDB:
         per_page: int = 20,
         selected_only: bool = True,
         blocked_topic_ids: Optional[Iterable[int]] = None,
+        is_training: Optional[bool] = None,
     ) -> dict[str, Any]:
         """Paginated item query with optional filters.
 
@@ -1076,6 +1082,10 @@ class HorizonDB:
         if min_score is not None:
             where.append("ai_score >= ?")
             params.append(min_score)
+
+        if is_training is not None:
+            where.append("is_training = ?")
+            params.append(1 if is_training else 0)
 
         where_clause = " AND ".join(where) if where else "1=1"
 

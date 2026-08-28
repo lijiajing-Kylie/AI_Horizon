@@ -8,6 +8,8 @@ interface SectionBlockProps {
   title: string
   items: NewsItem[]
   backTo?: BackTarget
+  /** Optional small caps eyebrow rendered above the title (e.g. "TRAINING"). */
+  eyebrow?: string
 }
 
 // Collapsed section titles, tracked outside React state so a section stays
@@ -15,7 +17,7 @@ interface SectionBlockProps {
 // this component and would otherwise reset a local useState to its default).
 const collapsedSections = new Set<string>()
 
-export default function SectionBlock({ title, items, backTo }: SectionBlockProps) {
+export default function SectionBlock({ title, items, backTo, eyebrow }: SectionBlockProps) {
   const [expanded, setExpanded] = useState(() => !collapsedSections.has(title))
 
   if (items.length === 0) return null
@@ -31,6 +33,9 @@ export default function SectionBlock({ title, items, backTo }: SectionBlockProps
 
   return (
     <section className="mb-8">
+      {eyebrow && (
+        <p className="text-[11px] font-bold tracking-[.14em] text-[var(--muted)] mb-1">{eyebrow}</p>
+      )}
       <h2
         onClick={toggle}
         className="flex items-center gap-1.5 text-sm font-semibold mb-4 pb-2 border-b-2 border-[var(--accent)] text-[var(--accent)] cursor-pointer select-none"

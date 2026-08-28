@@ -82,7 +82,9 @@ export default function ItemCard({ item, showTopics = true, backTo }: ItemCardPr
     <article className="glass news-card rounded-2xl p-5">
       {/* Title row */}
       <div className="flex items-start gap-2 mb-2">
-        <ScoreBadge score={item.ai_score} />
+        {/* Training items are selected by the independent training gate and are
+            not news-scored — don't show a score badge for them. */}
+        {!item.is_training && <ScoreBadge score={item.ai_score} />}
         <div className="flex-1 min-w-0">
           <h3 className="text-base font-medium text-[var(--ink)] leading-snug flex flex-wrap items-center gap-2">
             <Link

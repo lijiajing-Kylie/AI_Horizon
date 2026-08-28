@@ -22,6 +22,34 @@ class BalancedDigestResult:
     duplicate_categories: List[str] = field(default_factory=list)
 
 
+def select_training_items(
+    items: List[ContentItem],
+    filtering: FilteringConfig,
+) -> tuple[List[ContentItem], set[str]]:
+    """Partition the training sub-track by its independent filter gate.
+
+    Training items pass on ``training_relevance`` alone — NOT the normal
+    ai_relevant / ai_score threshold — so course ads & bootcamp recruiting
+    (which carry marketing signals and score low on the news gate) survive.
+
+    Returns:
+        ``(selected, candidate_ids)``: ``selected`` is the relevance-descending
+        subset capped at ``filtering.training_max_items``; ``candidate_ids`` is
+        every item that cleared the relevance threshold (whether or not it made
+        the cap), used by the orchestrator to keep drop_reason auditing honest.
+    """
+    if not filtering.training_enabled:
+        return [], set()
+
+    thr = filtering.training_relevance_threshold or 0.0
+    candidates = [it for it in items if (it.training_relevance or 0.0) >= thr]
+    for it in candidates:
+        it.is_training = True
+    candidates.sort(key=lambda i: i.training_relevance or 0.0, reverse=True)
+    selected = candidates[: filtering.training_max_items] if filtering.training_max_items is not None else candidates
+    return selected, {it.id for it in candidates}
+
+
 def apply_balanced_digest(
     items: List[ContentItem],
     filtering: FilteringConfig,

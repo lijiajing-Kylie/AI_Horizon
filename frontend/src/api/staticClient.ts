@@ -129,7 +129,7 @@ function applyPagination<T>(items: T[], page: number = 1, per_page: number = 20)
 
 function filterItems(items: NewsItem[], params?: {
   category?: string; tag?: string; source_type?: string;
-  search?: string; min_score?: number;
+  search?: string; min_score?: number; is_training?: boolean;
 }) {
   if (!params) return items
   return items.filter(it => {
@@ -141,6 +141,7 @@ function filterItems(items: NewsItem[], params?: {
       if (!it.title.toLowerCase().includes(q) && !(it.ai_summary || '').toLowerCase().includes(q)) return false
     }
     if (params.min_score !== undefined && (it.ai_score ?? 0) < params.min_score) return false
+    if (params.is_training !== undefined && Boolean(it.is_training) !== params.is_training) return false
     return true
   })
 }
@@ -188,6 +189,7 @@ export async function getItems(params?: {
   run_date?: string; category?: string; tag?: string;
   source_type?: string; search?: string; min_score?: number;
   sort?: string; order?: string; page?: number; per_page?: number;
+  is_training?: boolean;
 }): Promise<PaginatedResponse<NewsItem>> {
   let items: NewsItem[]
 

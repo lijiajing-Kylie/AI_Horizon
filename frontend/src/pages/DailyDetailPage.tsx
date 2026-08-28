@@ -56,9 +56,11 @@ export default function DailyDetailPage() {
 
       {/* Sections */}
       {items.length > 0 ? (
-        orderedSections.map(([name, sectionItems]) => (
-          <SectionBlock key={name} title={name} items={sectionItems} backTo={backTo} />
-        ))
+        <>
+          {orderedSections.map(([name, sectionItems]) => (
+            <SectionBlock key={name} title={name} items={sectionItems} backTo={backTo} />
+          ))}
+        </>
       ) : (
         <EmptyState title="该日暂无内容" />
       )}
