@@ -159,3 +159,71 @@ def test_merged_event_exposes_multi_source_attribution(monkeypatch) -> None:
     assert set(attribution["labels"]) == {"MarkTechPost", "AI Hot"}
     urls = {d["url"] for d in attribution["detail"]}
     assert urls == {str(primary.url), str(duplicate.url)}
+
+
+def test_retries_once_on_empty_response_then_merges(monkeypatch) -> None:
+    """A single empty AI response (the len=0 case) should be retried once,
+    not silently skipped."""
+    primary = make_marktechpost_item()
+    duplicate = make_aihot_item()
+
+    calls = {"count": 0}
+
+    class FlakyAIClient:
+        async def complete(self, system, user, temperature=None, max_tokens=None) -> str:
+            calls["count"] += 1
+            if calls["count"] == 1:
+                return ""
+            return _mock_dedup_response(primary, duplicate)
+
+    monkeypatch.setattr("src.dedup.create_ai_client", lambda config: FlakyAIClient())
+    monkeypatch.setattr("src.dedup._DEDUP_RETRY_DELAY", 0)
+
+    orchestrator = make_orchestrator()
+    result = asyncio.run(orchestrator.merge_topic_duplicates([primary, duplicate]))
+
+    # Two attempts were made, and the retry succeeded in merging.
+    assert calls["count"] == 2
+    assert [item.id for item in result] == [primary.id]
+
+
+def test_retries_once_on_exception_then_merges(monkeypatch) -> None:
+    """An exception on the first attempt should also trigger one retry."""
+    primary = make_marktechpost_item()
+    duplicate = make_aihot_item()
+
+    calls = {"count": 0}
+
+    class FlakyAIClient:
+        async def complete(self, system, user, temperature=None, max_tokens=None) -> str:
+            calls["count"] += 1
+            if calls["count"] == 1:
+                raise RuntimeError("transient provider failure")
+            return _mock_dedup_response(primary, duplicate)
+
+    monkeypatch.setattr("src.dedup.create_ai_client", lambda config: FlakyAIClient())
+    monkeypatch.setattr("src.dedup._DEDUP_RETRY_DELAY", 0)
+
+    orchestrator = make_orchestrator()
+    result = asyncio.run(orchestrator.merge_topic_duplicates([primary, duplicate]))
+
+    assert calls["count"] == 2
+    assert [item.id for item in result] == [primary.id]
+
+
+def test_skips_when_both_attempts_empty(monkeypatch) -> None:
+    """Two empty responses in a row → skip topic dedup, items unchanged."""
+    primary = make_marktechpost_item()
+    duplicate = make_aihot_item()
+
+    class EmptyAIClient:
+        async def complete(self, system, user, temperature=None, max_tokens=None) -> str:
+            return ""
+
+    monkeypatch.setattr("src.dedup.create_ai_client", lambda config: EmptyAIClient())
+    monkeypatch.setattr("src.dedup._DEDUP_RETRY_DELAY", 0)
+
+    orchestrator = make_orchestrator()
+    result = asyncio.run(orchestrator.merge_topic_duplicates([primary, duplicate]))
+
+    assert [item.id for item in result] == [primary.id, duplicate.id]

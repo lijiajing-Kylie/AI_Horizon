@@ -11,6 +11,8 @@ to give independently-corroborated stories a small score bump.
 
 from __future__ import annotations
 
+import asyncio
+
 from typing import Dict, List, Optional
 from urllib.parse import parse_qsl, urlparse
 
@@ -32,6 +34,9 @@ _MAX_MERGED_IMAGES = 20
 
 MULTI_SOURCE_BONUS_THRESHOLD = 3
 MULTI_SOURCE_BONUS = 1.0
+
+# Backoff between the two topic-dedup AI attempts (see merge_topic_duplicates).
+_DEDUP_RETRY_DELAY = 1.5
 
 # Query parameters that don't affect content identity — stripped during URL
 # normalization so pages reachable via multiple tracking URLs still deduplicate.
@@ -349,7 +354,8 @@ async def merge_topic_duplicates(
     Content (comments) from duplicate items is merged into the primary.
 
     Parses the AI response for ``source_provenance`` to build rich source
-    records.  Falls back to returning items unchanged if the AI call fails.
+    records.  A failed or empty AI response is retried once before falling
+    back to returning items unchanged.
     """
     if len(items) <= 1:
         return items
@@ -374,29 +380,47 @@ async def merge_topic_duplicates(
     # JSON parse) once there are more than a handful of duplicate groups.
     dedup_max_tokens = max(ai_config.max_tokens, 1500 + 350 * len(items))
 
-    try:
-        ai_client = create_ai_client(ai_config)
-        response = await ai_client.complete(
-            system=TOPIC_DEDUP_SYSTEM,
-            user=TOPIC_DEDUP_USER.format(items=items_text),
-            max_tokens=dedup_max_tokens,
-        )
-        result = parse_json_response(response)
-        if result is None:
-            if console:
-                preview = response[:300].replace("\n", " ")
-                console.print(
-                    "[yellow]  dedup: could not parse AI response, skipping "
-                    f"(len={len(response)}, preview={preview!r})[/yellow]"
-                )
-            return items
+    # A single dedup call occasionally returns an empty/partial body (large
+    # batches under the forced json_object schema). Retry once before skipping,
+    # since skipping leaves near-duplicate stories unmerged for the day.
+    async def _attempt_dedup() -> tuple[Optional[dict], str]:
+        """Run one dedup AI call; return (parsed_result, failure_reason).
 
-        duplicate_groups = result.get("duplicates", [])
-        source_provenance_raw = result.get("source_provenance", {})
-    except Exception as e:
+        failure_reason is empty on success, otherwise a human-readable
+        description of why this attempt produced no usable JSON.
+        """
+        try:
+            ai_client = create_ai_client(ai_config)
+            response = await ai_client.complete(
+                system=TOPIC_DEDUP_SYSTEM,
+                user=TOPIC_DEDUP_USER.format(items=items_text),
+                max_tokens=dedup_max_tokens,
+            )
+            result = parse_json_response(response)
+            if result is None:
+                preview = response[:300].replace("\n", " ")
+                return None, (
+                    f"could not parse AI response "
+                    f"(len={len(response)}, preview={preview!r})"
+                )
+            return result, ""
+        except Exception as e:
+            return None, f"AI call failed ({e})"
+
+    result, failure = await _attempt_dedup()
+    if result is None:
+        # Retry once — a transient empty body shouldn't skip topic dedup.
         if console:
-            console.print(f"[yellow]  dedup: AI call failed ({e}), skipping[/yellow]")
+            console.print(f"[yellow]  dedup: {failure}, retrying once...[/yellow]")
+        await asyncio.sleep(_DEDUP_RETRY_DELAY)
+        result, failure = await _attempt_dedup()
+    if result is None:
+        if console:
+            console.print(f"[yellow]  dedup: {failure}, skipping topic dedup[/yellow]")
         return items
+
+    duplicate_groups = result.get("duplicates", [])
+    source_provenance_raw = result.get("source_provenance", {})
 
     if not duplicate_groups:
         return items
