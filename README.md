@@ -1,422 +1,192 @@
 <div align="center">
-<h1>🌅 Horizon</h1>
 
-<p><strong>Enjoy the News itself. Leave others to Horizon</strong></p>
+# 🌅 Horizon
 
-<a href="https://trendshift.io/repositories/22864?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-22864" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/22864/daily" alt="Thysrael%2FHorizon | Trendshift" width="250" height="55"/></a>
-<a href="https://trendshift.io/repositories/22864?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-22864" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/22864/weekly?language=Python" alt="Thysrael%2FHorizon | Trendshift" width="250" height="55"/></a>
-<a href="https://hellogithub.com/repository/Thysrael/Horizon" target="_blank"><img src="https://abroad.hellogithub.com/v1/widgets/recommend.svg?rid=7a4b606e28e4477998d35851cf4fdddf&claim_uid=rtjnLkYT7ziQJUG" alt="Featured｜HelloGitHub" style="width: 250px; height: 54px;" width="250" height="54" /></a>
-<br>
+**你只管读结果，筛噪与精读交给 Horizon。**
 
-[![License](https://img.shields.io/badge/license-MIT-green.svg?style=for-the-badge&logo=opensourceinitiative&logoColor=white)](LICENSE)
-[![Tool uv](https://img.shields.io/badge/Tool-uv-4B275F?style=for-the-badge&logo=uv&logoColor=white)](https://github.com/astral-sh/uv)
-[![Website](https://img.shields.io/badge/Website-Horizon-263238?style=for-the-badge&logo=homepage&logoColor=white)](https://www.horizon1123.top/)
-[![Daily](https://img.shields.io/github/actions/workflow/status/Thysrael/Horizon/deploy-docs.yml?branch=main&label=Daily&style=for-the-badge&logo=date-fns&logoColor=white)](https://thysrael.github.io/Horizon/)
-[![Commit](https://img.shields.io/github/commit-activity/m/Thysrael/Horizon?label=Commit&style=for-the-badge&logo=github&logoColor=white)](https://github.com/Thysrael/Horizon/commits/main)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=for-the-badge&logo=github&logoColor=white)](https://github.com/Thysrael/Horizon/pulls)
-![Sources Welcome](https://img.shields.io/badge/sources-welcome-f97316?style=for-the-badge&logo=rss&logoColor=white)
-
-![Claude](https://img.shields.io/badge/Claude-f0daba?style=flat-square&logo=anthropic&logoColor=black)
-![GPT](https://img.shields.io/badge/GPT-10A37F?style=flat-square&logo=data:image/svg%2bxml;base64,PHN2ZyByb2xlPSJpbWciIHZpZXdCb3g9IjAgMCAyNCAyNCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBmaWxsPSJ3aGl0ZSIgZD0iTTIyLjI4MTkgOS44MjExYTUuOTg0NyA1Ljk4NDcgMCAwIDAtLjUxNTctNC45MTA4IDYuMDQ2MiA2LjA0NjIgMCAwIDAtNi41MDk4LTIuOUE2LjA2NTEgNi4wNjUxIDAgMCAwIDQuOTgwNyA0LjE4MThhNS45ODQ3IDUuOTg0NyAwIDAgMC0zLjk5NzcgMi45IDYuMDQ2MiA2LjA0NjIgMCAwIDAgLjc0MjcgNy4wOTY2IDUuOTggNS45OCAwIDAgMCAuNTExIDQuOTEwNyA2LjA1MSA2LjA1MSAwIDAgMCA2LjUxNDYgMi45MDAxQTUuOTg0NyA1Ljk4NDcgMCAwIDAgMTMuMjU5OSAyNGE2LjA1NTcgNi4wNTU3IDAgMCAwIDUuNzcxOC00LjIwNTggNS45ODk0IDUuOTg5NCAwIDAgMCAzLjk5NzctMi45MDAxIDYuMDU1NyA2LjA1NTcgMCAwIDAtLjc0NzUtNy4wNzI5em0tOS4wMjIgMTIuNjA4MWE0LjQ3NTUgNC40NzU1IDAgMCAxLTIuODc2NC0xLjA0MDhsLjE0MTktLjA4MDQgNC43NzgzLTIuNzU4MmEuNzk0OC43OTQ4IDAgMCAwIC4zOTI3LS42ODEzdi02LjczNjlsMi4wMiAxLjE2ODZhLjA3MS4wNzEgMCAwIDEgLjAzOC4wNTJ2NS41ODI2YTQuNTA0IDQuNTA0IDAgMCAxLTQuNDk0NSA0LjQ5NDR6bS05LjY2MDctNC4xMjU0YTQuNDcwOCA0LjQ3MDggMCAwIDEtLjUzNDYtMy4wMTM3bC4xNDIuMDg1MiA0Ljc4MyAyLjc1ODJhLjc3MTIuNzcxMiAwIDAgMCAuNzgwNiAwbDUuODQyOC0zLjM2ODV2Mi4zMzI0YS4wODA0LjA4MDQgMCAwIDEtLjAzMzIuMDYxNUw5Ljc0IDE5Ljk1MDJhNC40OTkyIDQuNDk5MiAwIDAgMS02LjE0MDgtMS42NDY0ek0yLjM0MDggNy44OTU2YTQuNDg1IDQuNDg1IDAgMCAxIDIuMzY1NS0xLjk3MjhWMTEuNmEuNzY2NC43NjY0IDAgMCAwIC4zODc5LjY3NjVsNS44MTQ0IDMuMzU0My0yLjAyMDEgMS4xNjg1YS4wNzU3LjA3NTcgMCAwIDEtLjA3MSAwbC00LjgzMDMtMi43ODY1QTQuNTA0IDQuNTA0IDAgMCAxIDIuMzQwOCA3Ljg3MnptMTYuNTk2MyAzLjg1NThMMTMuMTAzOCA4LjM2NCAxNS4xMTkyIDcuMmEuMDc1Ny4wNzU3IDAgMCAxIC4wNzEgMGw0LjgzMDMgMi43OTEzYTQuNDk0NCA0LjQ5NDQgMCAwIDEtLjY3NjUgOC4xMDQydi01LjY3NzJhLjc5Ljc5IDAgMCAwLS40MDctLjY2N3ptMi4wMTA3LTMuMDIzMWwtLjE0Mi0uMDg1Mi00Ljc3MzUtMi43ODE4YS43NzU5Ljc3NTkgMCAwIDAtLjc4NTQgMEw5LjQwOSA5LjIyOTdWNi44OTc0YS4wNjYyLjA2NjIgMCAwIDEgLjAyODQtLjA2MTVsNC44MzAzLTIuNzg2NmE0LjQ5OTIgNC40OTkyIDAgMCAxIDYuNjgwMiA0LjY2ek04LjMwNjUgMTIuODYzbC0yLjAyLTEuMTYzOGEuMDgwNC4wODA0IDAgMCAxLS4wMzgtLjA1NjdWNi4wNzQyYTQuNDk5MiA0LjQ5OTIgMCAwIDEgNy4zNzU3LTMuNDUzN2wtLjE0Mi4wODA1TDguNzA0IDUuNDU5YS43OTQ4Ljc5NDggMCAwIDAtLjM5MjcuNjgxM3ptMS4wOTc2LTIuMzY1NGwyLjYwMi0xLjQ5OTggMi42MDY5IDEuNDk5OHYyLjk5OTRsLTIuNTk3NCAxLjQ5OTctMi42MDY3LTEuNDk5N1oiLz48L3N2Zz4=)
-![Gemini](https://img.shields.io/badge/Gemini-8E75B2?style=flat-square&logo=googlegemini&logoColor=white)
-![DeepSeek](https://img.shields.io/badge/DeepSeek-0A6DC2?style=flat-square&logo=deepseek&logoColor=white)
-![Doubao](https://img.shields.io/badge/Doubao-00D6C2?style=flat-square&logo=bytedance&logoColor=white)
-![MiniMax](https://img.shields.io/badge/MiniMax-FF6F00?style=flat-square&logo=minimax&logoColor=white)
-![OpenClaw](https://img.shields.io/badge/OpenClaw-C83232?style=flat-square&logo=data:image/svg%2bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI2NCIgaGVpZ2h0PSI2NCIgdmlld0JveD0iMCAwIDE2IDE2IiBhcmlhLWxhYmVsPSJQaXhlbCBsb2JzdGVyIj4KICA8cmVjdCB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIGZpbGw9Im5vbmUiLz4KICAKICA8ZyBmaWxsPSIjM2EwYTBkIj4KICAgIDxyZWN0IHg9IjEiIHk9IjUiIHdpZHRoPSIxIiBoZWlnaHQ9IjMiLz4KICAgIDxyZWN0IHg9IjIiIHk9IjQiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiLz4KICAgIDxyZWN0IHg9IjIiIHk9IjgiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiLz4KICAgIDxyZWN0IHg9IjMiIHk9IjMiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiLz4KICAgIDxyZWN0IHg9IjMiIHk9IjkiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiLz4KICAgIDxyZWN0IHg9IjQiIHk9IjIiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiLz4KICAgIDxyZWN0IHg9IjQiIHk9IjEwIiB3aWR0aD0iMSIgaGVpZ2h0PSIxIi8+CiAgICA8cmVjdCB4PSI1IiB5PSIyIiB3aWR0aD0iNiIgaGVpZ2h0PSIxIi8+CiAgICA8cmVjdCB4PSIxMSIgeT0iMiIgd2lkdGg9IjEiIGhlaWdodD0iMSIvPgogICAgPHJlY3QgeD0iMTIiIHk9IjMiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiLz4KICAgIDxyZWN0IHg9IjEyIiB5PSI5IiB3aWR0aD0iMSIgaGVpZ2h0PSIxIi8+CiAgICA8cmVjdCB4PSIxMyIgeT0iNCIgd2lkdGg9IjEiIGhlaWdodD0iMSIvPgogICAgPHJlY3QgeD0iMTMiIHk9IjgiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiLz4KICAgIDxyZWN0IHg9IjE0IiB5PSI1IiB3aWR0aD0iMSIgaGVpZ2h0PSIzIi8+CiAgICA8cmVjdCB4PSI1IiB5PSIxMSIgd2lkdGg9IjYiIGhlaWdodD0iMSIvPgogICAgPHJlY3QgeD0iNCIgeT0iMTIiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiLz4KICAgIDxyZWN0IHg9IjExIiB5PSIxMiIgd2lkdGg9IjEiIGhlaWdodD0iMSIvPgogICAgPHJlY3QgeD0iMyIgeT0iMTMiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiLz4KICAgIDxyZWN0IHg9IjEyIiB5PSIxMyIgd2lkdGg9IjEiIGhlaWdodD0iMSIvPgogICAgPHJlY3QgeD0iNSIgeT0iMTQiIHdpZHRoPSI2IiBoZWlnaHQ9IjEiLz4KICA8L2c+CgogIAogIDxnIGZpbGw9IiNmZjRmNDAiPgogICAgPHJlY3QgeD0iNSIgeT0iMyIgd2lkdGg9IjYiIGhlaWdodD0iMSIvPgogICAgPHJlY3QgeD0iNCIgeT0iNCIgd2lkdGg9IjgiIGhlaWdodD0iMSIvPgogICAgPHJlY3QgeD0iMyIgeT0iNSIgd2lkdGg9IjEwIiBoZWlnaHQ9IjEiLz4KICAgIDxyZWN0IHg9IjMiIHk9IjYiIHdpZHRoPSIxMCIgaGVpZ2h0PSIxIi8+CiAgICA8cmVjdCB4PSIzIiB5PSI3IiB3aWR0aD0iMTAiIGhlaWdodD0iMSIvPgogICAgPHJlY3QgeD0iNCIgeT0iOCIgd2lkdGg9IjgiIGhlaWdodD0iMSIvPgogICAgPHJlY3QgeD0iNSIgeT0iOSIgd2lkdGg9IjYiIGhlaWdodD0iMSIvPgogICAgPHJlY3QgeD0iNSIgeT0iMTIiIHdpZHRoPSI2IiBoZWlnaHQ9IjEiLz4KICAgIDxyZWN0IHg9IjYiIHk9IjEzIiB3aWR0aD0iNCIgaGVpZ2h0PSIxIi8+CiAgPC9nPgoKICAKICA8ZyBmaWxsPSIjZmY3NzVmIj4KICAgIDxyZWN0IHg9IjEiIHk9IjYiIHdpZHRoPSIyIiBoZWlnaHQ9IjEiLz4KICAgIDxyZWN0IHg9IjIiIHk9IjUiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiLz4KICAgIDxyZWN0IHg9IjIiIHk9IjciIHdpZHRoPSIxIiBoZWlnaHQ9IjEiLz4KICAgIDxyZWN0IHg9IjEzIiB5PSI2IiB3aWR0aD0iMiIgaGVpZ2h0PSIxIi8+CiAgICA8cmVjdCB4PSIxMyIgeT0iNSIgd2lkdGg9IjEiIGhlaWdodD0iMSIvPgogICAgPHJlY3QgeD0iMTMiIHk9IjciIHdpZHRoPSIxIiBoZWlnaHQ9IjEiLz4KICA8L2c+CgogIAogIDxnIGZpbGw9IiMwODEwMTYiPgogICAgPHJlY3QgeD0iNiIgeT0iNSIgd2lkdGg9IjEiIGhlaWdodD0iMSIvPgogICAgPHJlY3QgeD0iOSIgeT0iNSIgd2lkdGg9IjEiIGhlaWdodD0iMSIvPgogIDwvZz4KICA8ZyBmaWxsPSIjZjVmYmZmIj4KICAgIDxyZWN0IHg9IjYiIHk9IjQiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiLz4KICAgIDxyZWN0IHg9IjkiIHk9IjQiIHdpZHRoPSIxIiBoZWlnaHQ9IjEiLz4KICA8L2c+Cjwvc3ZnPgoK)
-![Ollama](https://img.shields.io/badge/Ollama-FFFFFF?style=flat-square&logo=Ollama&logoColor=black)
-
-📡 Your own AI-powered news radar. Generates daily briefings in English & Chinese. | 构建你专属的 AI 新闻雷达
-
-[📖 Live Demo](https://thysrael.github.io/Horizon/) · [📋 Configuration Guide](https://thysrael.github.io/Horizon/configuration) · [简体中文](README_zh.md)
+AI 驱动的信息聚合平台 —— 聚焦 AI / LLM / 技术领域，新闻 · 论文 · 研究报告三条管道，中文优先
 
 </div>
 
-## Screenshots
+本项目 fork 自 [Thysrael/Horizon](https://github.com/Thysrael/Horizon)（一个 AI 驱动的新闻雷达开源项目），在此基础上扩展为聚焦 AI / LLM / 技术领域、中文优先的信息聚合平台。Horizon 把散落在海量来源里的高价值内容筛成"值得一读"的中文清单：并发抓取原始内容，由 AI 理解语义、判断重要性、消除冗余、补充背景，最终生成日报，并把经过筛选的新闻、论文、研究报告沉淀进同一个可查询的库，供 Web 站点、邮件、Webhook 消费。
 
-<table>
-<tr>
-<td width="50%">
-<p align="center"><strong>Ranked Daily Briefing</strong></p>
-<img src="docs/assets/overview_en.png" alt="Daily Overview" />
-</td>
-<td width="50%">
-<p align="center"><strong>Context, Summary & Discussion</strong></p>
-<img src="docs/assets/one_news_en.png" alt="News Detail" />
-</td>
-</tr>
-</table>
+## 特性
 
-<details>
-<summary><strong>More Screenshots</strong></summary>
-<br>
-<table>
-<tr>
-<td width="33.33%">
-<p align="center"><strong>Terminal Output</strong></p>
-<img src="docs/assets/terminal_log.png" alt="Terminal Output" />
-</td>
-<td width="33.33%">
-<p align="center"><strong>Feishu Notification</strong></p>
-<img src="docs/assets/feishu_en.png" alt="Feishu Notification" />
-</td>
-<td width="33.33%">
-<p align="center"><strong>Email Delivery</strong></p>
-<img src="docs/assets/email.png" alt="Email Delivery" />
-</td>
-</tr>
-</table>
-</details>
+- **只做 AI / LLM / 技术内容** —— 新闻管道有硬性的 `ai_relevant` 门；论文与报告各有独立过滤器圈定范围，不做通用新闻
+- **AI 打分、程序算总分** —— AI 只给各维度打分，总分由固定公式计算并钳制到 0–10，可复现可审计
+- **中文优先** —— 摘要、打分理由、日报、论文解读一律中文，模型名 / 人名 / 方法名等专有名词保留英文原文
+- **fail-open** —— AI 是增强手段不是闸门：报告过滤失败保留不误删、HTML 翻译失败回退原文、论文解读单段失败只丢该段，绝不因 AI 故障丢内容
+- **跨来源去重** —— 先按 URL、再用 AI 做语义去重，同一件事只留一条并保留多来源溯源
+- **背景补全** —— 自动提取陌生概念并联网检索，为重要内容补充背景、细节与社区讨论
+- **多 Provider 自由切换** —— Anthropic / OpenAI / Gemini / DeepSeek / 豆包 / MiniMax / Azure / Ollama 及任意 OpenAI 兼容服务，支持故障链回退
+- **三种阅读界面** —— Markdown 日报、GitHub Pages 静态站、FastAPI + React SPA（含收藏 / 屏蔽 / 话题偏好 / 跨库搜索）
 
-## Why Horizon?
+## 三大管道
 
-Good news is scattered; bad news is endless. Horizon gives you a personal first pass over Hacker News, Reddit, Telegram, RSS, and GitHub: it fetches, deduplicates, scores, filters, and enriches stories with background context and community discussion.
+| 管道 | 目录 | CLI 入口 | 内容 |
+|---|---|---|---|
+| 新闻聚合 | `src/` | `uv run horizon` | Hacker News / RSS / Reddit / Telegram / Twitter / GitHub / GDELT / Google News / 微信公众号 等 → 日报 |
+| 论文库 | `src/papers/` | `uv run horizon-papers` | OpenAlex 经典论文 + arXiv 每周精选，AI 四维打分、三段式解读并译成中文 |
+| 报告库 | `src/reports/` | `uv run horizon-reports` | 阿里云 / 微信公众号 / fxbaogao 等研究报告，exemplar 过滤、正文清洗、尽力下载 PDF |
 
-But Horizon is not just another summarizer. AI is great at reducing noise, but news still needs human taste: the sources you trust, the comments that change how you read a story, and the hidden gems only people can share. Horizon keeps that human layer in the loop with customizable sources, thresholds, models, languages, delivery channels, comment summaries, and a community source hub.
+三条管道**刻意解耦**：论文与报告永远不走新闻打分器，避免 AI 口径互相污染；它们共享同一个 SQLite（`data/horizon.db`）与查询层。
 
-## Features
+### 新闻管道：四道关卡
 
-- **📡 Watch Your Own Sources** — Track Hacker News, RSS, Reddit, Telegram, Twitter/X, GitHub releases or user activity, **WeChat Official Accounts**, and OpenBB financial news watchlists in one pipeline
-- **🤖 Turn Noise Into a Reading List** — Score each item from 0-10 with Claude, GPT, Gemini, DeepSeek, Doubao, MiniMax, Ollama, or any OpenAI-compatible API
-- **🔗 Merge Repeated Stories** — Deduplicate the same story across platforms before it reaches your briefing
-- **🔍 Understand the Background** — Add web-researched context for unfamiliar concepts, companies, projects, and technical terms
-- **💬 Read the Conversation** — Collect and summarize community comments from Hacker News, Reddit, and other supported sources
-- **🌐 Publish in Two Languages** — Generate English and Chinese daily briefings from the same source set
-- **📝 Ship a Daily Site** — Publish generated Markdown as a GitHub Pages daily briefing site
-- **📧 Deliver by Email** — Run a self-hosted SMTP/IMAP newsletter with automatic subscribe and unsubscribe handling
-- **🔔 Push to Chat or Automations** — Send templated results to Feishu/Lark, DingTalk, Slack, Discord, or custom webhook endpoints
-- **🧙 Start From Your Interests** — Use the setup wizard to generate a personalized source configuration
-- **⚙️ Tune the Radar** — Customize sources, thresholds, models, languages, and delivery channels from one JSON config
+1. **相关性门** —— AI 先判定是否 AI / LLM 相关内容，不是的直接丢弃，连加分机会都没有
+2. **打分** —— AI 给六正四负十个维度打分（来源权威性 / 新颖度 / 技术含量 / 真实影响力 / 社区验证 / 内容完整度，扣营销味、重复、内容单薄、AI 相关性弱），总分过默认 7 分才进日报，够格不足则按分回填补足
+3. **去重** —— 先按 URL、再按语义合并同一话题的多条来源，并保留多源溯源
+4. **均衡与上限** —— 全局上限 30 条；仅在回填降格补位时才启用来源配额，防止单一类别刷屏，被挤掉的都记录原因
 
-## How It Works
+日报由**纯程序化渲染**（不调 LLM），落 `data/summaries/` 并同步到 `docs/_posts/`（GitHub Pages），同时触发邮件 / Webhook 分发。
 
-```mermaid
-%%{init: {
-  "theme": "base",
-  "themeVariables": {
-    "fontFamily": "ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif",
-    "fontSize": "18px",
-    "primaryTextColor": "#2d2a3e",
-    "primaryBorderColor": "#e0dbd3",
-    "lineColor": "#7c7891",
-    "tertiaryColor": "#faf8f5",
-    "clusterBkg": "#f3f0eb",
-    "clusterBorder": "#e0dbd3"
-  }
-}}%%
-flowchart LR
-    classDef config fill:#fbbf24,stroke:#d4a017,color:#2d2a3e,stroke-width:1.5px;
-    classDef source fill:#ede7fb,stroke:#6d4aaa,color:#2d2a3e,stroke-width:1.5px;
-    classDef process fill:#ffe8db,stroke:#e0652e,color:#2d2a3e,stroke-width:1.5px;
-    classDef output fill:#f9d7e5,stroke:#be185d,color:#2d2a3e,stroke-width:1.5px;
+### 论文库：两条腿
 
-    config["⚙️ Config<br/>sources, thresholds, models, outputs"]
+- **经典论文**：按人工种子清单直接入库，不打分，保证地基
+- **每周精选**：arXiv 先规则过滤（撤稿 / 摘要过短 / 关键词黑名单），再让 AI 从创新性、技术质量、影响潜力、相关性四维打分，只挑顶尖若干篇；精选论文生成三段式解读（概览 / 方法 / 评估）并翻译成中文，单段失败只丢该段
 
-    subgraph sources["Configured Sources"]
-        rss["📡 RSS"]
-        hn["📰 Hacker News"]
-        reddit["💬 Reddit"]
-        telegram["✈️ Telegram"]
-        twitter["🐦 Twitter / X"]
-        github["🐙 GitHub"]
-        openbb["💹 OpenBB"]
-    end
+### 报告库：给范例不给规则
 
-    fetch["📥 Fetch"]
-    dedup["🧹 Deduplicate"]
-    score["🤖 AI Score & Filter"]
-    enrich["🔎 Enrich"]
-    summary["📝 Summarize"]
+筛选不给 AI 一堆规则，而是给三份标杆报告作为 exemplar，让它判断新报告是否同类；1–5 分、4 分以上保留，评估失败 fail-open 宁可保留也不误删。筛出的报告做 AI 关键词提取、正文清洗、尽力拿 PDF（含从微信"阅读原文"解析），并用综合分（AI 相关度 × 篇幅）排序。
 
-    subgraph outputs["Outputs"]
-        direction TB
-        site["🌐 Pages"]
-        email["📧 Email"]
-        webhook["🔔 Webhooks"]
-        mcp["🧩 MCP"]
-    end
+## 快速开始
 
-    config --> fetch
-    rss --> fetch
-    hn --> fetch
-    reddit --> fetch
-    telegram --> fetch
-    twitter --> fetch
-    github --> fetch
-    openbb --> fetch
-
-    fetch --> dedup --> score --> enrich --> summary
-    config --> score
-    config --> summary
-    config --> outputs
-
-    summary --> site
-    summary --> email
-    summary --> webhook
-    summary --> mcp
-
-    class config config
-    class rss,hn,reddit,telegram,twitter,github,openbb source
-    class fetch,dedup,score,enrich,summary process
-    class site,email,webhook,mcp output
-```
-
-1. **Define** — Configure sources, thresholds, models, languages, and delivery from one JSON config.
-2. **Fetch** — Pull latest content from all configured sources concurrently.
-3. **Deduplicate** — Merge items pointing to the same story or URL across platforms.
-4. **Score & Filter** — Use AI to rank items and keep only those above your threshold.
-5. **Enrich** — Search the web for background context and collect community discussion for important items.
-6. **Summarize** — Generate a structured Markdown briefing with summaries, tags, and references.
-7. **Deliver** — Publish the result to GitHub Pages, email, webhooks such as Feishu, MCP, or local files.
-
-## Quick Start
-
-### 1. Install
-
-**Option A: Local Installation**
+### 1. 依赖与配置
 
 ```bash
-git clone https://github.com/Thysrael/Horizon.git
-cd Horizon
-
-# Install with uv (recommended)
-uv sync
-
-# Install test/development extras when needed
-uv sync --extra dev
-
-# Or with pip
-pip install -e .
+uv sync                     # 安装依赖（Python ≥ 3.11 + uv）
+uv sync --extra dev         # 测试/开发依赖（pytest）
+cp .env.example .env        # 填入你的 API 密钥
 ```
 
-`dev` is currently defined as an optional extra in `pyproject.toml`, so use `uv sync --extra dev` for pytest and other development dependencies.
+主配置是仓库自带的 **`data/config.py`**（Python 文件，支持注释、`os.getenv`、`${VAR}` 引用），直接编辑它即可自定义来源、阈值、模型与分发方式；密钥永远只写 `.env`，配置里只填 `api_key_env` 环境变量名。
 
-If you want the optional OpenBB financial-news source, install its extra too:
-
-```bash
-uv sync --extra openbb
-```
-
-If `openbb` pulls packages without wheels on your machine, install the SDK manually with binaries only:
-
-```bash
-uv pip install --only-binary=:all: openbb openbb-benzinga
-```
-
-**Option B: Docker**
-
-```bash
-git clone https://github.com/Thysrael/Horizon.git
-cd Horizon
-
-# Configure environment
-cp .env.example .env
-cp data/config.example.json data/config.json
-# Edit .env and data/config.json with your API keys and preferences
-
-# Run with Docker Compose
-docker compose run --rm horizon
-
-# Or run with custom time window
-docker compose run --rm horizon --hours 48
-```
-
-### 2. Configure
-
-**Option A: Interactive wizard (recommended)**
+需要交互式生成/调整配置时用：
 
 ```bash
 uv run horizon-wizard
 ```
 
-The wizard asks about your interests (e.g. "LLM inference", "嵌入式", "web security") and auto-generates `data/config.json`.
-
-**Option B: Manual configuration**
+### 2. 跑新闻日报
 
 ```bash
-cp .env.example .env          # Add your API keys
-cp data/config.example.json data/config.json  # Customize your sources
+uv run horizon                  # 默认窗口：昨天 00:00 UTC 起 24h
+uv run horizon --hours 48       # 自定义时间窗
+uv run horizon --date YYYY-MM-DD # 按日期回填
+uv run horizon --live-wxmp      # 微信强制实时抓取（跳过 collector 中间表，诊断用）
 ```
 
-Minimal manual configuration:
+日报生成在 `data/summaries/`。配置里开启邮件 / Webhook 后会自动推送。
 
-```jsonc
-{
-  "ai": {
-    "provider": "openai",
-    "model": "gpt-4",
-    "api_key_env": "OPENAI_API_KEY"
-  },
-  "sources": {
-    "rss": [
-      { "name": "Simon Willison", "url": "https://simonwillison.net/atom/everything/" }
-    ]
-  },
-  "filtering": {
-    "ai_score_threshold": 6.0
-  }
-}
-```
-
-**Balanced digest (optional)**
-
-Limit the final digest size and prevent one category from dominating the
-results. Categories come from source configuration such as
-`sources.rss[].category`.
-
-```jsonc
-{
-  "filtering": {
-    "ai_score_threshold": 6.0,
-    "max_items": 20,
-    "category_groups": {
-      "ai": {
-        "limit": 5,
-        "categories": ["ai-news", "ai-tools", "machine-learning"]
-      },
-      "finance": {
-        "limit": 5,
-        "categories": ["finance", "business", "equities"]
-      }
-    },
-    "default_group": "other",
-    "default_group_limit": 3
-  }
-}
-```
-
-Group limits are applied after AI score filtering and before enrichment. If
-`category_groups` and `max_items` are omitted, filtering behaves as before.
-
-`api_key_env` must be the name of an environment variable, not the API key
-itself. Put the real secret in `.env`:
+### 3. 论文与报告
 
 ```bash
-OPENAI_API_KEY=sk-your-key
+uv run horizon-papers                       # 论文库：默认只跑 arXiv 每周精选
+uv run horizon-papers --source openalex     # 单独刷新经典论文
+uv run horizon-papers --source all          # 经典 + 精选全跑
+uv run horizon-papers --dry-run             # 只出匹配报告，不写库
+
+uv run horizon-reports                      # 报告库
+uv run horizon-reports backfill-pdfs        # 给库内报告补下载 PDF
+uv run horizon-reports backfill-composite   # 重算综合分（不调 LLM）
+uv run horizon-reports extract-keywords     # 回填 AI 关键词
 ```
 
-For Gemini, use `GOOGLE_API_KEY`:
+### 4. 微信公众号（we_read 纯 HTTP 通道）
 
-```jsonc
-{
-  "ai": {
-    "provider": "gemini",
-    "model": "gemini-2.0-flash",
-    "api_key_env": "GOOGLE_API_KEY"
-  }
-}
-```
-
-Any string value in `data/config.json` can reference environment variables with `${VAR_NAME}`. This is useful for values such as `ai.base_url`, private RSS feed URLs, webhook endpoints, or custom header templates.
-
-For the full reference, see the [Configuration Guide](docs/configuration.md).
-
-### 3. Run
-
-#### Local Installation
+公众号文章经 `src/we_read` 纯 HTTP 通道抓取（转发服务，无需 Playwright）：
 
 ```bash
-uv run horizon           # Run with default 24h window
-uv run horizon --hours 48  # Fetch from last 48 hours
+uv run horizon-wxmp login              # 扫微信二维码登录（token 存 data/auth/weread.json）
+uv run horizon-wxmp status             # 查看登录态
+uv run horizon-wxmp subscribe <share-link>  # 从分享链接解析公众号并订阅
+uv run horizon-wxmp migrate            # 批量迁移 feed 列表
 ```
 
-#### WeChat Official Accounts (optional)
-
-WeChat MP articles are fetched through the **`src/we_read`** pure-HTTP channel
-(forwarding service `weread.111965.xyz`) — no Playwright, no external
-we-mp-rss service needed. To enable it:
+另有**独立采集 daemon** `horizon-wxmp-collector`：每号随机 4–8h 间隔抓公众号 → 中间表 `wxmp_articles`，新闻 / 报告两条管道只读消费，抓取与消费解耦：
 
 ```bash
-uv run horizon-wxmp login               # scan the QR code with WeChat
-uv run horizon-wxmp status              # verify the login is valid
+uv run horizon-wxmp-collector                  # 常驻采集
+uv run horizon-wxmp-collector once             # 单轮全量后退出（手动补抓 / CI）
+uv run horizon-wxmp-collector once --feed 机器之心   # 只抓指定公众号
+uv run horizon-wxmp-collector status           # 查看每号下次计划 / 中间表计数
+uv run horizon-wxmp-collector reset-news --run-date YYYY-MM-DD  # 崩溃重跑清某天消费标记
+uv run horizon-wxmp-collector prune --retention-days 60        # 清理已消费的过期中间表
 ```
 
-Login state is stored under `data/auth/weread.json`. Subscribe to accounts
-with `uv run horizon-wxmp subscribe <share-link>` (parses the account from a
-share link and writes it back to `data/config.py`), or use
-`uv run horizon-wxmp migrate` to bulk-migrate feeds; the config field is
-`sources.wxmp.feeds[].weread_mp_id`. If the login expires, the source is
-skipped with a hint to re-run `horizon-wxmp login`.
-
-#### With Docker
+### 5. 查询 API 与前端
 
 ```bash
-docker compose run --rm horizon           # Run with default 24h window
-docker compose run --rm horizon --hours 48  # Fetch from last 48 hours
+uv run horizon-api               # FastAPI，http://localhost:8000，热重载
+cd frontend && npm install && npm run dev    # Vite dev（代理 /api → 8000）
+cd frontend && npm run build                 # tsc -b && vite build
+cd frontend && npm run lint                  # oxlint
 ```
 
-The generated report will be saved to `data/summaries/`.
+### 6. Docker
 
-### 4. Automate (Optional)
+```bash
+docker compose run --rm horizon               # 跑新闻管道
+docker compose run --rm horizon --hours 48
+```
 
-Horizon works great as a **GitHub Actions** cron job. See [`.github/workflows/daily-summary.yml`](.github/workflows/daily-summary.yml) for a ready-to-use workflow that generates and deploys your daily briefing to GitHub Pages automatically.
+## 架构
 
-## Supported Sources
+一条主线：**抓 → 筛 → 读 → 送**。三条管道各自演绎，落到同一个查询层：
 
-| Source | What it fetches | Comments |
-|--------|----------------|----------|
-| **Hacker News** | Top stories by score | Yes (top N comments) |
-| **RSS / Atom** | Any RSS or Atom feed | — |
-| **Reddit** | Subreddits + user posts | Yes (top N comments) |
-| **Telegram** | Public channel messages | — |
-| **Twitter / X** | Tweets from specific users | Yes (top N replies) |
-| **GitHub** | User events & repo releases | — |
-| **WeChat MP** | WeChat Official Account articles | Requires `horizon-wxmp login` scan; pure HTTP via we_read, no Playwright |
-| **OpenBB** | Financial company news by watchlist/provider | — |
+```
+新闻管道   src/orchestrator.py + src/scrapers/* + src/ai/{analyzer,enricher,summarizer}
+论文库     src/papers/（fetcher / weekly / sources/*）
+报告库     src/reports/（fetcher / filter / sources/*）
+        └──────────────┬───────────────┬──────────────┘
+              src/storage/db.py —— 单一 SQLite：data/horizon.db
+                        │
+        src/api/server.py ── JSON API ── frontend/（React SPA）
+```
 
-## Where Your Briefing Goes
+新闻管道内部阶段：并发抓取 → 范围过滤 → 正文抽取 → URL 去重 → 恢复历史翻译 → **AI 十维打分** → 预过滤持久化 → 相关性门 → 阈值 + 回填 → 语义话题去重 → 来源归因 + 多源加分 → 话题分类 → 均衡摘要 → 富化（概念提取 → 联网搜索 → 双语增强 → 中文 HTML 翻译）→ 渲染日报 → 落库分发。
 
-Horizon can publish or deliver the generated briefing in several ways:
+| 栈 | 选型 |
+|---|---|
+| 后端 | Python 3.11+ · asyncio + httpx · Pydantic v2 · SQLite（含 FTS5 trigram 全文索引） |
+| 数据抓取 | httpx · feedparser · trafilatura（正文提取）· Playwright（微信登录 / Twitter / PDF） |
+| AI | 多 provider 抽象（Anthropic / OpenAI 兼容 / Azure / Gemini / 链式回退） |
+| 查询 API | FastAPI + uvicorn，Jinja2 服务端渲染兜底页 |
+| 前端 | Vite + React 19 + TypeScript + Tailwind v4 + react-router（HashRouter） |
+| MCP | `src/mcp/`：把 pipeline 各步骤暴露为 AI 助手可调用的工具 |
+| 部署 | Docker / docker-compose · GitHub Actions（Pages / 前端） |
 
-| Channel | What it does |
-|---------|--------------|
-| **GitHub Pages Daily Site** | Copies generated Markdown into `docs/` so GitHub Pages can publish a daily-updated briefing site |
-| **Email Subscription** | Sends the daily briefing to subscribers and handles subscribe/unsubscribe requests through SMTP/IMAP |
-| **Webhook Notification** | Pushes success or failure results to Feishu/Lark, DingTalk, Slack, Discord, or any custom webhook endpoint |
-| **MCP Server** | Exposes Horizon pipeline steps as tools so AI assistants can fetch, score, filter, enrich, summarize, and run the full workflow |
+## 测试
 
-For setup details, see the [Configuration Guide](docs/configuration.md). For MCP tool references and client setup, see [`src/mcp/README.md`](src/mcp/README.md) and [`src/mcp/integration.md`](src/mcp/integration.md).
+```bash
+uv run pytest              # 全部
+uv run pytest tests/test_rss.py
+uv run pytest -k "test_name"
+uv run pytest --cov=src    # 带覆盖率
+```
 
-## Supported By
+前端无测试套件，改动以 `npm run build` + `npm run lint` 验证。
 
-Horizon is an open-source project maintained in spare time. If you'd like to support the project or be listed here, feel free to [open an issue](https://github.com/Thysrael/Horizon/issues/new) or [email me](mailto:thysrael@163.com).
+## CI/CD
 
-| Supporter | Details |
-|-----------|---------|
-| [<img src="docs/assets/compshare-logo.png" alt="Compshare / 优云智算" width="220" />](https://www.compshare.cn/?ytag=GPU_YY_git_Horizon) | Compshare currently supports Horizon. Compshare is UCloud's AI cloud platform, offering cost-effective monthly and pay-as-you-go domestic model agent plans starting from RMB 49/month, as well as stable officially relayed overseas models. It supports Claude Code, Codex, and API usage, with enterprise-grade high concurrency, 24/7 technical support, and self-service invoicing.<br><br>Register through their [link](https://www.compshare.cn/?ytag=GPU_YY_git_Horizon) to receive a free RMB 5 trial credit. |
+- `.github/workflows/daily-summary.yml` —— 每日定时（UTC 00:17）+ 手动触发跑 `horizon --hours 24`，部署到 `gh-pages`
+- `.github/workflows/deploy-docs.yml` —— 推送 `docs/**` 时部署 GitHub Pages
+- `.github/workflows/deploy-frontend.yml` —— 前端构建与部署
 
-## Documentation
+CI 中 `CI=true` 自动关闭依赖本地服务的源（微信登录态等）。
 
-| Guide | Description |
-|-------|-------------|
-| [Configuration](docs/configuration.md) | AI providers, sources, filtering, email, webhook, GitHub Pages, and MCP setup |
-| [Scoring](docs/scoring.md) | How Horizon evaluates and ranks news items |
-| [Scrapers](docs/scrapers.md) | Source scraper details and extension notes |
-| [MCP Tools](src/mcp/README.md) | Tool reference for MCP-compatible clients |
+## 文档
 
-## Project Status
+| 文档 | 内容 |
+|---|---|
+| [CLAUDE.md](CLAUDE.md) | 面向编码助手/协作者的项目指南（架构、评分原则、AI 调用纪律、前端设计系统、全部命令） |
+| [Horizon 项目总览](Horizon%E9%A1%B9%E7%9B%AE%E6%80%BB%E8%A7%88.md) | 更详细的中文技术总览（子模块、数据模型、目录、命令） |
+| docs/configuration.md | 配置指南（AI 提供商、来源、过滤、邮件、Webhook、Pages、MCP） |
+| docs/scoring.md / docs/scrapers.md | 评分机制 / 抓取器扩展说明 |
+| docs/product/PRD_Horizon_AI_News_Radar.md | 产品需求文档 |
+| docs/product/horizon-aliyun-deployment-plan.md | 阿里云部署执行手册 |
+| src/mcp/README.md | MCP 工具说明与客户端接入 |
 
-Horizon already supports the full daily briefing loop: multi-source collection, AI scoring, deduplication, enrichment, comment summaries, bilingual generation, GitHub Pages publishing, email delivery, webhook delivery, Docker deployment, MCP integration, and the setup wizard.
-
-Planned improvements:
-
-- More source types, such as Discord
-- Custom scoring prompts per source
-- Publish releases on GitHub
-- Publish the package to PyPI for `pip install`
-
-## Contributing
-
-Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for code, documentation, and source-sharing guidelines.
-
-### Share Sources
-
-Want to share valuable source discoveries with the Horizon community? Please submit them through **[horizon1123.top](https://horizon1123.top)**.
-
-## Acknowledgements
-
-- Special thanks to [LINUX.DO](https://linux.do/) for providing a promotion platform.
-- Special thanks to [HelloGitHub](https://hellogithub.com/) for valuable guidance and suggestions.
-- Special thanks to [AIGC Link](https://xhslink.com/m/80ngts127cA) for the promotions on XiaoHongShu.
 
 ## License
 
